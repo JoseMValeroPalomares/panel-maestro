@@ -25,6 +25,8 @@
   const LONG_PRESS_MS = 320;     // pulsación larga en táctil
   const TOUCH_SLOP = 8;          // px que puede moverse el dedo durante la pulsación larga
   const EDGE = 56;               // px desde el borde para el desplazamiento automático
+  const SETTLE_MS = 90;          // en una rejilla, el hueco espera a que el puntero pare: cruzarla no revuelve las tarjetas
+  const STICK = 10;              // px de margen antes de cambiar de celda: sin temblores en la frontera
   const reduceMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   const lists = [];              // { el, opts }
@@ -50,6 +52,39 @@
   const listOf = (el) => lists.find((l) => l.el === el);
   const itemsOf = (l, except) => [...l.el.children].filter((c) => c.matches(l.opts.items) && c !== except);
   const idOf = (l, item) => (l.opts.id ? l.opts.id(item) : item.dataset.id);
+
+  /* ---------- Rejillas: se busca sobre una foto, no sobre lo que se ve ----------
+     Mover el hueco recoloca las tarjetas, y con tamaños distintos lo hace mucho. Si el destino saliera de lo que se ve, cada
+     cambio cambiaría el destino y entraría en bucle. La foto (relativa a la lista: el desplazamiento no la invalida) se hace
+     al empezar o la primera vez que se entra en la lista, y el destino es solo función de dónde está el puntero. */
+  function measure(l, home) {
+    const box = l.el.getBoundingClientRect();
+    const els = itemsOf(l, null);
+    const rects = els.map((c) => {
+      const r = c.getBoundingClientRect();
+      return { left: r.left - box.left, right: r.right - box.left, top: r.top - box.top, bottom: r.bottom - box.top };
+    });
+    const style = getComputedStyle(l.el);
+    const grid = (style.display === 'grid' && style.gridTemplateColumns.split(' ').length > 1) || rects.some((r) => Math.abs(r.left - rects[0].left) > 4);
+    return { grid, rects, home: els.indexOf(home) };
+  }
+
+  function slotsOf(l) {
+    if (!drag.slots.has(l)) drag.slots.set(l, measure(l, null));
+    return drag.slots.get(l);
+  }
+
+  // La tarjeta de la rejilla en la que vive una lista de pasos (o null)
+  function gridCardOf(l) {
+    const card = l.el.parentElement?.closest('[data-sortable-item]');
+    const host = card && listOf(card.parentElement);
+    return host && slotsOf(host).grid ? card : null;
+  }
+
+  function cancelSettle() {
+    if (drag.settle) clearTimeout(drag.settle.timer);
+    drag.settle = null;
+  }
 
   /* ---------- Animación FLIP de los hermanos al abrir el hueco ---------- */
   function flip(elements, mutate) {
@@ -113,6 +148,7 @@
   function start(p, e) {
     const { item, list } = p;
     const rect = item.getBoundingClientRect();
+    const slots = new Map([[list, measure(list, item)]]);
     const ghost = item.cloneNode(true);
     ghost.removeAttribute('id');
     ghost.querySelectorAll('[id]').forEach((n) => n.removeAttribute('id'));
@@ -127,6 +163,7 @@
     const placeholder = document.createElement(item.tagName === 'LI' ? 'li' : 'div');
     placeholder.className = 'sortable-placeholder';
     placeholder.style.height = rect.height + 'px';
+    [...item.style].filter((p) => p.startsWith('--')).forEach((p) => placeholder.style.setProperty(p, item.style.getPropertyValue(p)));  // su tamaño en una rejilla
     placeholder.setAttribute('aria-hidden', 'true');
     item.after(placeholder);
     item.classList.add('sortable-source');
@@ -135,6 +172,7 @@
       item, from: list, fromIndex: itemsOf(list, null).indexOf(item), ghost, badge, placeholder,
       dx: e.clientX - rect.left, dy: e.clientY - rect.top, pointerId: p.pointerId,
       over: null, index: -1, valid: false, reason: '', point: { x: e.clientX, y: e.clientY }, raf: 0, scroller: null,
+      slots, cell: null, settle: null,
     };
     document.body.classList.add('sortable-dragging');
     lists.forEach((l) => { if (l.opts.group === list.opts.group) l.el.classList.add('sortable-zone'); });
@@ -173,8 +211,11 @@
     it?.classList.toggle('sortable-nest-invalid', !!(it && invalid));
   }
 
-  // Franja central (la mitad) de la fila de un elemento de una lista con `nest`: destino = su lista de hijos
-  function nestTarget(under, y) {
+  const acceptsAtEnd = (l, x, y) => !l.opts.accepts || l.opts.accepts(ctxFor(l, itemsOf(l, drag.item).length, { x, y })) === true;
+
+  // Franja central (la mitad) de la fila de un elemento de una lista con `nest`: destino = su lista de hijos. En una rejilla,
+  // solo el centro de la fila y sin mover el hueco (`still`): lo agrandaría y recolocaría todo; lo demás es para recolocar
+  function nestTarget(under, x, y) {
     const it = under.closest?.('[data-sortable-item]');
     if (!it || it === drag.item) return null;
     const l = listOf(it.parentElement);
@@ -184,14 +225,16 @@
     if (!kl) return null;
     const row = (l.opts.nestRow ? it.querySelector(l.opts.nestRow) : it).getBoundingClientRect();
     if (y < row.top + row.height / 4 || y > row.bottom - row.height / 4) return null;
-    return { kind: 'list', l: kl, nest: it };
+    if (!slotsOf(l).grid) return { kind: 'list', l: kl, nest: it };
+    if (x < row.left + row.width / 3 || x > row.right - row.width / 3 || !acceptsAtEnd(kl, x, y)) return null;
+    return { kind: 'list', l: kl, nest: it, still: true };
   }
 
   function findTarget(x, y) {
     let under = document.elementFromPoint(x, y);
     if (!under) return null;
     markPointerItem(under);
-    const nested = nestTarget(under, y);
+    const nested = nestTarget(under, x, y);
     if (nested) return nested;
     // Una zona puede delegar en su lista (p. ej. la cabecera de una columna)
     const proxy = under.closest?.('[data-drop-proxy]');
@@ -200,20 +243,37 @@
       const ext = targets.find((t) => t.el === el);
       if (ext) return { kind: 'external', t: ext };
       const l = listOf(el);
-      if (l && l.opts.group === drag.from.opts.group) return { kind: 'list', l };
+      if (!l || l.opts.group !== drag.from.opts.group) continue;
+      const card = gridCardOf(l);
+      if (!card || drag.placeholder.parentElement === l.el) return { kind: 'list', l };
+      // Los pasos de otra tarjeta: una tarjeta los ignora y sigue recolocándose; un paso la señala, sin mover el hueco
+      if (gridCardOf(drag.from) && acceptsAtEnd(l, x, y)) return { kind: 'list', l, nest: card, still: true };
     }
     return null;
   }
 
+  // En la lista de origen el elemento toma el sitio de la celda bajo el puntero; en otra, entra delante (o al final)
+  function gridIndex(l, s, x, y) {
+    if (!s.rects.length) return 0;
+    const box = l.el.getBoundingClientRect();
+    const px = x - box.left, py = y - box.top;
+    const far = (r) => Math.hypot(Math.max(r.left - px, 0, px - r.right), Math.max(r.top - py, 0, py - r.bottom));
+    const held = drag.cell?.l === l && far(s.rects[drag.cell.i]) <= STICK;
+    const i = held ? drag.cell.i : s.rects.reduce((best, r, k) => (far(r) < far(s.rects[best]) ? k : best), 0);
+    drag.cell = { l, i };
+    if (s.home >= 0 || i < s.rects.length - 1) return i;
+    const r = s.rects[i];
+    return i + (py > r.bottom || px > r.left + r.width / 2 ? 1 : 0);
+  }
+
   function indexIn(l, x, y) {
+    const s = slotsOf(l);
+    if (s.grid) return gridIndex(l, s, x, y);
     const items = itemsOf(l, drag.item);
-    const rects = items.map((it) => it.getBoundingClientRect());
-    const grid = rects.some((r) => Math.abs(r.left - rects[0].left) > 4); // varias columnas
     let i = 0;
     for (; i < items.length; i++) {
-      const r = rects[i];
-      if (!grid) { if (y < r.top + r.height / 2) break; continue; }
-      if (y < r.top || (y <= r.bottom && x < r.left + r.width / 2)) break;
+      const r = items[i].getBoundingClientRect();
+      if (y < r.top + r.height / 2) break;
     }
     return i;
   }
@@ -250,11 +310,13 @@
     const t = findTarget(x, y);
     if (!t?.nest) setNest(null);
     if (!t) {
+      cancelSettle();
       setState(null, false, '');
       drag.over = null;
       return;
     }
     if (t.kind === 'external') {
+      cancelSettle();
       const verdict = t.t.opts.accepts ? t.t.opts.accepts(ctxFor(null, 0, { x, y })) : true;
       if (drag.placeholder.isConnected) drag.placeholder.remove();
       drag.over = t;
@@ -267,15 +329,30 @@
     drag.over = t;
     drag.index = index;
     if (t.nest) setNest(t.nest, verdict !== true);
+    const grid = slotsOf(l).grid;
     if (verdict !== true) {
-      if (drag.placeholder.isConnected) flip(itemsOf(drag.from, drag.item), () => drag.placeholder.remove());
+      cancelSettle();
+      // En una rejilla el hueco se queda: quitarlo recolocaría todo y el puntero podría acabar en otro destino
+      if (!grid && drag.placeholder.isConnected) flip(itemsOf(drag.from, drag.item), () => drag.placeholder.remove());
       setState({ el: l.el }, false, verdict || 'Aquí no se puede soltar');
       return;
     }
     setState({ el: l.el }, true, '');
+    if (t.still) { cancelSettle(); return; }
+    const ref = itemsOf(l, drag.item)[index] || null;
+    if (drag.placeholder.parentElement === l.el && drag.placeholder.nextElementSibling === ref) { cancelSettle(); return; }
+    if (!grid) { cancelSettle(); place(l, index); return; }
+    if (drag.settle?.l === l && drag.settle.index === index) return;
+    cancelSettle();
+    drag.settle = { l, index, timer: setTimeout(() => {
+      drag.settle = null;
+      place(l, index);
+    }, SETTLE_MS) };
+  }
+
+  function place(l, index) {
     const items = itemsOf(l, drag.item);
     const ref = items[index] || null;
-    if (drag.placeholder.parentElement === l.el && drag.placeholder.nextElementSibling === ref) return;
     const affected = [...new Set([...items, ...itemsOf(drag.from, drag.item)])];
     flip(affected, () => {
       if (ref) l.el.insertBefore(drag.placeholder, ref);
@@ -321,6 +398,7 @@
     document.removeEventListener('touchmove', blockTouchScroll);
     cancelAnimationFrame(drag.scrollRaf);
     cancelAnimationFrame(drag.raf);
+    cancelSettle();
     document.body.classList.remove('sortable-dragging', 'sortable-nodrop');
     lists.concat(targets).forEach((x) => x.el.classList.remove('sortable-zone', 'sortable-over', 'sortable-invalid'));
     drag.item.classList.remove('sortable-source');
@@ -359,6 +437,11 @@
       return;
     }
     const l = over.l;
+    if (d.settle) {  // se suelta antes de que el hueco llegue: va directo
+      const { l: to, index } = d.settle;
+      cancelSettle();
+      place(to, index);
+    }
     const ctx = ctxFor(l, d.index, point);
     const ghostRect = d.ghost.getBoundingClientRect();
     // Colocación optimista en el hueco + animación desde el fantasma

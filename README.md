@@ -12,7 +12,7 @@ tu propio equipo, funciona sin nube ni cuentas externas y lo usas desde el naveg
 | **Hoy** | El resumen del día: lo siguiente que toca, agenda, rutinas, tareas, comida y gasto. |
 | **Calendario** | Vistas de día, semana, mes y agenda. Se puede sincronizar con iCloud. |
 | **Rutinas** | Tu día en bloques, con horas, días de la semana y seguimiento paso a paso. |
-| **Tareas e Inbox** | Una sola lista de tareas e ideas, con prioridades, fechas y tableros para organizar proyectos. |
+| **Tareas e Inbox** | Una sola lista de tareas e ideas, en lista o en cuadrícula con tarjetas que cambian de tamaño como ventanas, con prioridades, fechas y tableros para organizar proyectos. |
 | **Notas** | Archivos Markdown con LaTeX, código, enlaces entre notas, flashcards y repaso. |
 | **Grafo** | El mapa de cómo se relacionan tus notas. |
 | **Baúl** | Enlaces y vídeos guardados, con su miniatura y por categorías. |
@@ -26,14 +26,16 @@ tu propio equipo, funciona sin nube ni cuentas externas y lo usas desde el naveg
 |---|---|
 | ![Calendario semanal](docs/img/calendario.png) | ![Rutinas del día en bloques](docs/img/rutinas.png) |
 | **Calendario** | **Rutinas** |
-| ![Lista de tareas con prioridades y fechas](docs/img/tareas.png) | ![Inbox con un tablero de proyecto](docs/img/inbox.png) |
-| **Tareas** | **Inbox y tableros** |
+| ![Lista de tareas con prioridades y fechas](docs/img/tareas.png) | ![Tareas en cuadrícula, con sus pasos a la vista](docs/img/tareas-cuadricula.png) |
+| **Tareas en lista** | **Tareas en cuadrícula** |
+| ![Inbox con un tablero de proyecto](docs/img/inbox.png) | ![Baúl de enlaces por categorías](docs/img/baul.png) |
+| **Inbox y tableros** | **Baúl** |
 | ![Editor de notas con vista previa](docs/img/notas.png) | ![Grafo de notas conectadas](docs/img/grafo.png) |
 | **Notas** | **Grafo** |
 | ![Plan semanal de comidas con calorías](docs/img/comidas.png) | ![Economía con saldos y gastos del mes](docs/img/economia.png) |
 | **Comidas** | **Economía** |
-| ![Baúl de enlaces por categorías](docs/img/baul.png) | ![Copias de seguridad](docs/img/copias.png) |
-| **Baúl** | **Copias** |
+| ![Copias de seguridad](docs/img/copias.png) | |
+| **Copias** | |
 
 Y en el móvil, donde todo se maneja con el pulgar:
 

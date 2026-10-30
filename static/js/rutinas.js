@@ -1,8 +1,9 @@
 /* ==========================================================================
    rutinas.js — página /rutinas: cada rutina como la línea de su día (bloques en orden)
    Datos: GET /api/routines/day?date= (app/calendar.py). Un bloque es un paso de la rutina con su
-   duración, una hora fija opcional y, si hace falta, sus propios días («Universidad, de lunes a
-   viernes»). Las tareas e ideas se asocian a un bloque (PATCH /api/items/{id} {routine_step}).
+   duración, su hora (se cambia en la propia línea; ninguna depende de otra, así que puede haber huecos
+   libres, y el servidor rechaza lo que se solapa) y, si hace falta, sus propios días («Universidad, de
+   lunes a viernes»). Las tareas e ideas se asocian a un bloque (PATCH /api/items/{id} {routine_step}).
    Escrituras con /api/items (las mismas reglas que Tareas e Inbox).
    ========================================================================== */
 (function () {
@@ -16,6 +17,8 @@
   const parse = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
   const fmtMin = (m) => (m >= 60 ? `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60}` : ''}` : `${m} min`);
   const toMin = (t) => (t ? Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5)) : null);
+  const endMin = (s) => (s.end ? toMin(s.end) : toMin(s.at));
+  const MIN_GAP = 15;  // un hueco más corto no se anuncia
 
   const params = new URLSearchParams(location.search);
   const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -65,7 +68,7 @@
 
     if (!data.rutinas.length && !data.otras.length) {
       $('rtPage').innerHTML = `<section class="panel rp-empty">${emptyState({ iconName: 'repeat', title: 'Organiza tu día en bloques',
-        text: 'Una rutina es lo que haces siempre y en orden: levantarte, desayunar, la universidad… Cada bloque puede ir a una hora fija y tocar solo algunos días.', compact: true })}
+        text: 'Una rutina es lo que haces siempre: levantarte, desayunar, la universidad… Pon cada bloque a la hora que quieras, deja huecos libres entre ellos y haz que toque solo algunos días.', compact: true })}
         <div class="rp-empty-actions"><button type="button" class="btn btn-primary" data-act="templates">${icon('layout-template', 'icon-sm')}Empezar con «Mi día»</button>
         <button type="button" class="btn" data-act="new">${icon('plus', 'icon-sm')}Crear una vacía</button></div></section>`;
       return;
@@ -77,6 +80,7 @@
       const hecho = r.steps.filter((s) => s.done).length;
       const current = isToday ? r.steps.findIndex((s) => !s.done && s.at && toMin(s.at) <= nowMin && nowMin < (s.end ? toMin(s.end) : toMin(s.at) + 1)) : -1;
       const next = isToday ? r.steps.findIndex((s) => !s.done) : -1;
+      const line = r.steps.flatMap((s, i) => [gapHTML(r, r.steps[i - 1], s), step(r, s, i === current, i === next && current < 0, past || isToday)]).join('');
       return `<section class="panel rp-card${r.done ? ' is-done' : ''}" data-rid="${r.id}" aria-labelledby="rp-h-${r.id}">
         <header class="rp-head">
           <div class="rp-head-main">
@@ -86,43 +90,55 @@
           ${isToday && r.steps.length && !r.done ? `<button type="button" class="btn btn-tinted btn-sm" data-act="run">${icon('play', 'icon-sm')}Empezar</button>` : ''}
           <button type="button" class="btn btn-ghost btn-icon btn-sm" data-act="routine-menu" aria-label="Acciones de «${esc(r.title)}»" aria-haspopup="menu">${icon('ellipsis', 'icon-sm')}</button>
         </header>
-        ${r.steps.length ? `<ol class="rp-line">${r.steps.map((s, i) => step(r, s, i === current, i === next && current < 0, past || isToday)).join('')}</ol>`
+        ${r.steps.length ? `<ol class="rp-line">${line}</ol>`
           : '<p class="small muted rp-none">Este día no tiene bloques. Añade el primero aquí abajo.</p>'}
         ${r.tasks.length ? `<div class="rp-loose"><span class="tiny muted">Asociadas a la rutina</span>${tasksHTML(r.tasks)}</div>` : ''}
         <form class="rp-add" data-add="${r.id}">
           <label class="sr-only" for="rp-add-${r.id}">Nuevo bloque de «${esc(r.title)}»</label>
           <input id="rp-add-${r.id}" class="input input-sm" maxlength="300" placeholder="Nuevo bloque (p. ej. «Gimnasio 1h»)" autocomplete="off">
+          <label class="sr-only" for="rp-add-at-${r.id}">Hora del bloque nuevo</label>
+          <input id="rp-add-at-${r.id}" class="input input-sm rp-add-at tabular" type="text" inputmode="numeric" maxlength="5" autocomplete="off" name="at" placeholder="Hora">
           <button type="submit" class="btn btn-ghost btn-sm">${icon('plus', 'icon-sm')}Añadir</button>
         </form>
         ${r.otros_dias.length ? `<p class="rp-other tiny muted">Otros días: ${r.otros_dias.map((s) => `<button type="button" class="link-btn" data-step="${s.id}" data-act="edit-step">${esc(s.title)}</button> (${esc((s.days_text || '').toLowerCase())})`).join(' · ')}</p>` : ''}
       </section>`;
     };
+    const focused = document.activeElement?.closest?.('.rp-time-input')?.closest('[data-step]')?.dataset.step;
     const otras = data.otras.length ? `<p class="small muted rp-others">No tocan este día: ${data.otras.map((o) => `<b>${esc(o.title)}</b> (${esc(o.repeat_text.toLowerCase())})`).join(' · ')}</p>` : '';
     $('rtPage').innerHTML = data.rutinas.map(card).join('') + otras;
-    // Reordenar arrastrando dentro de cada rutina (o con el teclado: Sortable lo anuncia)
+    if (focused) $('rtPage').querySelector(`[data-step="${focused}"] .rp-time-input`)?.focus();  // poner varias horas seguidas con Tab
+    // Con hora, el orden lo da el reloj: solo se arrastran los bloques sin hora
     $('rtPage').querySelectorAll('.rp-line').forEach((ol) => {
       const rid = Number(ol.closest('[data-rid]').dataset.rid);
       Sortable.create(ol, {
-        group: `rp-${rid}`, items: '.rp-step', label: `los bloques de «${data.rutinas.find((x) => x.id === rid)?.title || ''}»`,
+        group: `rp-${rid}`, items: '.rp-step:not(.has-time)', label: `los bloques de «${data.rutinas.find((x) => x.id === rid)?.title || ''}»`,
         id: (el) => el.dataset.step, data: { rid },
         onDrop: async (ctx) => {
           await api(`/api/items/${ctx.id}/move`, { method: 'POST', body: { target: 'rutinas', parent_id: rid, before_id: ctx.beforeId ? Number(ctx.beforeId) : null } });
-          const s = stepOf(Number(ctx.id));
-          if (s?.fixed) toast(`«${s.title}» tiene hora fija (${s.at}): los bloques siguientes empiezan a esa hora. Quítasela en «Editar el bloque» si quieres que siga el orden.`, { type: 'info', duration: 6000 });
           load();
         },
       });
     });
   }
 
+  // El hueco entre dos bloques seguidos; no se anuncia si lo ocupa un bloque de otra rutina
+  function gapHTML(r, prev, s) {
+    if (!prev?.at || !s.at) return '';
+    const from = endMin(prev), to = toMin(s.at);
+    if (to - from < MIN_GAP) return '';
+    const taken = data.rutinas.some((o) => o.id !== r.id && o.steps.some((x) => x.at && toMin(x.at) < to && endMin(x) > from));
+    return taken ? '' : `<li class="rp-gap"><span class="rp-rail" aria-hidden="true"></span><span class="tiny muted">Libre ${fmtMin(to - from)}</span></li>`;
+  }
+
   function step(r, s, isNow, isNext, canCheck) {
-    return `<li class="rp-step${s.done ? ' is-done' : ''}${s.skipped ? ' is-skipped' : ''}${isNow ? ' is-now' : ''}${isNext ? ' is-next' : ''}" data-step="${s.id}">
-      <span class="rp-time tabular">${s.at ? `${s.fixed ? `${icon('pin', 'icon-sm rp-pin')}<span class="sr-only">Hora fija: </span>` : ''}${s.at}` : ''}</span>
+    return `<li class="rp-step${s.at ? ' has-time' : ''}${s.done ? ' is-done' : ''}${s.skipped ? ' is-skipped' : ''}${isNow ? ' is-now' : ''}${isNext ? ' is-next' : ''}" data-step="${s.id}">
+      <span class="rp-time"><input type="text" name="hora" inputmode="numeric" maxlength="5" autocomplete="off" class="rp-time-input tabular" value="${esc(s.at || '')}" placeholder="Hora" aria-label="Hora de «${esc(s.title)}»" title="${s.at ? 'Cambiar la hora' : 'Sin hora: ponle una'}"></span>
       <span class="rp-rail" aria-hidden="true"><span class="rp-dot">${s.skipped ? icon('skip-forward', 'icon-sm') : s.done ? icon('check', 'icon-sm') : ''}</span></span>
       <div class="rp-body">
         <div class="rp-row">
           ${canCheck ? `<button type="button" class="card-check small-check is-routine${s.done ? ' done' : ''}" data-act="check" role="checkbox" aria-checked="${s.done}" aria-label="${s.done ? 'Desmarcar' : 'Hecho'}: ${esc(s.title)}">${icon('check', 'icon-sm')}</button>` : ''}
           <button type="button" class="rp-step-title" data-act="edit-step" title="Editar el bloque">${esc(s.title)}</button>
+          ${s.clash ? `<span class="tag rp-clash" title="Se solapa con «${esc(s.clash)}»">Se solapa</span>` : ''}
           ${s.skipped ? '<span class="tag">Saltado</span>' : isNow ? '<span class="tag rp-now">Ahora</span>' : isNext ? '<span class="tag">Siguiente</span>' : ''}
           <span class="grow"></span>
           <span class="tiny muted tabular rp-dur">${s.duration_min ? fmtMin(s.duration_min) : ''}${s.days_text ? ` · ${esc(s.days_text.toLowerCase())}` : ''}</span>
@@ -177,6 +193,22 @@
     if (act === 'unlink') { try { await patch(tid, { routine_step: 0 }); } catch {} load(); }
   });
 
+  // La hora se guarda al salir del campo o con Intro; vacía, el bloque se queda sin hora
+  async function setTime(input) {
+    const s = stepOf(Number(input.closest('[data-step]')?.dataset.step));
+    if (!s) return;
+    const had = s.due_time || '', at = parseTime(input.value);
+    if (at === null) toast('Escribe la hora como 17:30', { type: 'info' });
+    input.value = at ?? had;
+    if (at === null || at === had) return;
+    try { await patch(s.id, { due_time: at }); } catch { input.value = had; return; }
+    load();
+  }
+  $('rtPage').addEventListener('focusout', (e) => { if (e.target.matches('.rp-time-input')) setTime(e.target); });
+  $('rtPage').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target.matches('.rp-time-input')) { e.preventDefault(); e.target.blur(); }
+  });
+
   $('rtPage').addEventListener('submit', async (e) => {
     const f = e.target.closest('[data-add]');
     if (!f) return;
@@ -184,8 +216,10 @@
     const input = f.querySelector('input');
     const text = input.value.trim();
     if (!text) return;
+    const at = parseTime(f.at.value);
+    if (at === null) { toast('Escribe la hora como 17:30', { type: 'info' }); f.at.focus(); return; }
     input.disabled = true;
-    try { await api('/api/items', { method: 'POST', body: { text, parent_id: Number(f.dataset.add) } }); } catch { input.disabled = false; return; }
+    try { await api('/api/items', { method: 'POST', body: { text, parent_id: Number(f.dataset.add), ...(at ? { due_time: at } : {}) } }); } catch { input.disabled = false; return; }
     await load();
     document.getElementById(`rp-add-${f.dataset.add}`)?.focus();
   });
@@ -209,10 +243,11 @@
       { label: 'Editar el bloque…', icon: 'pencil', onClick: () => editStep(s) },
       { label: 'Duplicar el bloque', icon: 'copy', onClick: () => duplicateStep(r, s) },
       s.on !== false && { label: s.skipped ? 'No saltarlo' : `Saltar ${data.date === data.today ? 'hoy' : 'este día'}`, icon: 'skip-forward', onClick: () => skipStep(s) },
+      s.due_time && { label: 'Quitar la hora', icon: 'clock', onClick: () => clearTime(s) },
       { separator: true },
-      { label: 'Subir', icon: 'chevron-up', onClick: () => moveStep(r, s, -1) },
-      { label: 'Bajar', icon: 'chevron-down', onClick: () => moveStep(r, s, 1) },
-      { separator: true },
+      !s.due_time && { label: 'Subir', icon: 'chevron-up', onClick: () => moveStep(r, s, -1) },
+      !s.due_time && { label: 'Bajar', icon: 'chevron-down', onClick: () => moveStep(r, s, 1) },
+      !s.due_time && { separator: true },
       { label: 'Eliminar el bloque', icon: 'trash-2', danger: true, onClick: () => removeItem(s.id, `«${s.title}»`) },
     ].filter(Boolean));
   }
@@ -224,11 +259,16 @@
     load();
   }
 
-  // Duplicar: la copia va justo debajo, con la misma duración, hora fija y días
+  async function clearTime(s) {
+    try { await patch(s.id, { due_time: '' }); } catch { return; }
+    load();
+  }
+
+  // Duplicar: la copia va justo debajo, con la misma duración y días pero sin hora (a la misma, chocaría)
   async function duplicateStep(r, s) {
     try {
       const { id } = await api('/api/items', { method: 'POST', body: { text: s.title, parent_id: r.id } });
-      await patch(id, { duration_min: s.duration_min || 0, due_time: s.due_time || '', step_days: s.days || [] });
+      await patch(id, { duration_min: s.duration_min || 0, step_days: s.days || [] });
       const order = await stepOrder(r.id);
       const after = order[order.indexOf(s.id) + 1];
       await api(`/api/items/${id}/move`, { method: 'POST', body: { target: 'rutinas', parent_id: r.id, before_id: after && after !== id ? after : null } });
@@ -244,12 +284,13 @@
     load();
   }
 
-  // Orden: el de la rutina entera (también los bloques de otros días), como en Tareas
+  // Solo entre los bloques sin hora (también los de otros días), como en Tareas
   async function moveStep(r, s, delta) {
-    const order = await stepOrder(r.id);
+    const all = await stepOrder(r.id);
+    const order = all.filter((id) => !Items.get(id)?.due_time);
     const i = order.indexOf(s.id), j = i + delta;
     if (i < 0 || j < 0 || j >= order.length) return;
-    const before = delta < 0 ? order[j] : order[j + 1] ?? null;
+    const before = delta < 0 ? order[j] : all[all.indexOf(order[j]) + 1] ?? null;
     try { await api(`/api/items/${s.id}/move`, { method: 'POST', body: { target: 'rutinas', parent_id: r.id, before_id: before } }); } catch { return; }
     load();
   }
@@ -280,15 +321,13 @@
       ${row('timer', `<div class="form-line"><label class="sr-only" for="rpStepDur">Duración en minutos</label>
           <input id="rpStepDur" name="dur" type="number" class="input input-sm tabular" style="width:6em" min="0" max="1440" step="5" value="${s.duration_min || ''}" placeholder="—"><span class="tiny muted">min</span></div>
         <div class="chips" role="group" aria-label="Duración">${DURS.map(([m, l]) => `<button type="button" class="chip chip-sm" data-dur="${m}" aria-pressed="${s.duration_min === m}">${l}</button>`).join('')}</div>`)}
-      ${row('clock', `<div class="form-line"><label class="switch-row tiny"><input type="checkbox" class="switch" name="fixed" ${s.due_time ? 'checked' : ''}><span>A una hora fija</span></label>
-          <label class="sr-only" for="rpStepAt">Hora fija</label><input id="rpStepAt" name="at" type="time" class="input input-sm" value="${esc(s.due_time || s.at || '')}"></div>
-        <p class="tiny muted" data-hint-fixed>Sin hora fija empieza cuando acaba el bloque anterior.</p>`)}
+      ${row('clock', `<div class="form-line"><label class="tiny muted" for="rpStepAt">Hora</label><input id="rpStepAt" name="at" type="time" class="input input-sm" value="${esc(s.due_time || '')}">
+          <button type="button" class="link-btn tiny" data-clear-at>Sin hora</button></div>
+        <p class="tiny muted">Sin hora, el bloque no ocupa sitio en el día y lo haces cuando te venga bien.</p>`)}
       ${row('calendar', `${dayPicker({ days: s.days, legend: 'Días en que toca' })}<p class="tiny muted">Con todos marcados, los mismos días que la rutina.</p>`)}`,
       `<span class="spacer"></span><button type="button" class="btn" data-close>Cancelar</button><button type="submit" form="rtDlgForm" class="btn btn-primary">Guardar</button>`);
     const f = dlg.querySelector('form');
-    const syncFixed = () => { f.at.disabled = !f.fixed.checked; dlg.querySelector('[data-hint-fixed]').hidden = f.fixed.checked; };
-    f.fixed.addEventListener('change', () => { syncFixed(); if (f.fixed.checked) f.at.focus(); });
-    syncFixed();
+    dlg.querySelector('[data-clear-at]').addEventListener('click', () => { f.at.value = ''; f.at.focus(); });
     dlg.querySelectorAll('[data-dur]').forEach((b) => b.addEventListener('click', () => {
       f.dur.value = b.dataset.dur;
       dlg.querySelectorAll('[data-dur]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
@@ -299,7 +338,7 @@
       const days = readDays(dlg);
       if (!days.length) { toast('Elige al menos un día', { type: 'info' }); return; }
       try {
-        await patch(s.id, { text: f.title.value.trim(), duration_min: Number(f.dur.value) || 0, due_time: f.fixed.checked ? f.at.value : '', step_days: days.length === 7 ? [] : days });
+        await patch(s.id, { text: f.title.value.trim(), duration_min: Number(f.dur.value) || 0, due_time: f.at.value, step_days: days.length === 7 ? [] : days });
       } catch { return; }
       closeModal(dlg);
       load();
@@ -311,7 +350,8 @@
     const dlg = dialog('Rutina', `
       <label class="sr-only" for="rpRtTitle">Nombre</label>
       <input id="rpRtTitle" name="title" class="input form-title" maxlength="300" required placeholder="Nombre de la rutina" value="${esc(r.title)}">
-      ${row('clock', `<div class="form-line"><label class="tiny muted" for="rpRtAt">Empieza a las</label><input id="rpRtAt" name="at" type="time" class="input input-sm" value="${esc(r.due_time || '')}"></div>`)}
+      ${row('clock', `<div class="form-line"><label class="tiny muted" for="rpRtAt">Hora de la rutina</label><input id="rpRtAt" name="at" type="time" class="input input-sm" value="${esc(r.due_time || '')}"></div>
+        <p class="tiny muted">Para el calendario y los avisos si sus bloques no tienen hora. No mueve los que sí la tienen.</p>`)}
       ${row('repeat', dayPicker({ rule: r.repeat, legend: 'Se repite', note: everyNote(r.repeat, r.repeat_text) }))}`,
       `<span class="spacer"></span><button type="button" class="btn" data-close>Cancelar</button><button type="submit" form="rtDlgForm" class="btn btn-primary">Guardar</button>`);
     const f = dlg.querySelector('form');

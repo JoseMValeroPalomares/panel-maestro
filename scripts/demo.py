@@ -94,6 +94,11 @@ TASKS = [
     ("Aprender acordes de jazz al piano", "idea", None, None, "Personal"),
 ]
 
+STEPS = {"Entregar la práctica de electrónica": ["Montar el circuito", "Medir con el osciloscopio", "Escribir la memoria"],
+         "Repasar el tema 3 de física": ["Resumen del tema", "Ejercicios impares"],
+         "Un script que ordene las fotos por fecha": ["Leer la fecha de cada foto", "Crear una carpeta por mes"],
+         "Montar un huerto en el balcón": ["Elegir las macetas", "Comprar semillas de tomate"]}
+
 EVENTS = [(0, "10:00", "11:30", "Clase de electrónica"), (0, "17:00", "18:00", "Gimnasio"), (1, "09:30", "11:00", "Laboratorio de física"),
           (1, "19:00", "20:30", "Cena con amigos"), (2, "12:00", "13:00", "Tutoría"), (3, "16:00", "18:00", "Grupo de estudio"),
           (4, "11:00", "12:00", "Dentista"), (5, "10:00", "13:00", "Excursión"), (-1, "18:00", "19:00", "Clase de piano")]
@@ -189,6 +194,10 @@ def seed_notes_and_items(c: httpx.Client, today: date) -> None:
     for text, kind, priority, days, category in TASKS:
         due = (today + timedelta(days=days)).isoformat() if days is not None else None
         _ok(c.post("/api/items", json={"text": text, "type": kind, "priority": priority, "due_date": due, "category": category}))
+    parents = {i["text"]: i for i in _ok(c.get("/api/items"))["items"]}
+    for parent, steps in STEPS.items():
+        for step in steps:
+            _ok(c.post("/api/items", json={"text": step, "type": parents[parent]["type"], "parent_id": parents[parent]["id"]}))
     for key in ("b:manana", "b:noche"):
         _ok(c.post("/api/routine-templates/apply", json={"key": key}))
     monday = today - timedelta(days=today.weekday())
@@ -264,6 +273,11 @@ def take_screenshots() -> None:
                 page.wait_for_timeout(wait)
                 page.screenshot(path=IMG_DIR / f"{prefix}{name}.png")
                 print(f"  {prefix}{name}.png")
+                if name == "tareas" and not prefix:
+                    page.click("[data-view=matriz]")
+                    page.wait_for_timeout(400)
+                    page.screenshot(path=IMG_DIR / "tareas-cuadricula.png")
+                    page.click("[data-view=lista]")
             context.close()
         browser.close()
 

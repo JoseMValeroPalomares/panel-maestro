@@ -1,6 +1,6 @@
 /* ==========================================================================
    ui.js — piezas comunes de interfaz (script clásico, sin módulos)
-   Expone: icon, escapeHtml, api, toast, openModal, closeModal, uiConfirm,
+   Expone: icon, escapeHtml, api, parseTime, toast, openModal, closeModal, uiConfirm,
    uiPrompt, openMenu, skeletonRows, emptyState, openCapture, timeAgo, CATEGORY_COLORS
    ========================================================================== */
 (function () {
@@ -97,6 +97,15 @@
 
   /* ---------- Toasts ---------- */
   let toastRegion;
+  // Hora escrita a mano, siempre en 24 h: «930», «9:30» o «17» → «09:30», «17:00»; vacío = sin hora; null = no se entiende
+  function parseTime(v) {
+    const t = String(v ?? '').trim();
+    if (!t) return '';
+    const m = t.match(/^(\d{1,2})(?:[:.,h ]?(\d{2}))?$/);
+    if (!m || Number(m[1]) > 23 || Number(m[2] || 0) > 59) return null;
+    return `${m[1].padStart(2, '0')}:${m[2] || '00'}`;
+  }
+
   function toast(message, { type = 'success', action = null, duration = 3600 } = {}) {
     if (!toastRegion) {
       toastRegion = document.querySelector('.toast-region');
@@ -686,7 +695,7 @@
   Object.assign(window, {
   dayPicker, readDays, repeatFromDays, everyNote,
     CATEGORY_COLORS,
-    icon, escapeHtml, timeAgo, api, toast, openModal, closeModal, uiConfirm, uiAlert, uiPrompt,
+    icon, escapeHtml, timeAgo, api, parseTime, toast, openModal, closeModal, uiConfirm, uiAlert, uiPrompt,
     openMenu, closeMenu, skeletonRows, emptyState, setTheme, openCapture, refreshInboxBadge, wireAllDialogs, onDataChange, Prefs, uiPick, fuzzyScore,
   });
 

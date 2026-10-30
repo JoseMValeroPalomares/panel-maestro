@@ -10,12 +10,13 @@ Marcar una rutina es marcarla «hecha hoy» (o el día que se diga, desde el cal
 casilla en la lista refleja el día de hoy.
 
 Pasos («bloques» del día): una rutina tiene pasos en orden (filas hijas, también de tipo rutina), cada
-uno con su duración opcional, una hora fija opcional (`due_time`: «Universidad a las 8:30») y, si se
+uno con su duración opcional, su hora opcional (`due_time`: «Universidad a las 8:30») y, si se
 quiere, sus propios días (`repeat` semanal: «solo de lunes a viernes»); sin días propios, siguen los de su
 rutina. Así una rutina «Mi día» cambia según el día. Un paso se marca por días igual que la rutina; con
 todos los pasos de ese día hechos la rutina queda hecha, y marcar la rutina marca los de ese día.
-Horario: cada paso empieza a su hora fija o, si no tiene, cuando acaba el anterior (desde la hora de la
-rutina). Solo la rutina cuenta para la racha y el historial. Las tareas e ideas pueden ir asociadas a una
+Horario: cada paso va a su hora, sin depender de los demás (entre dos bloques puede haber huecos libres),
+y dos bloques que tocan el mismo día no pueden pisarse (`ensure_free`, también entre rutinas). Sin hora, un
+paso es flexible: no ocupa sitio en el día. Solo la rutina cuenta para la racha y el historial. Las tareas e ideas pueden ir asociadas a una
 rutina o a uno de sus pasos (`inbox.routine_step`): se ven dentro del bloque. Racha = ocurrencias seguidas hechas hasta hoy (si
 hoy toca y aún no está hecha, no rompe la racha). Cada marca va también a `item_log`
 (historial de la revisión semanal).
@@ -214,9 +215,115 @@ def _hhmm(t: int) -> str:
     return f"{t // 60 % 24:02d}:{t % 60:02d}"
 
 
+def timeline(steps: list[dict]) -> list[dict]:
+    """La línea de un día: cada paso a su hora, en orden de reloj, y al final los que no tienen hora (en su
+    orden). `end` solo si se sabe la duración."""
+    out = []
+    for s in steps:
+        t, dur = _mins(s.get("due_time")), s.get("duration_min") or 0
+        out.append({**s, "at": s.get("due_time") or None, "end": _hhmm(t + dur) if t is not None and dur else None})
+    return sorted(out, key=lambda s: s["at"] or "99:99")
+
+
+def mark_overlaps(rutinas: list[dict]) -> None:
+    """Avisa en la línea del día si dos bloques se pisan: no se deja crearlos, pero pueden venir de antes o
+    de mover un paso a otra rutina. `clash` = título del otro bloque."""
+    blocks = [s for r in rutinas for s in r["steps"] if s["at"]]
+    for s in blocks:
+        a = _mins(s["at"])
+        a_end = a + max(s["duration_min"] or 0, 1)
+        s["clash"] = next((o["title"] for o in blocks if o is not s and a < _mins(o["at"]) + max(o["duration_min"] or 0, 1) and _mins(o["at"]) < a_end), None)
+
+
+def _block(row, rule: dict, own: dict | None, at: str, dur: int | None) -> dict:
+    from app.items import clean_text
+    start = _mins(at)
+    return {"id": row["id"], "title": clean_text(row["content"]).split("\n")[0], "start": start, "end": start + max(dur or 0, 1),
+            "timed": bool(dur), "rule": rule, "own": own}
+
+
+def _busy(conn, skip: set) -> list[dict]:
+    """Lo que ocupa horas: los pasos con hora y las rutinas sin pasos que tienen hora."""
+    rows = conn.execute("SELECT * FROM inbox WHERE item_type='rutina'").fetchall()
+    tops = {r["id"]: r for r in rows if r["parent_id"] is None}
+    with_steps = {r["parent_id"] for r in rows if r["parent_id"] is not None}
+    out = []
+    for r in rows:
+        if not r["due_time"] or r["id"] in skip or (r["parent_id"] is None and r["id"] in with_steps):
+            continue
+        if r["parent_id"] is None:
+            out.append(_block(r, parse(r["repeat"]), None, r["due_time"], r["duration_min"]))
+        elif r["parent_id"] in tops:
+            out.append(_block(r, parse(tops[r["parent_id"]]["repeat"]), step_rule(r), r["due_time"], r["duration_min"]))
+    return out
+
+
+def _shared_days(a: dict, b: dict) -> set[int]:
+    """Días de la semana en que tocan los dos (un año vista: así entran también los «cada N días»)."""
+    on = lambda x, d: occurs_on(x["rule"], d) and (x["own"] is None or occurs_on(x["own"], d))  # noqa: E731
+    days = (date.today() + timedelta(days=i) for i in range(366))
+    return {d.weekday() for d in days if on(a, d) and on(b, d)}
+
+
+def _hits(block: dict, start: int, others: list[dict]) -> list[dict]:
+    end = start + block["end"] - block["start"]
+    return [o for o in others if start < o["end"] and o["start"] < end and _shared_days(block, o)]
+
+
+def _first_free(block: dict, others: list[dict]) -> int | None:
+    """El primer hueco de ese día en el que cabe el bloque a partir de su hora."""
+    t, dur = block["start"], block["end"] - block["start"]
+    while t + dur <= 1440:
+        hits = _hits(block, t, others)
+        if not hits:
+            return t
+        t = max(o["end"] for o in hits)
+    return None
+
+
+def _require_free(block: dict, others: list[dict]) -> None:
+    hits = _hits(block, block["start"], others)
+    if not hits:
+        return
+    o = hits[0]
+    days = _shared_days(block, o)
+    when = "" if len(days) == 7 else f", {describe({'freq': 'weekly', 'days': sorted(days)}).lower()}"
+    span = f"{_hhmm(o['start'])}–{_hhmm(o['end'])}" if o["timed"] else _hhmm(o["start"])
+    free = _first_free(block, others)
+    hint = f" El primer hueco libre es a las {_hhmm(free)}." if free is not None else ""
+    raise HTTPException(status_code=409, detail=f"«{block['title']}» choca con «{o['title']}» ({span}){when}.{hint}")
+
+
+def ensure_free(conn, row, *, due_time: str | None = None, duration_min: int | None = None,
+                step_days: list[int] | None = None, repeat: dict | None = None) -> None:
+    """Antes de guardar: 409 si con estos cambios un bloque pisaría a otro el mismo día. None = no cambia."""
+    if row["item_type"] != "rutina":
+        return
+    is_step = row["parent_id"] is not None
+    kids = [] if is_step else steps_of(conn, row["id"])
+    top = conn.execute("SELECT * FROM inbox WHERE id=?", (row["parent_id"],)).fetchone() if is_step else row
+    rule = parse(repeat if repeat is not None and not is_step else top["repeat"])
+    if kids:  # una rutina con pasos no ocupa horas: su regla decide qué días tocan ellos
+        if repeat is not None:
+            others = _busy(conn, {row["id"]} | {s["id"] for s in kids})
+            for s in kids:
+                if s["due_time"]:
+                    _require_free(_block(s, rule, step_rule(s), s["due_time"], s["duration_min"]), others)
+        return
+    at = row["due_time"] if due_time is None else due_time
+    if not at:
+        return
+    own = None
+    if is_step:
+        own = step_rule(row) if step_days is None else ({"freq": "weekly", "days": step_days} if 0 < len(set(step_days)) < 7 else None)
+    dur = row["duration_min"] if duration_min is None else duration_min
+    # su rutina tampoco cuenta: el primer paso puede ir a la hora de ella, que deja de ocupar sitio
+    _require_free(_block(row, rule, own, at, dur), _busy(conn, {row["id"], row["parent_id"]}))
+
+
 def schedule(start: str | None, steps: list[dict]) -> list[dict]:
-    """Hora de cada paso: su hora fija (`due_time`) o, si no, cuando acaba el anterior, empezando por la
-    hora de la rutina. `end` solo si se sabe la duración. Sin ninguna hora, no hay horario."""
+    """Horario de partida de una plantilla: su hora fija (`due_time`) o, si no, cuando acaba el anterior,
+    empezando por la hora de la rutina. Al crearla, cada paso se queda con la suya."""
     out, t = [], _mins(start)
     for s in steps:
         fixed = _mins(s.get("due_time"))

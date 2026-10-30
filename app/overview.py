@@ -59,6 +59,7 @@ def _routines_of(todo: list[dict]) -> list[dict]:
                                             "title": e["routine_title"], "steps": [], "step": False}
             out.append(g)
         g["steps"].append({"id": e["id"], "title": e["title"], "done": e["done"], "at": None if e["all_day"] else e["start"][11:16]})
+        g["steps"].sort(key=lambda x: x["at"] or "99:99")
         g["done"] = all(x["done"] for x in g["steps"])
     return sorted(out, key=lambda e: (e["all_day"], e["start"]))
 

@@ -72,22 +72,6 @@
   const notesHidden = () => Prefs.get(NOTES_HIDDEN, {}) || {};
 
   /* ---------- Rutinas: repetición y hábito ---------- */
-  // Horario de los pasos de una rutina: su hora más las duraciones de los anteriores
-  const hm = (t) => `${String(Math.floor(t / 60) % 24).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
-  function stepTimes(parent) {
-    const out = {};
-    if (!parent?.due_time) return out;
-    const mins = (v) => Number(v.slice(0, 2)) * 60 + Number(v.slice(3, 5));
-    let t = mins(parent.due_time);
-    // como en /rutinas: hora fija si la tiene; si no, cuando acaba el anterior; los de otros días no cuentan hoy
-    Items.children(parent.id).forEach((k) => {
-      if (k.today === false) return;
-      if (k.due_time) t = mins(k.due_time);
-      out[k.id] = hm(t);
-      t += k.duration_min || 0;
-    });
-    return out;
-  }
   const routineMinutes = (it) => it.duration_min || Items.children(it.id).reduce((a, k) => a + (k.duration_min || 0), 0);
   const fmtMin = (m) => (m >= 60 ? `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60}` : ''}` : `${m} min`);
 
@@ -147,6 +131,9 @@
     return dt.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', ...(dt.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}) });
   }
 
+  // Agarres para redimensionar la tarjeta en la cuadrícula de Tareas (tareas-grid.js); con teclado, Mayús + flechas
+  const RESIZE_HANDLES = ['e', 's', 'se'].map((a) => `<span class="il-resize no-drag" data-resize="${a}" aria-hidden="true" title="Arrastra para cambiar el tamaño"></span>`).join('');
+
   class View {
     constructor(root, opts = {}) {
       this.root = root;
@@ -159,6 +146,7 @@
       this.openDetails = new Set();  // elementos con sus notas desplegadas (lectura)
       this.hoverId = null;           // tarjeta bajo el ratón (tecla E)
       this.onRender = opts.onRender;
+      this.menuItems = opts.menuItems;
       root.classList.add('il', `il-${this.variant}`);
       root.addEventListener('click', (e) => this.onClick(e));
       root.addEventListener('dblclick', (e) => this.onDblClick(e));
@@ -218,8 +206,9 @@
       const drafts = this.saveDrafts();
       const focusId = document.activeElement?.closest?.('.il-item')?.dataset.id;
       const focusInRow = document.activeElement?.matches?.('[data-act]') ? document.activeElement.dataset.act : null;
-      const scroller = this.root.closest('.sidebar-scroll') || document.scrollingElement;
+      const scroller = this.scroller();
       const top = scroller.scrollTop;
+      const inner = new Map([...this.innerScroll()].map(([key, el]) => [key, el.scrollTop]));
       const known = new Set(Items.state.items.map((i) => String(i.id)));
       [...this.selected].forEach((id) => { if (!known.has(String(id))) this.selected.delete(id); });
 
@@ -237,7 +226,25 @@
       }
       this.renderBar();
       this.onRender?.(this);
+      // Después de onRender: la cuadrícula da a las tarjetas su tamaño ahí, y sin él no hay a dónde desplazarse
+      if (this.onRender) scroller.scrollTop = top;
+      this.innerScroll().forEach((el, key) => { if (inner.has(key)) el.scrollTop = inner.get(key); });
       document.dispatchEvent(new CustomEvent('items:rendered'));
+    }
+
+    // Lo que se desplaza de verdad: en la app no es el documento (.page-body). Al repintar la cuadrícula, las tarjetas
+    // pierden un momento su tamaño, la página encoge y volvería arriba si no se restaura aquí
+    scroller() {
+      for (let n = this.root.parentElement; n && n !== document.body; n = n.parentElement) {
+        if (/(auto|scroll)/.test(getComputedStyle(n).overflowY)) return n;
+      }
+      return document.scrollingElement;
+    }
+
+    // Lo que se desplaza por dentro de una tarjeta en la cuadrícula (pasos y notas), para conservarlo al repintar
+    innerScroll() {
+      const boxes = this.root.querySelectorAll('.il-children, .il-details, .il-item.is-sized > .il-row');
+      return new Map([...boxes].map((el) => [`${el.classList[0]}:${el.closest('.il-item').dataset.id}`, el]));
     }
 
     // Lo escrito en un editor o en «añadir» abiertos sobrevive a un repintado (cambios de otra pestaña)
@@ -424,9 +431,8 @@
       const meta = [];
       if (kids.length) meta.push(`<span class="il-chip tabular" title="Pasos hechos">${icon('list-checks', 'icon-sm')}${doneKids}/${kids.length}</span>`);
       const isStep = it.type === 'rutina' && it.parent_id;
-      if (isStep) {  // paso de una rutina: su hora (calculada) y su duración
-        const at = stepTimes(Items.get(it.parent_id))[it.id];
-        if (at) meta.push(`<span class="il-chip tabular" title="Empieza a las ${at}">${icon('clock', 'icon-sm')}${at}</span>`);
+      if (isStep) {  // paso de una rutina: su hora y su duración
+        if (it.due_time) meta.push(`<span class="il-chip tabular" title="Empieza a las ${it.due_time}">${icon('clock', 'icon-sm')}${it.due_time}</span>`);
         if (it.duration_min) meta.push(`<span class="il-chip tabular" title="Duración">${icon('timer', 'icon-sm')}${fmtMin(it.duration_min)}</span>`);
         if (it.days_text) meta.push(`<span class="il-chip${it.today === false ? ' subtle' : ''}" title="Días en que toca este bloque">${icon('calendar', 'icon-sm')}${esc(it.days_text)}</span>`);
       } else if (it.type === 'rutina') {
@@ -473,6 +479,7 @@
         </div>
         ${child ? '' : `<ul class="il-children" data-parent="${it.id}" data-target="${it.origin}" ${it.note_id && it.origin === 'nota' ? `data-note="${esc(it.note_id)}"` : ''}
             aria-label="Pasos de «${esc(label)}»" ${open ? '' : 'data-folded'}>${open ? kids.map((k) => this.itemHTML(k, true)).join('') : ''}</ul>
+          ${this.variant === 'page' ? RESIZE_HANDLES : ''}
           ${this.adding === `item:${it.id}` ? this.addFormHTML(`item:${it.id}`, it.type === 'rutina' ? 'Nuevo paso (p. ej. «Ducha 10 min»)…' : 'Nuevo paso…') : ''}`}
       </li>`;
     }
@@ -507,8 +514,8 @@
           ${isStep ? '' : it.type === 'rutina' ? dayPicker({ rule: it.repeat || { freq: 'daily' }, legend: 'Se repite', note: everyNote(it.repeat, it.repeat_text || '') })
             : `<label class="field"><span class="field-label">Fecha</span>
             <input class="input input-sm" type="date" name="due_date" value="${esc(it.due_date || '')}"></label>`}
-          ${isStep ? '' : `<label class="field"><span class="field-label">Hora</span>
-            <input class="input input-sm" type="time" name="due_time" value="${esc(it.due_time || '')}" step="300"></label>`}
+          <label class="field"><span class="field-label">Hora</span>
+            <input class="input input-sm" type="time" name="due_time" value="${esc(it.due_time || '')}"></label>
           <label class="field"><span class="field-label">Duración (min)</span>
             <input class="input input-sm" type="number" name="duration_min" min="${it.type === 'rutina' ? 1 : 5}" max="1440" step="${it.type === 'rutina' ? 1 : 5}" value="${it.duration_min || ''}" placeholder="${isStep ? 10 : it.type === 'rutina' ? 30 : 60}"></label>
         </div>
@@ -694,6 +701,7 @@
         it.type !== 'rutina' && it.routine_step && { label: 'Quitar de la rutina', icon: 'unlink', onClick: () => Items.update(it.id, { routine_step: 0 }) },
         ...(it.links || []).map((l) => ({ label: `Quitar enlace con «${l.title.slice(0, 30)}»`, icon: 'unlink', onClick: () => unlinkNote(it, l) })),
         { label: 'Prioridad…', icon: 'flag', onClick: () => this.priorityMenu([it.id], anchor, it.priority) },
+        ...(this.menuItems?.(it) || []),
         { separator: true },
         { label: 'Subir', icon: 'chevron-up', onClick: () => this.moveBy(it, -1) },
         { label: 'Bajar', icon: 'chevron-down', onClick: () => this.moveBy(it, 1) },
@@ -911,6 +919,12 @@
         e.preventDefault();
         const all = [...this.root.querySelectorAll('.il-item')];
         all[all.indexOf(li) + (e.key === 'ArrowDown' ? 1 : -1)]?.focus();
+      } else if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && this.root.closest('.is-matrix')) {
+        // En la cuadrícula, a la tarjeta de al lado (sin pasar por sus pasos)
+        e.preventDefault();
+        const cards = [...this.root.querySelectorAll('.il-list > .il-item')];
+        const at = cards.indexOf(li.closest('.il-list > .il-item'));
+        cards[at + (e.key === 'ArrowRight' ? 1 : -1)]?.focus();
       }
     }
   }

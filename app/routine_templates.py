@@ -6,10 +6,11 @@ rutina que ya tengas (tabla `routine_templates`, migración 11).
     GET    /api/routine-templates              de serie + tuyas
     POST   /api/routine-templates              guardar una rutina como plantilla ({"item_id": N, "name": ...})
     DELETE /api/routine-templates/{id}         borrar una tuya
-    POST   /api/routine-templates/apply        crear la rutina y sus pasos ({"key": "b:manana" | "u:3", ...})
+    POST   /api/routine-templates/apply        crear la rutina y sus pasos ({"key": "b:manana" | "u:3", ...}); cada
+                                               paso se queda con su hora, y sin ella si choca con otro bloque
 
 Formato de `data`: {"title", "due_time", "repeat", "steps": [{"title", "duration_min", "due_time"?, "days"?}]}
-(`due_time` = hora fija del paso; `days` = sus días si no son los de la rutina, 0 = lunes).
+(`due_time` = hora del paso; sin ella, cuando acaba el anterior; `days` = sus días si no son los de la rutina, 0 = lunes).
 """
 import json
 
@@ -104,7 +105,7 @@ def api_save(data: SaveIn):
         if item_type(row) != "rutina" or row["parent_id"] is not None:
             raise HTTPException(status_code=422, detail="Solo una rutina se guarda como plantilla")
         steps = []
-        for s in routines.steps_of(conn, row["id"]):
+        for s in sorted(routines.steps_of(conn, row["id"]), key=lambda x: x["due_time"] or "99:99"):
             own = routines.step_rule(s)
             steps.append({"title": clean_text(s["content"]).split("\n")[0], "duration_min": s["duration_min"],
                           **({"due_time": s["due_time"]} if s["due_time"] else {}), **({"days": own["days"]} if own else {})})
@@ -132,12 +133,22 @@ def api_apply(data: ApplyIn):
         raise HTTPException(status_code=422, detail=str(e))
     due_time = (data.due_time if data.due_time is not None else t["due_time"]) or None
     rid = create(ItemIn(text=(data.title or t["title"]).strip() or t["title"], type="rutina", repeat=repeat, due_time=due_time))
-    # los pasos se crean al final de la lista: en orden, el primero arriba
-    for s in steps:
+    # los pasos se crean al final de la lista: en orden, el primero arriba. Primero sus días y luego la hora,
+    # porque el choque depende de ellos; si «due_time» viene vacío (quitada en el diálogo), va sin hora
+    sin_hora = []
+    for s in routines.schedule(due_time, steps):
         title = str(s.get("title") or "").strip()[:300]
         if title:
             dur = s.get("duration_min")
-            sid = create(ItemIn(text=title, parent_id=rid, duration_min=int(dur) if dur else None, due_time=s.get("due_time") or None))
+            sid = create(ItemIn(text=title, parent_id=rid, duration_min=int(dur) if dur else None))
             if s.get("days"):
                 update(sid, ItemPatch(step_days=[int(x) for x in s["days"]]))
-    return {"status": "success", "id": rid}
+            at = s["due_time"] if "due_time" in s else s["at"]
+            if at:
+                try:
+                    update(sid, ItemPatch(due_time=at))
+                except HTTPException as e:
+                    if e.status_code != 409:
+                        raise
+                    sin_hora.append(title)
+    return {"status": "success", "id": rid, "sin_hora": sin_hora}

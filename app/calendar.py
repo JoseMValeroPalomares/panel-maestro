@@ -255,17 +255,13 @@ def task_entry(r) -> dict:
 def routine_entry(r, d: date, done: bool, rule: dict, steps: list | None = None) -> dict:
     timed = bool(r["due_time"])
     start = f"{d.isoformat()}T{r['due_time']}" if timed else d.isoformat()
-    plan = routines.schedule(r["due_time"], [{"id": s["id"], "title": clean_text(s["content"]).split("\n")[0], "due_time": s["due_time"],
-                                              "duration_min": s["duration_min"], "done": d.isoformat() in ch}
-                                             for s, ch in (steps or []) if routines.step_on(s, d)])
-    # sin duración propia, la rutina dura hasta que acaba su último paso (horas fijas incluidas)
+    plan = routines.timeline([{"id": s["id"], "title": clean_text(s["content"]).split("\n")[0], "due_time": s["due_time"],
+                               "duration_min": s["duration_min"], "done": d.isoformat() in ch}
+                              for s, ch in (steps or []) if routines.step_on(s, d)])
+    # sin duración propia, dura lo que sumen sus pasos (si alguno tiene hora, el calendario los pinta por separado)
     end = None
     if timed:
-        last = plan[-1] if plan else None
-        if not r["duration_min"] and last and (last["end"] or last["at"]) and (last["end"] or last["at"]) > r["due_time"]:
-            end = f"{d.isoformat()}T{last['end'] or last['at']}"
-        else:
-            end = (datetime.fromisoformat(start) + timedelta(minutes=r["duration_min"] or sum(p["duration_min"] or 0 for p in plan) or 30)).strftime("%Y-%m-%dT%H:%M")
+        end = (datetime.fromisoformat(start) + timedelta(minutes=r["duration_min"] or sum(p["duration_min"] or 0 for p in plan) or 30)).strftime("%Y-%m-%dT%H:%M")
     return {"key": f"r{r['id']}@{d.isoformat()}", "kind": "routine", "id": r["id"], "item_id": r["id"],
             "title": clean_text(r["content"]).split("\n")[0], "start": start, "end": end, "all_day": not timed,
             "type": "rutina", "done": done, "day": d.isoformat(), "repeat_text": routines.describe(rule), "steps": plan,
@@ -273,7 +269,7 @@ def routine_entry(r, d: date, done: bool, rule: dict, steps: list | None = None)
 
 
 def step_entry(r, p: dict, d: date, routine: dict) -> dict:
-    """Un bloque de una rutina como entrada propia del calendario (marcar = hecho ese día; moverlo le pone hora fija)."""
+    """Un bloque de una rutina como entrada propia del calendario (marcar = hecho ese día; moverlo le cambia la hora)."""
     base = {"key": f"r{p['id']}@{d.isoformat()}", "kind": "routine", "id": p["id"], "item_id": p["id"], "title": p["title"],
             "type": "rutina", "done": p["done"], "day": d.isoformat(), "repeat_text": routine["repeat_text"],
             "routine_id": r["id"], "routine_title": routine["title"], "reminder_min": None, "editable": True, "step": True}
@@ -414,7 +410,7 @@ def api_routines_day(date_: str | None = Query(default=None, alias="date")):
                               "days": own["days"] if own else None, "days_text": routines.describe(own) if own else None,
                               "done": d.isoformat() in routines.checks(conn, s["id"], since=d), "tasks": attached.get(s["id"], [])})
                 steps[-1]["skipped"] = steps[-1]["done"] and s["id"] in skipped
-            plan = routines.schedule(r["due_time"], [x for x in steps if x["on"]])
+            plan = routines.timeline([x for x in steps if x["on"]])
             since = routines.created_day(r)
             if done:
                 since = min(since, date.fromisoformat(min(done)))
@@ -422,6 +418,7 @@ def api_routines_day(date_: str | None = Query(default=None, alias="date")):
                         "repeat": rule, "repeat_text": routines.describe(rule), "done": d.isoformat() in done,
                         "streak": routines.streak(rule, done, date.today(), since), "steps": plan,
                         "otros_dias": [x for x in steps if not x["on"]], "tasks": attached.get(r["id"], [])})
+    routines.mark_overlaps(out)
     return {"date": d.isoformat(), "weekday": d.weekday(), "today": date.today().isoformat(),
             "now": datetime.now(TZ).strftime("%H:%M"), "rutinas": out, "otras": otros}
 

@@ -5,7 +5,8 @@
 (function () {
   'use strict';
   const $ = (id) => document.getElementById(id);
-  const view = ItemList.mount($('itemList'), { variant: 'page' });
+  const view = ItemList.mount($('itemList'), { variant: 'page', onRender: TareasGrid.layout, menuItems: TareasGrid.menuItems });
+  TareasGrid.init();
   ItemList.wireStatus(view, document.querySelector('.status-seg'));
 
   // Tipo y categoría se recuerdan (Prefs 'tareas-filters'), salvo al llegar con ?item= (hay que ver esa tarea)
@@ -54,6 +55,33 @@
       view.setFilters({ type, category });
     }).catch(() => {});
   }
+
+  // Lista o cuadrícula (Prefs 'tareas-view'): solo cambia el dibujo, las tarjetas son las mismas
+  const VKEY = 'tareas-view';
+  const savedView = () => (Prefs.get(VKEY) === 'matriz' ? 'matriz' : 'lista');
+  function paintView(mode) {
+    document.querySelector('.tareas').classList.toggle('is-matrix', mode === 'matriz');
+    document.querySelectorAll('[data-view]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.view === mode)));
+    TareasGrid.layout();
+  }
+  function setView(mode) {
+    paintView(mode);
+    Prefs.set(VKEY, mode);
+  }
+  document.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
+  paintView(savedView());
+  Prefs.ready.then(() => paintView(savedView())).catch(() => {});
+
+  // R cambia de vista. G + R (ir a Revisión) llega antes y ya viene marcado como atendido
+  document.addEventListener('keydown', (e) => {
+    if (e.key.toLowerCase() !== 'r' || e.repeat || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+    const t = e.target;
+    if (t.isContentEditable || /^(input|textarea|select)$/i.test(t.tagName || '') || document.querySelector('dialog[open]')) return;
+    if (!document.querySelector('.view-seg').offsetParent) return;  // en el móvil no hay cuadrícula
+    e.preventDefault();
+    setView(document.querySelector('.tareas').classList.contains('is-matrix') ? 'lista' : 'matriz');
+    document.activeElement?.closest?.('.il-item')?.scrollIntoView({ block: 'nearest' });
+  });
 
   $('btnSelect').addEventListener('click', () => {
     if (view.selectMode) view.clearSelection();

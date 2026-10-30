@@ -184,6 +184,56 @@
 
 /* Pestaña Tareas */
 .tareas { max-width: 880px; margin: 0 auto; width: 100%; }
+/* Vista en cuadrícula de Tareas: cada grupo reparte sus tarjetas en filas y los pasos se ven dentro */
+@media (min-width: 768px) {
+  .tareas.is-matrix { max-width: none; }
+  /* Rejilla fina (tareas-grid.js): 10 pistas por columna normal y filas de 4 px, con las tarjetas metidas en los huecos */
+  .is-matrix .il-list {
+    display: grid; grid-template-columns: repeat(var(--tracks, 30), minmax(0, 1fr)); grid-auto-rows: 4px; grid-auto-flow: row dense;
+    align-items: start; gap: 0 12px;
+  }
+  .is-matrix .il-list > .il-item, .is-matrix .il-list > .sortable-placeholder {
+    min-width: 0; grid-column-end: span var(--card-w, 10); grid-row-end: span var(--card-rows, 20);
+  }
+  .is-matrix .il-list > .il-item { position: relative; height: var(--card-h, auto); }
+  /* Con alto propio el contenido se reparte dentro: lo que no cabe se desplaza sin mover el resto */
+  .is-matrix .il-list > .il-item.is-sized { display: flex; flex-direction: column; overflow: hidden; }
+  .is-matrix .il-item.is-sized > .il-row { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
+  .is-matrix .il-item.is-sized > .il-children { flex: 1 1 0; min-height: 0; max-height: none; }
+  .is-matrix .il-resize { display: block; position: absolute; z-index: 1; }
+  .is-matrix .il-resize[data-resize="e"] { top: 0; right: 0; bottom: 14px; width: 7px; cursor: ew-resize; }
+  .is-matrix .il-resize[data-resize="s"] { left: 0; right: 14px; bottom: 0; height: 7px; cursor: ns-resize; }
+  .is-matrix .il-resize[data-resize="se"] { right: 0; bottom: 0; width: 16px; height: 16px; cursor: nwse-resize; }
+  .is-matrix .il-resize[data-resize="se"]::after {
+    content: ""; position: absolute; right: 4px; bottom: 4px; width: 7px; height: 7px; border-right: 2px solid var(--text-3);
+    border-bottom: 2px solid var(--text-3); border-bottom-right-radius: 3px; opacity: 0; transition: opacity var(--dur-fast);
+  }
+  .is-matrix .il-item:hover > .il-resize[data-resize="se"]::after { opacity: 1; }
+  .is-matrix .il-resize:not([data-resize="se"]):hover { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+  .is-matrix .il-item:has(.il-editor) > .il-resize, .sortable-ghost .il-resize { display: none; }
+  .is-matrix .il-list:empty { display: block; }
+  /* Se edita dentro de la tarjeta: el formulario se adapta a su ancho y le deja sitio lo que hay a su derecha */
+  .is-matrix .il-editor-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .is-matrix .il-editor-grid .segmented { grid-column: 1 / -1; display: flex; }
+  .is-matrix .il-editor-grid .segmented button { flex: 1; padding-inline: var(--sp-1); }
+  .is-matrix .il-editor .day-options { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+  .is-matrix .il-editor-actions .tiny { display: none; }
+  .is-matrix .il-editor-grid .field:has(input[type="date"]) { grid-column: 1 / -1; }
+  .is-matrix .il-row:has(> .il-body > .il-editor) { align-items: flex-start; }
+  .is-matrix .il-row:has(> .il-body > .il-editor) > :is(.il-fold, .il-more) { display: none; }
+  .is-matrix .il-child > .il-row:has(> .il-body > .il-editor) > :is(.drag-handle, .card-check) { display: none; }
+  .is-matrix .il-children:has(.il-editor) { max-height: none; overflow: visible; }  /* el editor de un paso no cabe en la caja con scroll */
+  .is-matrix .il-children { margin-left: var(--sp-2); padding-left: var(--sp-2); max-height: 172px; overflow-y: auto; overscroll-behavior: contain; }
+  .is-matrix .il-child .il-row { min-height: 30px; }  /* compactos: con muchos pasos, la lista se desplaza dentro de la tarjeta */
+  .is-matrix .il-details { max-height: 180px; overflow-y: auto; }
+  .is-matrix .il-addform { margin-left: var(--sp-2); }
+}
+.il-resize { display: none; }
+.is-resizing, .is-resizing * { user-select: none !important; -webkit-user-select: none !important; }
+body[data-resize="e"], body[data-resize="e"] * { cursor: ew-resize !important; }
+body[data-resize="s"], body[data-resize="s"] * { cursor: ns-resize !important; }
+body[data-resize="se"], body[data-resize="se"] * { cursor: nwse-resize !important; }
+.view-seg button { display: inline-flex; align-items: center; gap: 6px; }
 .task-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-3); }
 .task-filters .search { min-width: 200px; }
 .cat-filter { width: auto; max-width: 220px; }

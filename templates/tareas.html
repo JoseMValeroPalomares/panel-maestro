@@ -4,6 +4,10 @@
 {% block body_class %}page-tareas{% endblock %}
 {% block title_icon %}{{ icon('list-todo') }}{% endblock %}
 {% block actions %}
+<div class="segmented view-seg hide-mobile" role="group" aria-label="Vista" title="Cambiar de vista: R">
+  <button type="button" data-view="lista" aria-pressed="true" aria-keyshortcuts="r">{{ icon('list', 'icon-sm') }}Lista</button>
+  <button type="button" data-view="matriz" aria-pressed="false" aria-keyshortcuts="r">{{ icon('layout-grid', 'icon-sm') }}Cuadrícula</button>
+</div>
 <div class="segmented status-seg" role="group" aria-label="Estado">
   <button type="button" data-status="pending" aria-pressed="true">Pendientes <span class="tabular" data-status-count="pendientes"></span></button>
   <button type="button" data-status="done" aria-pressed="false">Hechas <span class="tabular" data-status-count="hechas"></span></button>
@@ -32,11 +36,11 @@
 
   <div id="itemList" class="il-host" aria-live="polite"></div>
   <p class="tiny subtle tareas-help">Arrastra para ordenar, llevar a otro grupo o nota, o suelta sobre el centro de una tarjeta para meterla como paso.
-    <span class="hide-mobile">Doble clic o <kbd>Enter</kbd> edita; <kbd>Espacio</kbd> marca; <kbd>Alt</kbd> + flechas mueve; <kbd>Alt</kbd> + <kbd>Mayús</kbd> + <kbd>→</kbd>/<kbd>←</kbd> mete o saca de su elemento; <kbd>X</kbd> selecciona.</span>
+    <span class="hide-mobile"><kbd>R</kbd> cambia de vista; en cuadrícula, arrastra el borde de una tarjeta o usa <kbd>Mayús</kbd> + flechas para cambiar su tamaño; doble clic o <kbd>Enter</kbd> edita; <kbd>Espacio</kbd> marca; <kbd>Alt</kbd> + flechas mueve; <kbd>Alt</kbd> + <kbd>Mayús</kbd> + <kbd>→</kbd>/<kbd>←</kbd> mete o saca de su elemento; <kbd>X</kbd> selecciona.</span>
     <span class="show-mobile">Mantén pulsada una tarjeta para arrastrarla; toca … para más acciones.</span>
     Las casillas <code>- [ ]</code> de tus notas aparecen en «Notas» y se cambian en los dos sentidos.</p>
 </div>
 {{ note_dialog() }}
 {% endblock %}
 {% block scripts %}<script src="{{ asset('/static/vendor/marked/marked.min.js') }}"></script><script src="{{ asset('/static/vendor/dompurify/purify.min.js') }}"></script>
-<script src="{{ asset('/static/js/item-list.js') }}"></script><script src="{{ asset('/static/js/tareas.js') }}"></script>{% endblock %}
+<script src="{{ asset('/static/js/item-list.js') }}"></script><script src="{{ asset('/static/js/tareas-grid.js') }}"></script><script src="{{ asset('/static/js/tareas.js') }}"></script>{% endblock %}

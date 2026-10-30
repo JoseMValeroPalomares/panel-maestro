@@ -27,7 +27,11 @@
     S.kids = {};
     items.forEach((it) => { S.byId[it.id] = it; });
     items.forEach((it) => { if (it.parent_id && S.byId[it.parent_id]) (S.kids[it.parent_id] ||= []).push(it); });
-    // Pasos en el orden en que se ven (el del servidor: sort_order descendente)
+    // Pasos en el orden en que se ven (el del servidor: sort_order descendente); los de una rutina,
+    // por su hora, y al final los que no tienen
+    Object.values(S.kids).forEach((kids) => {
+      if (kids[0].type === 'rutina') kids.sort((a, b) => (a.due_time || '99').localeCompare(b.due_time || '99'));
+    });
   }
 
   function emit() {

@@ -472,6 +472,10 @@ def create(data: ItemIn) -> int:
         return new_id
 
     target = TYPE_TARGET[type_]
+    if parent is not None and type_ == "rutina" and data.due_time:
+        with get_db() as conn:
+            routines.ensure_free(conn, {"id": None, "item_type": "rutina", "parent_id": data.parent_id, "content": text_in,
+                                        "due_time": data.due_time, "duration_min": duration, "repeat": None})
     # Una rutina se repite (cada día si no se dice otra cosa); sus pasos siguen su regla
     repeat = (data.repeat or {"freq": "daily"}) if type_ == "rutina" and parent is None else None
     with get_db() as conn:
@@ -518,6 +522,10 @@ def update(item_id: int, data: ItemPatch) -> None:
         with get_db() as conn:
             row = _get(conn, item_id)
         is_note = False
+    if any(v is not None for v in (data.due_time, data.duration_min, data.step_days, data.repeat)):
+        with get_db() as conn:  # antes de escribir nada: lo que choca no se guarda a medias
+            routines.ensure_free(conn, row, due_time=data.due_time, duration_min=data.duration_min,
+                                 step_days=data.step_days, repeat=data.repeat)
     if data.category is not None and is_note and data.category.strip():
         raise HTTPException(status_code=422, detail="Una tarea de una nota lleva la categoría de su nota")
     if data.text is not None:

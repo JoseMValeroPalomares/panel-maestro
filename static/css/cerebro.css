@@ -88,7 +88,7 @@ mark { background: rgba(255, 204, 0, 0.35); color: inherit; border-radius: 3px; 
 
 .note-head { padding: var(--sp-3) var(--sp-8) var(--sp-3); border-bottom: 1px solid var(--separator); flex-shrink: 0; }
 .note-head-top { display: flex; align-items: center; gap: var(--sp-2); min-height: 36px; }
-.back-btn { display: none; margin-left: calc(-1 * var(--sp-2)); }
+.back-btn { margin-left: calc(-1 * var(--sp-2)); }
 .breadcrumbs { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; font-size: var(--fs-13); color: var(--text-2); font-weight: 500; }
 .breadcrumbs .crumb { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .breadcrumbs .crumb:last-child { color: var(--text); }
@@ -262,7 +262,6 @@ dialog.modal.modal-newnote { width: min(620px, calc(100vw - 32px)); overflow: vi
   body.note-open .notes-header { display: none; }
   body.note-open .tabbar { display: none; }
   .note-pane { position: relative; }
-  .back-btn { display: inline-flex; }
   .breadcrumbs { display: none; }
   .note-pane.is-reading .note-meta { display: none; }
   .note-pane.is-reading .note-head { border-bottom: 0; padding-bottom: 0; }

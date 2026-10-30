@@ -16,8 +16,12 @@
 /* La línea: hora · raíl con punto · bloque */
 .rp-line { list-style: none; padding: 0; margin: 0; }
 .rp-step { display: grid; grid-template-columns: 58px 22px minmax(0, 1fr); column-gap: var(--sp-2); }
-.rp-time { padding-top: 9px; display: flex; justify-content: flex-end; align-items: center; gap: 2px; font-size: var(--fs-13); color: var(--text-2); white-space: nowrap; height: fit-content; }
-.rp-pin { width: 11px; height: 11px; color: var(--text-3); flex-shrink: 0; }
+.rp-time { padding-top: 5px; display: flex; justify-content: flex-end; height: fit-content; }
+.rp-time-input { width: 100%; min-width: 0; height: 28px; padding: 0 4px; border: 0; border-radius: var(--r-xs); background: transparent; color: var(--text-2);
+  font: inherit; font-size: var(--fs-13); text-align: right; cursor: text; }
+.rp-time-input::placeholder { color: var(--text-3); opacity: 1; }
+.rp-time-input:hover, .rp-time-input:focus { background: var(--fill); color: var(--text); }
+@media (pointer: coarse) { .rp-time-input { height: 44px; margin-block: -8px; } }
 .rp-rail { position: relative; display: flex; justify-content: center; }
 .rp-rail::before { content: ""; position: absolute; top: 0; bottom: 0; width: 2px; background: var(--separator); }
 .rp-step:first-child .rp-rail::before { top: 14px; }
@@ -34,6 +38,11 @@
 .rp-step-title:hover { color: var(--accent-text); }
 .rp-step.is-done .rp-step-title { text-decoration: line-through; color: var(--text-2); }
 .rp-dur { white-space: nowrap; }
+.rp-gap { display: grid; grid-template-columns: 58px 22px minmax(0, 1fr); column-gap: var(--sp-2); align-items: center; min-height: 28px; }
+.rp-gap .rp-rail { grid-column: 2; height: 100%; }
+.rp-gap .rp-rail::before { background: none; border-left: 2px dashed var(--separator); }
+.rp-gap .tiny { padding: 0 var(--sp-2); }
+.rp-clash { background: var(--warning-soft); color: var(--warning-text); }
 .rp-now { background: color-mix(in srgb, var(--tile-rutinas) 22%, transparent); color: var(--text); }
 
 /* Tareas asociadas a un bloque */
@@ -49,13 +58,11 @@
 
 .rp-add { display: flex; gap: var(--sp-2); margin: var(--sp-2) 0 0 calc(58px + 22px + 2 * var(--sp-2)); }
 .rp-add .input { flex: 1; min-width: 0; }
+.rp-add .rp-add-at { flex: 0 0 auto; width: 4.5em; }
 .rp-other { margin: var(--sp-2) 0 0 calc(58px + 22px + 2 * var(--sp-2)); }
 .rp-others { text-align: center; }
 .rp-empty { padding: var(--sp-6) var(--sp-5); }
 .rp-empty-actions { display: flex; justify-content: center; gap: var(--sp-2); flex-wrap: wrap; margin-top: var(--sp-3); }
-
-/* Diálogos: días de un bloque */
-  font-weight: 700; font-size: var(--fs-13); cursor: pointer; }
 
 @media (max-width: 767px) {
   .page-rutinas .page-header { flex-wrap: wrap; row-gap: var(--sp-2); }
@@ -63,10 +70,16 @@
   .page-rutinas .rp-days { flex: 1; }
   .rp-days > button { flex: 1; min-width: 0; }
   .rp-card { padding: var(--sp-3) var(--sp-3) var(--sp-2); }
-  .rp-step { grid-template-columns: 44px 18px minmax(0, 1fr); column-gap: 6px; }
+  .rp-step, .rp-gap { grid-template-columns: 54px 18px minmax(0, 1fr); column-gap: 6px; }
+  .rp-time-input, .rp-add .rp-add-at { font-size: 16px; }  /* con menos, el iPhone hace zoom al enfocar */
   .rp-tasks { margin-left: var(--sp-3); }
   .rp-loose, .rp-add, .rp-other { margin-left: 0; }
-  .rp-dur { display: none; }
+  /* la duración, debajo del nombre: en la misma fila se recortaba */
+  .rp-row { flex-wrap: wrap; row-gap: 0; padding-block: 4px; }
+  .rp-row .grow { display: none; }
+  .rp-step-title { flex: 1 1 0; }
+  .rp-row .rp-dur { order: 9; flex: 0 0 100%; padding-left: 30px; }
+  .rp-row .rp-dur:empty { display: none; }
 }
 
 /* Bloque saltado ese día: resuelto, pero distinto de hecho */

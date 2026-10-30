@@ -145,7 +145,7 @@ def context(browser):
 def page(context, server):
     # vistas que se recuerdan en el servidor: cada test empieza con las de por defecto
     import httpx
-    for key, value in (("inbox-pane", "lista"), ("inbox-type", "all"), ("tareas-filters", None), ("nav-folded", None), ("calendar-hour-size", None)):
+    for key, value in (("inbox-pane", "lista"), ("inbox-type", "all"), ("tareas-filters", None), ("tareas-view", None), ("tareas-sizes", None), ("nav-folded", None), ("calendar-hour-size", None)):
         httpx.put(f"{server}/api/prefs/{key}", json={"value": value}, timeout=10)
     pg = context.new_page()
     errors = []
@@ -153,8 +153,10 @@ def page(context, server):
     # - los intentos de conexión con el ESP32 de pruebas (192.0.2.1, ver arriba) fallan a propósito (según la red,
     #   «sin respuesta» o lo que conteste un proxy);
     # - la transición entre páginas (@view-transition en ds.css) que Chrome aborta cuando el test navega otra vez
-    #   antes de que la página se muestre («Transition was aborted… Page already revealed»).
-    benign = ("WebSocket connection to 'ws://192.0.2.1/", "Transition was aborted because of invalid state")
+    #   antes de que la página se muestre («Transition was aborted… Page already revealed»);
+    # - el 409 de un bloque de rutina que choca con otro: es una respuesta esperada, y la app la enseña en un aviso.
+    benign = ("WebSocket connection to 'ws://192.0.2.1/", "Transition was aborted because of invalid state",
+              "Failed to load resource: the server responded with a status of 409")
     pg.on("pageerror", lambda e: not str(e).startswith(benign) and errors.append(str(e)))
     pg.on("console", lambda m: m.type == "error" and not m.text.startswith(benign) and errors.append(m.text))
     yield pg

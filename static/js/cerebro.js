@@ -11,6 +11,7 @@ let statusFilter = 'all';
 let tagFilter = null;
 let currentMode = 'read';
 let autoSaveTimer = null;
+const SAVE_RETRY_MS = 5000;
 let currentPreviewPct = 50;
 let lastSavedSnapshot = '';
 window.__simCodes = {};
@@ -447,16 +448,52 @@ document.addEventListener('click', (e) => {
   const b = e.target.closest('#notesHome [data-open]');
   if (b) openNote(b.dataset.open);
 });
-function closeNoteMobile() {
-  flushAutoSave();
-  document.body.classList.remove('note-open');
-  if (isMobile()) {
-    activeNoteId = null;
-    $('editorArea').hidden = true;
-    history.replaceState(null, '', location.pathname);
-    applyFilters($('searchInput').value.trim());
-  }
+
+/* ---------- Volver a la portada: / es la portada y /?note=… una nota ---------- */
+// Abrir desde la portada añade una entrada al historial, así Atrás vuelve a ella; de nota a nota se sustituye
+function setNoteUrl(id) {
+  const url = '?note=' + encodeURIComponent(id);
+  if (new URLSearchParams(location.search).has('note')) history.replaceState(history.state, '', url);
+  else history.pushState({ fromHome: true }, '', url);
 }
+
+// Lo pendiente se guarda antes de cerrar; si no se puede, la nota sigue abierta para no perder lo escrito
+async function savePending() {
+  if (!autoSaveTimer || snapshot() === lastSavedSnapshot) return true;
+  await saveNote(true);
+  if (snapshot() === lastSavedSnapshot) return true;
+  toast('No se pudo guardar: la nota sigue abierta para no perder lo escrito', { type: 'error' });
+  return false;
+}
+
+function showHome() {
+  clearTimeout(autoSaveTimer);
+  autoSaveTimer = null;
+  activeNoteId = null;
+  $('currentNoteId').value = '';
+  if (noteIsEncrypted) {  // cerrada, una nota cifrada no deja su texto en la página
+    currentPassphrase = null;
+    $('noteContent').value = '';
+    $('readContent').innerHTML = '';
+  }
+  showNotePane(false);
+  applyFilters($('searchInput').value.trim());
+}
+
+async function closeNote() {
+  if (!(await savePending())) return;
+  if (history.state?.fromHome) { history.back(); return; }  // lo cierra popstate
+  history.replaceState(null, '', location.pathname);
+  showHome();
+}
+
+window.addEventListener('popstate', async () => {
+  const id = new URLSearchParams(location.search).get('note');
+  if (id) { if (id !== activeNoteId) openNote(id); return; }
+  if (!activeNoteId) return;
+  if (await savePending()) showHome();
+  else history.pushState({ fromHome: true }, '', '?note=' + encodeURIComponent(activeNoteId));
+});
 
 async function openNote(id) {
   if (activeNoteId && activeNoteId !== id) flushAutoSave();
@@ -465,7 +502,6 @@ async function openNote(id) {
     note = await api(`/api/notes/${encodeURIComponent(id)}`, { quiet: true });
   } catch (err) {
     if (err.status === 404) {
-      try { localStorage.removeItem('lastOpenNoteId'); } catch {}
       const title = id.replace(/-/g, ' ');
       const ok = await uiConfirm('Esa nota todavía no existe', `¿Crear «${title}»?`, { confirmLabel: 'Crear nota' });
       if (ok) createNoteDirect(title.charAt(0).toUpperCase() + title.slice(1), $('noteCategory').value.trim() || 'General', id);
@@ -474,8 +510,7 @@ async function openNote(id) {
   }
 
   activeNoteId = id;
-  try { localStorage.setItem('lastOpenNoteId', id); } catch {}
-  if (new URLSearchParams(location.search).get('note') !== id) history.replaceState(null, '', '?note=' + encodeURIComponent(id));
+  if (new URLSearchParams(location.search).get('note') !== id) setNoteUrl(id);
   activeStatus = note.status || 'por-escribir';
   noteIsEncrypted = !!note.encrypted;
   currentPassphrase = null;
@@ -592,6 +627,11 @@ async function saveNote(silent = false) {
     await api(`/api/notes/${encodeURIComponent(id)}`, { method: 'POST', body: payload, quiet: silent });
   } catch {
     showSaveIndicator('error');
+    // Sigue pendiente: se reintenta, y cerrar la nota o salir de la página lo saben
+    if (!autoSaveTimer) autoSaveTimer = setTimeout(() => {
+      autoSaveTimer = null;
+      if ($('currentNoteId').value === id) saveNote(true);
+    }, SAVE_RETRY_MS);
     return;
   }
   lastSavedSnapshot = snap;
@@ -629,10 +669,7 @@ async function deleteCurrentNote() {
   const ok = await uiConfirm(`¿Eliminar «${title}»?`, 'Irá a la papelera: podrás restaurarla durante 30 días.', { confirmLabel: 'Eliminar', danger: true });
   if (!ok) return;
   const res = await api(`/api/notes/${encodeURIComponent(id)}`, { method: 'DELETE' });
-  activeNoteId = null;
-  try { localStorage.removeItem('lastOpenNoteId'); } catch {}
-  $('currentNoteId').value = '';
-  showNotePane(false);
+  showHome();
   history.replaceState(null, '', location.pathname);
   toast('Nota en la papelera', { action: res.undo_token ? { label: 'Deshacer', onClick: async () => {
     await api(`/api/trash/brain/${res.undo_token}/restore`, { method: 'POST' });
@@ -720,7 +757,7 @@ function createNoteDirect(title, category, id = slugify(title)) {
   updateBreadcrumbs();
   updateCharCount();
   setMode('edit');
-  history.replaceState(null, '', '?note=' + encodeURIComponent(id));
+  setNoteUrl(id);
   $('noteLinks').hidden = true;
   saveNote(true);
 }
@@ -1472,10 +1509,7 @@ if (new URLSearchParams(location.search).get('nueva')) {
   loadFlashcardStats();
   await loadNotes();
   const urlNote = new URLSearchParams(location.search).get('note');
-  let lastNote = null;
-  try { lastNote = localStorage.getItem('lastOpenNoteId'); } catch {}
-  const noteToOpen = urlNote || (isMobile() ? null : lastNote);
-  if (noteToOpen) openNote(noteToOpen);
+  if (urlNote) openNote(urlNote);
   else showNotePane(false);
   if (new URLSearchParams(location.search).has('flashcards')) openFlashcardsModal(); // desde /repaso
 })();

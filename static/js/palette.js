@@ -129,7 +129,7 @@
     'page-calendario': ['Calendario', [[`${k('←')} ${k('→')}`, 'Anterior / siguiente'], [k('T'), 'Volver a hoy'],
       [`${k('D')} ${k('3')} ${k('S')} ${k('M')} ${k('A')}`, 'Día, 3 días, semana, mes, agenda'], [k('N'), 'Nuevo evento escribiendo'],
       [`${k('Ctrl')} ${k('Intro')}`, 'Guardar en el editor']]],
-    'page-tareas': ['Tareas', LIST_KEYS],
+    'page-tareas': ['Tareas', [[k('R'), 'Cambiar entre lista y cuadrícula'], [`${k('Mayús')} + flechas`, 'Cambiar el tamaño de la tarjeta (en cuadrícula)'], ...LIST_KEYS]],
     'page-inbox': ['Inbox y tablero', [...LIST_KEYS, [`${k('V')} ${k('H')}`, 'Seleccionar / desplazar el tablero'],
       [`${k('R')} ${k('O')} ${k('S')} ${k('T')} ${k('A')} ${k('P')}`, 'Caja, óvalo, nota, texto, conector, lápiz'],
       [`${k('Ctrl')} ${k('Z')}`, 'Deshacer en el tablero'], [`${k('F')} ${k('0')}`, 'Ajustar a pantalla / zoom 100 %']]],

@@ -8,7 +8,9 @@ import json
 import re
 import sqlite3
 import time
+from datetime import date, timedelta
 
+from app import routines
 from app.board_convert import convert_text
 from core.migrations import Migration, has_column
 
@@ -351,6 +353,33 @@ def finance_plans_down(conn: sqlite3.Connection) -> None:
             conn.execute(f"DROP TABLE {table}")
 
 
+# 16 ─ Cada paso de rutina con su propia hora ─────────────────────────────────────────────────────
+# Antes, un paso sin hora empezaba cuando acababa el anterior. Ya no hay encadenado: cada paso se queda
+# con la hora que tenía, la del primer día de la semana en que toca (podía cambiar de un día a otro).
+
+def step_times_up(conn: sqlite3.Connection) -> None:
+    conn.execute("CREATE TABLE IF NOT EXISTS step_times_backup (id INTEGER PRIMARY KEY)")
+    hours = {}
+    lunes = date(2026, 10, 26)
+    for r in conn.execute("SELECT * FROM inbox WHERE item_type='rutina' AND parent_id IS NULL").fetchall():
+        rule = routines.parse(r["repeat"])
+        steps = conn.execute("SELECT * FROM inbox WHERE parent_id=? ORDER BY sort_order DESC, created_at DESC", (r["id"],)).fetchall()
+        for d in (lunes + timedelta(days=i) for i in range(7)):
+            if rule["freq"] != "weekly" or d.weekday() in rule["days"]:
+                for s in routines.schedule(r["due_time"], [dict(x) for x in steps if routines.step_on(x, d)]):
+                    if s["at"] and not s["due_time"]:
+                        hours.setdefault(s["id"], s["at"])
+    for sid, at in hours.items():
+        conn.execute("INSERT INTO step_times_backup (id) VALUES (?)", (sid,))
+        conn.execute("UPDATE inbox SET due_time=? WHERE id=?", (at, sid))
+
+
+def step_times_down(conn: sqlite3.Connection) -> None:
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='step_times_backup'").fetchone():
+        conn.execute("UPDATE inbox SET due_time=NULL WHERE id IN (SELECT id FROM step_times_backup)")
+        conn.execute("DROP TABLE step_times_backup")
+
+
 MIGRATIONS = [
     Migration(1, "inbox: un nivel de subelementos y tipo del padre", _inbox_one_level_up, _inbox_one_level_down),
     Migration(2, "baúl: orden manual (resources.sort_order)", resources_order_up, resources_order_down),
@@ -367,4 +396,5 @@ MIGRATIONS = [
     Migration(13, "economía: cuentas, movimientos, deudas y lista de deseos", finance_up, finance_down),
     Migration(14, "tablero de una tarea (boards.item_id)", board_item_up, board_item_down),
     Migration(15, "economía: presupuestos por categoría y movimientos recurrentes", finance_plans_up, finance_plans_down),
+    Migration(16, "rutinas: cada paso con su propia hora", step_times_up, step_times_down),
 ]

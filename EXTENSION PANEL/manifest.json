@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Panel: Inbox, Baúl y agenda",
-  "version": "2.5.0",
+  "version": "2.5.1",
   "description": "Envía al Inbox de tu Panel lo que seleccionas o la página que ves (tarea, idea o paso de otra; prefijos t: i: r: e:), guarda enlaces en el Baúl y consulta y gestiona tu agenda. Funciona sin conexión: lo guarda y lo envía después.",
   "icons": { "48": "icons/icon.svg", "96": "icons/icon.svg" },
   "permissions": [

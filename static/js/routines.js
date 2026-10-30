@@ -4,7 +4,8 @@
                                 hora, la repetición y los pasos editables antes de crearla
      Routines.saveTemplate(id)  guardar una rutina (con sus pasos) como plantilla
      Routines.run(id)           hacerla paso a paso: el paso actual con su temporizador,
-                                Intro = hecho, S = saltar, Espacio = pausa
+                                Intro = hecho, S = saltar, Espacio = pausa. Si el siguiente tiene una
+                                hora que aún no ha llegado, no empieza solo: hasta entonces hay tiempo libre
    Datos: /api/routine-templates (app/routine_templates.py); los pasos se marcan con Items.setDone
    (marcar el último marca la rutina, app/routines.py).
    ========================================================================== */
@@ -47,7 +48,7 @@
     };
 
     const paintForm = (t) => {
-      let steps = t.steps.map((s) => ({ title: s.title, duration_min: s.duration_min || '' }));
+      let steps = t.steps.map((s) => ({ title: s.title, duration_min: s.duration_min || '', at: s.at || '', days: s.days || null }));
       foot.hidden = false;
       foot.innerHTML = `<button type="button" class="btn" data-back>${icon('chevron-left', 'icon-sm')}Volver</button><span class="spacer"></span>
         <button type="button" class="btn" data-close>Cancelar</button><button type="submit" form="rtForm" class="btn btn-primary">Crear rutina</button>`;
@@ -61,33 +62,46 @@
       </form>`;
       const f = body.querySelector('form'), ol = body.querySelector('[data-steps]');
       const paintSteps = () => {
-        let t0 = toMin(f.due_time.value);
         ol.innerHTML = steps.map((s, i) => {
-          const at = t0 != null ? hm(t0) : '';
-          if (t0 != null) t0 += Number(s.duration_min) || 0;
-          return `<li class="rt-step-row"><span class="rt-step-at tabular tiny muted" aria-hidden="true">${at}</span>
+          return `<li class="rt-step-row"><label class="sr-only" for="rtA${i}">Hora del paso ${i + 1}</label><input id="rtA${i}" class="input input-sm tabular" data-i="${i}" data-k="at" type="text" inputmode="numeric" maxlength="5" autocomplete="off" placeholder="Hora" value="${esc(s.at)}">
             <label class="sr-only" for="rtS${i}">Paso ${i + 1}</label><input id="rtS${i}" class="input input-sm" data-i="${i}" data-k="title" maxlength="300" value="${esc(s.title)}" placeholder="Paso">
             <label class="sr-only" for="rtD${i}">Minutos del paso ${i + 1}</label><input id="rtD${i}" class="input input-sm tabular rt-step-min" data-i="${i}" data-k="duration_min" type="number" min="0" max="600" value="${esc(s.duration_min)}" placeholder="min">
             <button type="button" class="btn btn-ghost btn-icon btn-sm" data-rm="${i}" aria-label="Quitar el paso ${i + 1}">${icon('x', 'icon-sm')}</button></li>`;
         }).join('');
+        paintTotal();
+      };
+      const paintTotal = () => {
         const total = steps.reduce((a, s) => a + (Number(s.duration_min) || 0), 0);
-        body.querySelector('[data-total]').textContent = total ? `· ${fmtMin(total)}${f.due_time.value ? `, de ${f.due_time.value} a ${hm(toMin(f.due_time.value) + total)}` : ''}` : '';
+        body.querySelector('[data-total]').textContent = total ? `· ${fmtMin(total)}` : '';
       };
       paintSteps();
-      // al escribir solo cambia el dato (y las horas si es una duración): no se repinta el campo con el foco
+      // al escribir solo cambia el dato: no se repinta el campo con el foco
       ol.addEventListener('input', (e) => {
         const inp = e.target.closest('[data-i]');
         if (!inp) return;
         steps[Number(inp.dataset.i)][inp.dataset.k] = inp.value;
-        if (inp.dataset.k === 'duration_min') { const pos = inp.id; paintSteps(); body.querySelector(`#${pos}`)?.focus(); }
+        if (inp.dataset.k === 'duration_min') paintTotal();
       });
-      f.due_time.addEventListener('change', paintSteps);
+      ol.addEventListener('focusout', (e) => {
+        if (e.target.dataset.k !== 'at') return;
+        const at = parseTime(e.target.value);
+        if (at !== null) { e.target.value = at; steps[Number(e.target.dataset.i)].at = at; }
+      });
+      // cambiar la hora de la rutina desplaza todos los pasos, sin tener que recalcularlos a mano
+      let start = f.due_time.value;
+      f.due_time.addEventListener('change', () => {
+        const from = toMin(start), to = toMin(f.due_time.value);
+        if (from != null && to != null) steps.forEach((s) => { if (parseTime(s.at)) s.at = hm(toMin(parseTime(s.at)) + to - from + 1440); });
+        start = f.due_time.value;
+        paintSteps();
+      });
       ol.addEventListener('click', (e) => {
         const rm = e.target.closest('[data-rm]');
         if (rm) { steps.splice(Number(rm.dataset.rm), 1); paintSteps(); }
       });
       body.querySelector('[data-add-step]').addEventListener('click', () => {
-        steps.push({ title: '', duration_min: 10 });
+        const last = steps.findLast((s) => s.at);
+        steps.push({ title: '', duration_min: 10, at: last ? hm(toMin(last.at) + (Number(last.duration_min) || 0)) : f.due_time.value, days: null });
         paintSteps();
         ol.querySelector(`#rtS${steps.length - 1}`)?.focus();
       });
@@ -95,16 +109,20 @@
         e.preventDefault();
         const repeat = repeatFromDays(f, t.repeat);
         if (!repeat) { toast('Elige al menos un día', { type: 'info' }); return; }
+        const bad = steps.findIndex((s) => parseTime(s.at) === null);
+        if (bad >= 0) { toast('Escribe la hora como 17:30', { type: 'info' }); body.querySelector(`#rtA${bad}`)?.focus(); return; }
         const btn = foot.querySelector('[type=submit]');
         btn.classList.add('is-loading');
+        let res;
         try {
-          await api('/api/routine-templates/apply', { method: 'POST', body: {
+          res = await api('/api/routine-templates/apply', { method: 'POST', body: {
             key: t.key, title: f.title.value.trim(), due_time: f.due_time.value, repeat,
-            steps: steps.filter((s) => s.title.trim()).map((s) => ({ title: s.title.trim(), duration_min: Number(s.duration_min) || null })),
+            steps: steps.filter((s) => s.title.trim()).map((s) => ({ title: s.title.trim(), duration_min: Number(s.duration_min) || null, due_time: parseTime(s.at), days: s.days })),
           } });
         } catch { btn.classList.remove('is-loading'); return; }
         closeModal(dlg);
-        toast(`Rutina «${f.title.value.trim()}» creada`);
+        const n = res.sin_hora.length;
+        toast(n ? `Rutina «${f.title.value.trim()}» creada: ${n === 1 ? 'un paso se ha quedado' : `${n} pasos se han quedado`} sin hora porque ${n === 1 ? 'chocaba' : 'chocaban'} con otros bloques` : `Rutina «${f.title.value.trim()}» creada`, { type: n ? 'info' : 'success', duration: n ? 6000 : 3600 });
         await Items.load();
       });
       foot.querySelector('[data-back]').addEventListener('click', paintList);
@@ -141,10 +159,10 @@
   function run(id) {
     const routine = Items.get(id);
     if (!routine) return;
-    let steps = Items.children(id).filter((s) => s.today !== false);  // solo los bloques de hoy
+    let steps = Items.children(id).filter((s) => s.today !== false);  // solo los bloques de hoy, en orden de reloj
     if (!steps.length) { toast('Añade pasos a la rutina para hacerla paso a paso', { type: 'info' }); return; }
     let cur = Math.max(0, steps.findIndex((s) => !s.done));
-    let left = null, timer = null, paused = false, busy = false;
+    let left = null, timer = null, paused = false, busy = false, waiting = false;
     const dlg = dialog('rt-run', `<div class="modal-header"><h2>${icon('play', 'icon-sm')}${esc(routine.text.split('\n')[0])}</h2>
         <button type="button" class="btn btn-ghost btn-icon modal-close" data-close aria-label="Cerrar">${icon('x')}</button></div>
       <div class="modal-body" data-run-body aria-live="polite"></div>`);
@@ -158,10 +176,13 @@
       if (left === 0) { stop(); navigator.vibrate?.([120, 80, 120]); toast('Tiempo del paso cumplido', { type: 'info', duration: 2000 }); }
     };
     const clock = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-    const startTimer = () => {
+    const nowMin = () => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); };
+    // `force`: lo pide quien usa el diálogo; si no, un paso cuya hora no ha llegado espera
+    const startTimer = (force = false) => {
       stop();
       const s = steps[cur];
-      left = s?.duration_min ? s.duration_min * 60 : null;
+      waiting = !force && !!s?.due_time && toMin(s.due_time) > nowMin();
+      left = !waiting && s?.duration_min ? s.duration_min * 60 : null;
       paused = false;
       if (left) timer = setInterval(tick, 1000);
     };
@@ -182,19 +203,20 @@
       const s = steps[cur];
       body.innerHTML = `<div class="rt-run-progress"><span class="meter" aria-hidden="true"><span style="width:${pct}%"></span></span>
           <span class="tiny muted tabular">${done} de ${steps.length} pasos</span></div>
-        <section class="rt-run-now" aria-label="Paso actual">
-          <span class="tiny muted">Paso ${cur + 1}${s.duration_min ? ` · ${fmtMin(s.duration_min)}` : ''}</span>
+        <section class="rt-run-now" aria-label="${waiting ? 'Paso siguiente' : 'Paso actual'}">
+          <span class="tiny muted">${waiting ? `Libre hasta las ${s.due_time}` : `Paso ${cur + 1}${s.duration_min ? ` · ${fmtMin(s.duration_min)}` : ''}`}</span>
           <h3 class="rt-run-title">${esc(s.text.split('\n')[0])}</h3>
           ${left != null ? `<p class="rt-run-clock tabular" data-left>${clock(left)}</p>` : ''}
           <div class="rt-run-actions">
-            <button type="button" class="btn btn-primary" data-run-act="done">${icon('check', 'icon-sm')}Hecho <kbd>Intro</kbd></button>
+            ${waiting ? `<button type="button" class="btn btn-primary" data-run-act="now">${icon('play', 'icon-sm')}Empezar ahora</button>` : ''}
+            <button type="button" class="btn ${waiting ? '' : 'btn-primary'}" data-run-act="done">${icon('check', 'icon-sm')}Hecho${waiting ? '' : ' <kbd>Intro</kbd>'}</button>
             <button type="button" class="btn" data-run-act="skip">${icon('skip-forward', 'icon-sm')}Saltar</button>
             ${left != null ? `<button type="button" class="btn btn-ghost" data-run-act="pause" aria-pressed="${paused}">${icon(paused ? 'play' : 'pause', 'icon-sm')}${paused ? 'Seguir' : 'Pausa'}</button>` : ''}
           </div></section>
         <ol class="rt-run-list">${steps.map((x, i) => `<li><button type="button" class="rt-run-step${x.done ? ' is-done' : ''}${i === cur ? ' is-current' : ''}" data-go="${i}" ${i === cur ? 'aria-current="step"' : ''}>
           <span class="rt-run-dot" aria-hidden="true">${x.done ? icon('check', 'icon-sm') : i + 1}</span><span class="grow">${esc(x.text.split('\n')[0])}</span>
           ${x.duration_min ? `<span class="tiny muted tabular">${fmtMin(x.duration_min)}</span>` : ''}<span class="sr-only">${x.done ? '(hecho)' : ''}</span></button></li>`).join('')}</ol>`;
-      body.querySelector('[data-run-act="done"]').focus({ preventScroll: true });
+      body.querySelector('[data-run-act="now"], [data-run-act="done"]').focus({ preventScroll: true });
     };
 
     const nextOpen = (from) => {
@@ -215,15 +237,16 @@
     body.addEventListener('click', (e) => {
       const b = e.target.closest('[data-run-act], [data-go]');
       if (!b) return;
-      if (b.dataset.go != null) { cur = Number(b.dataset.go); if (steps[cur].done) return; startTimer(); paint(); return; }
+      if (b.dataset.go != null) { cur = Number(b.dataset.go); if (steps[cur].done) return; startTimer(true); paint(); return; }
       const act = b.dataset.runAct;
       if (act === 'done') markDone();
+      if (act === 'now') { startTimer(true); paint(); }
       if (act === 'skip') { cur = nextOpen(cur); startTimer(); paint(); }
       if (act === 'pause') { paused = !paused; paint(); }
     });
     dlg.addEventListener('keydown', (e) => {
       if (e.target.closest('input, textarea, select') || e.ctrlKey || e.metaKey || e.altKey) return;
-      if (e.key === 'Enter' && !e.target.closest('[data-go], [data-close], [data-run-act="skip"], [data-run-act="pause"]')) { e.preventDefault(); markDone(); }
+      if (e.key === 'Enter' && !e.target.closest('[data-go], [data-close], [data-run-act="skip"], [data-run-act="pause"], [data-run-act="now"]')) { e.preventDefault(); markDone(); }
       else if (e.key === 's' || e.key === 'S') { e.preventDefault(); cur = nextOpen(cur); startTimer(); paint(); }
       else if (e.key === ' ' && left != null && !e.target.closest('button')) { e.preventDefault(); paused = !paused; paint(); }
     });
