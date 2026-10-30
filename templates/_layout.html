@@ -1,0 +1,147 @@
+{%- macro nav_link(key, label, href, ic) -%}
+<li><a class="nav-item" href="{{ href }}" data-section="{{ key }}" {% if key == section %}aria-current="page"{% endif %} title="{{ label }}">
+  <span class="tile" data-section="{{ key }}">{{ icon(ic) }}</span><span class="nav-label">{{ label }}</span>
+  {%- if key == 'inbox' %}<span class="nav-count" data-inbox-count hidden></span>{% endif %}
+</a></li>
+{%- endmacro -%}
+{%- from "_items.html" import capture_form -%}
+<!DOCTYPE html>
+<html lang="es" data-icons="{{ asset('/static/icons.svg') }}">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#181825" id="themeColor">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Panel">
+<title>{{ page_title }} · Panel</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+<script src="{{ asset('/static/js/theme-init.js') }}"></script>
+<link rel="stylesheet" href="{{ asset('/static/css/ds.css') }}">
+<link rel="stylesheet" href="{{ asset('/static/css/themes.css') }}">
+{% block head %}{% endblock %}
+</head>
+<body data-section="{{ section }}" class="{% block body_class %}{% endblock %}">
+<a class="skip-link" href="#main">Saltar al contenido</a>
+<div class="app">
+  <aside class="sidebar" id="appSidebar" aria-label="Secciones">
+    <div class="sidebar-top">
+      <a class="sidebar-brand" href="/hoy" aria-label="Panel, inicio (Hoy)">
+        <span class="tile" data-section="notas">{{ icon('brain') }}</span><span>Panel</span>
+      </a>
+      <button type="button" class="btn btn-ghost btn-icon nav-toggle" data-nav-toggle aria-controls="appSidebar" aria-expanded="true" aria-label="Plegar menú" title="Plegar menú (Ctrl+.)">{{ icon('panel-left-close') }}{{ icon('panel-left-open') }}</button>
+    </div>
+    <nav aria-label="Principal">
+      {% for gkey, gtitle, items in nav_groups %}
+      {% set here = items | selectattr(0, 'equalto', section) | list %}
+      <div class="nav-group{% if here %} is-here{% endif %}" data-nav-group="{{ gkey }}">
+        <button type="button" class="sidebar-group-label" aria-expanded="true" aria-controls="navg-{{ gkey }}">{{ gtitle }}{{ icon('chevron-down', 'icon-sm') }}</button>
+        <ul class="nav-list" id="navg-{{ gkey }}">
+          {% for key, label, href, ic in items %}{{ nav_link(key, label, href, ic) }}{% endfor %}
+        </ul>
+      </div>
+      {% endfor %}
+    </nav>
+    <div class="sidebar-footer">
+      <button type="button" class="nav-item" data-open-capture title="Captura rápida (C)">
+        <span class="tile" data-section="inbox">{{ icon('plus') }}</span><span class="nav-label">Capturar</span>
+      </button>
+      <button type="button" class="nav-item" data-open-status title="Estado de las conexiones">
+        <span class="tile" data-section="gestion">{{ icon('plug-zap') }}<span class="net-dot" data-status-dot hidden></span></span><span class="nav-label">Conexiones</span>
+      </button>
+      <button type="button" class="nav-item" data-open-more title="Ajustes y más">
+        <span class="tile" data-section="gestion">{{ icon('settings') }}</span><span class="nav-label">Ajustes</span>
+      </button>
+    </div>
+  </aside>
+
+  <main class="main" id="main" tabindex="-1">
+    {% block main %}
+    <header class="page-header">
+      <div class="page-title">
+        {% block title_lead %}{% endblock %}
+        <span class="tile tile-lg hide-mobile" data-section="{{ section }}" aria-hidden="true">{% block title_icon %}{{ icon('notebook-pen') }}{% endblock %}</span>
+        <h1>{% block heading %}{{ page_title }}{% endblock %}</h1>
+      </div>
+      <div class="page-actions">{% block actions %}{% endblock %}</div>
+    </header>
+    <div class="page-body">{% block content %}{% endblock %}</div>
+    {% endblock %}
+  </main>
+</div>
+
+<nav class="tabbar" aria-label="Secciones">
+  {% for key, label, href, ic in tabbar() %}
+  <a class="tab" href="{{ href }}" data-section="{{ key }}" {% if key == section %}aria-current="page"{% endif %}>
+    <span class="tab-icon">{{ icon(ic) }}{% if key == 'inbox' %}<span class="tab-badge" data-inbox-count hidden></span>{% endif %}</span>{{ label }}
+  </a>
+  {% endfor %}
+  <button type="button" class="tab" data-open-more>
+    <span class="tab-icon">{{ icon('ellipsis') }}</span>Más
+  </button>
+</nav>
+
+{% block fab %}
+<button type="button" class="fab" data-open-capture aria-label="Captura rápida" title="Captura rápida (C)">{{ icon('plus') }}</button>
+{% endblock %}
+
+<dialog class="modal" id="captureModal" aria-labelledby="captureTitle">
+  <div class="modal-header">
+    <h2 id="captureTitle">Captura rápida</h2>
+    <button type="button" class="btn btn-ghost btn-icon modal-close" data-close aria-label="Cerrar">{{ icon('x') }}</button>
+  </div>
+  <div class="modal-body">{{ capture_form('captureForm', rows=4) }}</div>
+</dialog>
+
+<dialog class="modal modal-sm more-sheet" id="moreSheet" aria-labelledby="moreTitle">
+  <div class="modal-header">
+    <h2 id="moreTitle">Ajustes</h2>
+    <button type="button" class="btn btn-ghost btn-icon modal-close" data-close aria-label="Cerrar">{{ icon('x') }}</button>
+  </div>
+  <div class="modal-body stack">
+    <button type="button" class="btn btn-block" data-open-status>{{ icon('plug-zap', 'icon-sm') }}Estado de las conexiones<span class="net-dot" data-status-dot hidden></span></button>
+    <button type="button" class="btn btn-block" onclick="closeModal('moreSheet'); Palette.open()">{{ icon('command', 'icon-sm') }}Paleta de comandos <kbd class="hide-mobile">Ctrl K</kbd></button>
+    <ul class="list">
+      {% for key, label, href, ic in nav_all() %}
+      <li><a class="list-row" href="{{ href }}" {% if key == section %}aria-current="page"{% endif %}>
+        <span class="tile" data-section="{{ key }}">{{ icon(ic) }}</span><span class="row-main row-title">{{ label }}</span>{{ icon('chevron-right', 'icon-sm subtle') }}
+      </a></li>
+      {% endfor %}
+    </ul>
+    <fieldset class="field theme-picker">
+      <legend class="field-label">Tema</legend>
+      <div class="theme-grid" role="radiogroup" aria-label="Tema">
+        {% for key, label in theme_choices %}{% set p = theme_preview(key) %}
+        <button type="button" role="radio" aria-checked="false" data-theme-choice="{{ key }}" class="theme-option">
+          <span class="theme-swatch" style="--p-bg: {{ p.bg }}; --p-elev: {{ p.elev }}; --p-accent: {{ p.accent }}; --p-text: {{ p.text }}" aria-hidden="true"><span></span><span></span></span>
+          <span class="theme-name">{{ label }}</span>
+        </button>{% endfor %}
+      </div>
+    </fieldset>
+    <button type="button" class="btn btn-block" onclick="closeModal('moreSheet'); Reminders.openSettings()">{{ icon('bell', 'icon-sm') }}Avisos y recordatorios</button>
+    <label class="field capture-key-field"><span class="field-label">Tecla de la captura rápida</span>
+      <input class="input" id="captureKeyInput" maxlength="1" autocomplete="off" aria-describedby="captureKeyHint">
+      <span class="field-hint" id="captureKeyHint">Una letra; funciona fuera de los campos de texto. Ctrl+K abre la paleta de comandos.</span></label>
+    <form method="post" action="/logout">
+      <button type="submit" class="btn btn-danger btn-block">{{ icon('log-out') }}Cerrar sesión</button>
+    </form>
+  </div>
+</dialog>
+
+<div class="toast-region" role="status" aria-live="polite"></div>
+
+<script src="{{ asset('/static/js/auth-guard.js') }}"></script>
+<script src="{{ asset('/static/js/ui.js') }}"></script>
+<script src="{{ asset('/static/js/sortable.js') }}"></script>
+<script src="{{ asset('/static/js/items.js') }}"></script>
+<script src="{{ asset('/static/js/routines.js') }}"></script>
+<script src="{{ asset('/static/js/reminders.js') }}"></script>
+<script src="{{ asset('/static/js/palette.js') }}"></script>
+<script src="{{ asset('/static/js/status.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

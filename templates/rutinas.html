@@ -1,0 +1,14 @@
+{% extends "_layout.html" %}
+{% block head %}<link rel="stylesheet" href="{{ asset('/static/css/items.css') }}"><link rel="stylesheet" href="{{ asset('/static/css/hoy.css') }}"><link rel="stylesheet" href="{{ asset('/static/css/rutinas.css') }}">{% endblock %}
+{% block body_class %}page-rutinas{% endblock %}
+{% block title_icon %}{{ icon('repeat') }}{% endblock %}
+{% block actions %}
+<div class="segmented rp-days" role="group" aria-label="Día de la semana" id="rtDays"></div>
+<button type="button" class="btn btn-ghost btn-sm" id="rtTemplates">{{ icon('layout-template', 'icon-sm') }}<span class="hide-mobile">Plantillas</span></button>
+<button type="button" class="btn btn-primary btn-sm" id="rtNew">{{ icon('plus', 'icon-sm') }}<span class="hide-mobile">Nueva rutina</span></button>
+{% endblock %}
+{% block content %}
+<p class="hoy-sub small muted" id="rtSub" aria-live="polite"></p>
+<div class="rp-page" id="rtPage"><span class="skeleton skeleton-card"></span></div>
+{% endblock %}
+{% block scripts %}<script src="{{ asset('/static/js/rutinas.js') }}"></script>{% endblock %}

@@ -1,0 +1,75 @@
+/* Economía (/economia): tarjetas como Hoy (hoy.css) + movimientos a todo el ancho */
+.ec { display: flex; flex-direction: column; gap: var(--sp-4); }
+.ec-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: var(--sp-4); align-items: start; }
+.ec-col { display: flex; flex-direction: column; gap: var(--sp-4); min-width: 0; }
+.ec-month .btn-sm { min-width: 7.5em; justify-content: center; }
+
+.ec-total { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; margin: 0 0 var(--sp-2); }
+.ec-total-n { font-size: var(--fs-28); font-weight: 700; letter-spacing: -0.02em; }
+.ec-note { margin: var(--sp-2) 0 0; }
+.ec-row { gap: var(--sp-2); }
+.ec-ico { display: grid; place-items: center; width: 28px; height: 28px; border-radius: var(--r-sm); flex-shrink: 0;
+  background: color-mix(in srgb, var(--tile-economia) 16%, transparent); color: var(--text-2); }
+.ec-link { text-align: left; background: none; padding: 0; min-width: 0; font-size: inherit; color: var(--text); }
+.ec-link:hover { color: var(--accent-text); }
+.ec-mov { display: flex; flex-direction: column; }
+.ec-amt { font-weight: 600; white-space: nowrap; }
+.ec-amt.is-neg { color: var(--danger-text); }
+.ec-amt.is-pos { color: var(--success-text); }
+.ec-h3 { display: flex; justify-content: space-between; margin-top: 0; }
+.ec-h3 + .hoy-list + .ec-h3 { margin-top: var(--sp-4); }
+
+/* El mes */
+.ec-kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-3); margin: 0; }
+.ec-kpis dd { margin: 2px 0 0; font-size: var(--fs-17); font-weight: 700; }
+/* Gasto por categoría: una serie, un tono; el número va en el color del texto */
+.ec-bars { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 2px; }
+.ec-bar-row { display: grid; grid-template-columns: minmax(8.5em, 38%) minmax(0, 1fr) auto; align-items: center; gap: var(--sp-2);
+  width: 100%; min-height: 32px; padding: 0 6px; border-radius: var(--r-sm); text-align: left; color: var(--text); font-size: var(--fs-13); }
+.ec-bar-row:hover, .ec-bar-row.is-on { background: var(--hover); }
+.ec-bar-row.is-on { box-shadow: inset 0 0 0 1px var(--separator-strong); }
+.ec-bar-label { display: inline-flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+.ec-bar-track { height: 10px; border-radius: 0 4px 4px 0; background: var(--fill); overflow: hidden; }
+.ec-bar-track > span { display: block; height: 100%; border-radius: 0 4px 4px 0; background: var(--tile-economia); }
+.ec-bar-n { font-weight: 600; }
+/* Seis meses: columnas de una serie desde una base común */
+.ec-months { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: var(--sp-2); height: 132px; align-items: end; }
+.ec-mcol { display: grid; grid-template-rows: auto 1fr auto; height: 100%; justify-items: center; gap: 4px; border-radius: var(--r-sm); padding: 2px 0; color: var(--text-2); }
+.ec-mcol:hover { background: var(--hover); }
+.ec-mbar { width: 70%; max-width: 30px; height: 100%; display: flex; align-items: flex-end; }
+.ec-mbar > span { display: block; width: 100%; border-radius: 4px 4px 0 0; background: color-mix(in srgb, var(--tile-economia) 55%, var(--bg-elev)); }
+.ec-mcol.is-on .ec-mbar > span { background: var(--tile-economia); }
+.ec-mval { font-size: var(--fs-12); color: var(--text); font-weight: 600; min-height: 1em; }
+.ec-mlab { font-size: var(--fs-12); text-transform: capitalize; }
+
+/* Movimientos */
+.ec-search { width: min(240px, 50vw); }
+#ecCats { margin-bottom: var(--sp-3); }
+.ec-day + .ec-day { margin-top: var(--sp-3); }
+.ec-day-h { display: flex; justify-content: space-between; font-size: var(--fs-13); color: var(--text-2); margin: 0 0 2px; }
+
+/* Diálogo de apuntar */
+.ec-importe { font-size: var(--fs-20); font-weight: 700; }
+.ec-catchips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.ec-dialog .segmented { width: 100%; }
+.ec-dialog .segmented > button { flex: 1; justify-content: center; }
+
+/* Presupuesto: la barra es lo gastado sobre el presupuesto; pasarse la pone en rojo */
+.ec-bar-row.has-budget .ec-bar-track { border-radius: 4px; }
+.ec-bar-row.has-budget .ec-bar-track > span { border-radius: 4px; }
+.ec-bar-row.is-over .ec-bar-track > span { background: var(--danger); }
+.ec-bar-row.is-over .ec-bar-n { color: var(--danger-text); }
+.ec-budgets { display: flex; flex-direction: column; gap: 6px; max-height: min(60vh, 520px); overflow-y: auto; }
+.ec-budget-row { display: grid; grid-template-columns: minmax(0, 1fr) 7.5em auto; align-items: center; gap: var(--sp-2); }
+.ec-budget-row > span:first-child { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); font-size: var(--fs-14); }
+
+@media (max-width: 767px) {
+  /* en el móvil, cada categoría en dos líneas: nombre e importe arriba, la barra debajo a todo el ancho */
+  .ec-bar-row { grid-template-columns: minmax(0, 1fr) auto; row-gap: 4px; padding: 6px; }
+  .ec-bar-row .ec-bar-track { grid-column: 1 / -1; grid-row: 2; }
+  .page-economia .page-header { flex-wrap: wrap; row-gap: var(--sp-2); }
+  .page-economia .page-actions { flex: 1 1 100%; margin-left: 0; justify-content: space-between; }
+  .ec-kpis dd { font-size: var(--fs-15); }
+  .ec-movs .panel-header { flex-wrap: wrap; }
+  .ec-search { width: 100%; }
+}

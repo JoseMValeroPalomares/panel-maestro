@@ -1,0 +1,36 @@
+/* Agenda del Panel (clic en el módulo de la Waybar o Super+Alt+K): misma base que los menús del sistema
+   (~/.config/rofi/config.rasi) y que la captura rápida. Las cabeceras de cada día van como filas
+   «active» y las atrasadas como «urgent» (panel_agenda.py las marca con -a / -u). */
+@import "~/.config/rofi/config.rasi"
+configuration { font: "JetBrainsMono Nerd Font 12"; }
+
+window {
+    width: 48%;
+    height: inherit;
+    y-offset: 10px;
+    location: north;
+    border: 2px;
+    border-color: white/25%;
+}
+mainbox { children: [ "inputbar", "message", "listview" ]; spacing: 0; background-color: @normal-background; }
+inputbar {
+    padding: 12px 18px;
+    spacing: 12px;
+    children: [ "textbox-prompt-colon", "entry" ];
+    background-image: none;
+    background-color: transparent;
+}
+textbox-prompt-colon { str: ""; padding: 2px 0 0 0; text-color: @color12; background-color: transparent; border-radius: 0; }
+entry { placeholder: "Buscar en la agenda"; placeholder-color: white/45%; horizontal-align: 0; padding: 0; border-radius: 0; background-color: transparent; }
+message { padding: 0 12px 6px 12px; background-color: transparent; }
+textbox { margin: 0; padding: 8px 14px; border-radius: 10px; background-color: white/6%; text-color: @foreground; horizontal-align: 0; markup: true; }
+listview { columns: 1; lines: 14; fixed-height: false; scrollbar: true; padding: 6px 12px 12px 12px; spacing: 2px; }
+element { padding: 7px 12px; }
+element-icon { size: 0; }
+element-text { markup: true; }
+/* Cabecera de cada día: sin fondo y con aire encima */
+element normal.active, element alternate.active { background-color: transparent; padding: 12px 12px 3px 12px; }
+element selected.active { background-color: white/8%; border-radius: 1.5em; padding: 12px 12px 3px 12px; }
+element selected.active element-text { background-color: transparent; text-color: @foreground; }
+/* Atrasadas: un fondo rojizo muy suave */
+element normal.urgent, element alternate.urgent { background-color: rgba(243, 139, 168, 0.08); border-radius: 1.5em; }

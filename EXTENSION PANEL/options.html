@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Opciones · Panel: Inbox y Baúl</title>
+<script src="lib/themes.js"></script>
+<script src="theme-init.js"></script>
+<link rel="stylesheet" href="themes.css">
+<link rel="stylesheet" href="ui.css">
+<style>
+  body { padding: 40px 20px; }
+  main { max-width: 520px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+  h1 { font-size: 22px; margin: 0; display: flex; align-items: center; gap: 10px; }
+  h1 img { width: 32px; height: 32px; }
+  .intro { color: var(--text-2); margin: 0; }
+  .card { background: var(--field); border: 1px solid var(--control); border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+  .with-btn { display: flex; gap: 6px; }
+  .with-btn .input { flex: 1; }
+  .actions { display: flex; gap: 8px; justify-content: flex-end; }
+  h2 { font-size: 15px; margin: 0; }
+  .login-set { border: 0; border-top: 1px solid var(--control); margin: 4px 0 0; padding: 16px 0 0; min-width: 0; }
+  .login-set legend { float: left; width: 100%; padding: 0; margin-bottom: 5px; }
+  .login-set .with-btn { margin-top: 6px; }
+  .switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 36px; cursor: pointer; }
+  .login-set[data-off] .with-btn { opacity: 0.55; }
+  ul { margin: 0; padding-left: 18px; color: var(--text-2); }
+  li + li { margin-top: 4px; }
+  .theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 8px; }
+  .theme-option { display: flex; flex-direction: column; gap: 6px; padding: 6px 6px 8px; min-height: 44px; border: 0; border-radius: var(--r);
+    background: var(--bg); box-shadow: inset 0 0 0 1px var(--border); text-align: left; cursor: pointer; transition: box-shadow 120ms, transform 120ms; }
+  .theme-option:hover { box-shadow: inset 0 0 0 1px var(--border-strong); }
+  .theme-option:active { transform: scale(0.97); }
+  .theme-option[aria-checked="true"] { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+  .theme-swatch { position: relative; display: block; height: 40px; border-radius: var(--r-sm); background: var(--p-bg); box-shadow: inset 0 0 0 1px rgba(127, 127, 127, 0.25); overflow: hidden; }
+  .theme-swatch > span:first-child { position: absolute; left: 7px; top: 7px; right: 7px; height: 12px; border-radius: 4px; background: var(--p-elev); box-shadow: inset 7px 0 0 -2px var(--p-text); }
+  .theme-swatch > span:last-child { position: absolute; right: 7px; bottom: 6px; width: 22px; height: 9px; border-radius: 5px; background: var(--p-accent); }
+  .theme-name { font-size: 12px; font-weight: 600; color: var(--text-2); padding-inline: 2px; }
+  .theme-option[aria-checked="true"] .theme-name { color: var(--text); }
+</style>
+</head>
+<body>
+<main>
+  <h1><img src="icons/icon.svg" alt="">Panel: Inbox y Baúl</h1>
+  <p class="intro">Conecta la extensión con tu Panel para enviar cosas al Inbox y guardar enlaces en el Baúl.</p>
+
+  <form class="card" id="form" novalidate aria-labelledby="connTitle">
+    <h2 id="connTitle">Conexión</h2>
+    <div class="field">
+      <label class="label" for="baseUrl">Dirección del Panel</label>
+      <input class="input" id="baseUrl" type="url" placeholder="http://192.168.1.50:8000" autocomplete="url" required aria-describedby="baseUrlHint">
+      <p class="hint" id="baseUrlHint">La misma que escribes en el navegador para abrir el Panel (con el puerto).</p>
+    </div>
+    <div class="field">
+      <label class="label" for="token">Token de API</label>
+      <div class="with-btn">
+        <input class="input" id="token" type="password" autocomplete="off" spellcheck="false" required aria-describedby="tokenHint">
+        <button type="button" class="btn btn-icon" id="toggleToken" aria-label="Mostrar el token" aria-pressed="false"><svg class="icon"><use href="icons.svg#i-eye"/></svg></button>
+      </div>
+      <p class="hint" id="tokenHint">Créalo en el servidor con <code>python -m scripts.set_password --solo-token</code> (no cambia tu contraseña). Se guarda solo en este Firefox.</p>
+    </div>
+    <fieldset class="field login-set">
+      <legend class="label">Entrar sin escribir la contraseña</legend>
+      <label class="switch-row"><span>Iniciar sesión automáticamente en el Panel</span><input type="checkbox" class="switch" id="autoLogin" role="switch" aria-describedby="autoLoginHint"></label>
+      <div class="with-btn">
+        <input class="input" id="loginPassword" type="password" autocomplete="off" spellcheck="false" aria-label="Contraseña del Panel" placeholder="Contraseña del Panel">
+        <button type="button" class="btn btn-icon" id="togglePassword" aria-label="Mostrar la contraseña" aria-pressed="false"><svg class="icon"><use href="icons.svg#i-eye"/></svg></button>
+      </div>
+      <p class="hint" id="autoLoginHint">Al abrir la pantalla de acceso de la dirección de arriba, la extensión escribe esta contraseña y entra. Si es incorrecta, no lo vuelve a intentar. Se guarda solo en este Firefox.</p>
+    </fieldset>
+    <div class="msg" id="result" role="status" aria-live="polite" hidden></div>
+    <div class="actions">
+      <button type="button" class="btn" id="test"><svg class="icon"><use href="icons.svg#i-plug"/></svg>Probar conexión</button>
+      <button type="submit" class="btn btn-primary" id="save">Guardar</button>
+    </div>
+  </form>
+
+  <section class="card" aria-labelledby="themeTitle">
+    <h2 id="themeTitle">Tema</h2>
+    <p class="hint">Los mismos temas que el Panel. Se aplica al popup y a esta página.</p>
+    <div class="theme-grid" id="themeGrid" role="radiogroup" aria-labelledby="themeTitle"></div>
+  </section>
+
+  <section class="card" aria-labelledby="howTitle">
+    <h2 id="howTitle">Cómo se usa</h2>
+    <ul>
+      <li><strong>Inbox</strong>: botón de la barra o <kbd>Alt</kbd>+<kbd>Mayús</kbd>+<kbd>I</kbd>. Si has seleccionado texto, ya viene escrito. Tus últimas categorías aparecen debajo del campo para elegirlas con un clic.</li>
+      <li><strong>Baúl</strong>: pestaña «Baúl» o <kbd>Alt</kbd>+<kbd>Mayús</kbd>+<kbd>B</kbd>.</li>
+      <li><strong>Envío rápido</strong>: clic derecho sobre un texto seleccionado o un enlace → «Enviar … al Inbox ya». Llega como tarea, sin abrir nada, y un aviso del sistema lo confirma.</li>
+      <li>Clic derecho también: «Enviar … al Inbox…» (abre el popup para elegir tipo, prioridad y categoría), «Guardar el enlace en el Baúl», «Guardar esta página en el Baúl».</li>
+      <li>El número del icono son los pendientes del Inbox; «↑» son envíos en cola (sin conexión), «×» sin conexión y «!» falta configurar.</li>
+      <li>Los atajos se cambian en <code>about:addons</code> → engranaje → «Administrar atajos de teclado de extensiones».</li>
+    </ul>
+  </section>
+</main>
+<script src="lib/panel.js"></script>
+<script src="options.js"></script>
+</body>
+</html>

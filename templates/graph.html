@@ -1,0 +1,73 @@
+{% extends "_layout.html" %}
+{% block head %}<link rel="stylesheet" href="{{ asset('/static/css/graph.css') }}">{% endblock %}
+{% block main %}
+<header class="page-header">
+  <div class="page-title">
+    <span class="tile tile-lg hide-mobile" data-section="grafo" aria-hidden="true">{{ icon('waypoints') }}</span>
+    <h1>Grafo</h1>
+    <span id="stats" class="small muted tabular graph-stats"></span>
+  </div>
+  <div class="page-actions">
+    <button type="button" id="btnEdit" onclick="toggleEditMode()" class="btn btn-ghost" aria-pressed="false">{{ icon('pencil') }}<span class="hide-mobile">Editar</span></button>
+    <button type="button" onclick="resetLayout()" class="btn btn-ghost hide-mobile" title="Recolocar con la física">{{ icon('sparkles') }}Auto</button>
+    <button type="button" id="btnSave" onclick="saveLayout()" class="btn btn-primary">{{ icon('save') }}<span class="hide-mobile">Guardar posiciones</span><span class="sr-only show-mobile">Guardar posiciones</span></button>
+  </div>
+</header>
+
+<div class="graph-controls">
+  <div class="chips chips-scroll" role="group" aria-label="Filtrar por estado">
+    <button type="button" class="chip" data-status="all" aria-pressed="true">Todas</button>
+    <button type="button" class="chip" data-status="por-escribir" aria-pressed="false"><span class="dot" style="color:var(--st-draft)"></span>Por escribir</button>
+    <button type="button" class="chip" data-status="en-desarrollo" aria-pressed="false"><span class="dot" style="color:var(--st-wip)"></span>En desarrollo</button>
+    <button type="button" class="chip" data-status="consolidado" aria-pressed="false"><span class="dot" style="color:var(--st-done)"></span>Consolidado</button>
+    <button type="button" class="chip" data-status="indice" aria-pressed="false"><span class="dot" style="color:var(--st-index)"></span>Índices</button>
+  </div>
+  <span class="toolbar-sep hide-mobile"></span>
+  <div class="segmented" role="group" aria-label="Colorear por">
+    <button type="button" id="viewBtnStatus" aria-pressed="true" onclick="setColorMode('status')">Estado</button>
+    <button type="button" id="viewBtnStale" aria-pressed="false" onclick="setColorMode('stale')">{{ icon('flame', 'icon-sm') }}Repaso</button>
+  </div>
+  <button type="button" class="chip" id="chipOrphans" aria-pressed="false" onclick="toggleOrphanHighlight()">{{ icon('circle-dot', 'icon-sm') }}Notas sin enlaces</button>
+  <div id="tagChips" class="chips chips-scroll" role="group" aria-label="Etiquetas"></div>
+</div>
+
+<div id="editBanner" class="edit-banner" role="status" hidden></div>
+
+<div class="graph-stage">
+  <div id="graph-container" aria-label="Mapa de notas"></div>
+
+  <div id="node-tooltip" class="node-tooltip" hidden>
+    <div id="tt-title" class="tt-title"></div>
+    <div id="tt-cat" class="small muted"></div>
+    <div id="tt-meta" class="tiny subtle"></div>
+    <div id="tt-links" class="tiny tt-links"></div>
+  </div>
+
+  <aside id="node-panel" class="node-panel panel" aria-labelledby="panel-title" hidden>
+    <div class="row">
+      <span class="status" id="panel-status"><span class="status-dot"></span><span id="panel-status-label"></span></span>
+      <span id="panel-lock" class="subtle" hidden title="Nota cifrada">{{ icon('lock', 'icon-sm') }}</span>
+      <span class="grow"></span>
+      <button type="button" onclick="closePanel()" class="btn btn-ghost btn-icon btn-sm" aria-label="Cerrar">{{ icon('x', 'icon-sm') }}</button>
+    </div>
+    <h2 id="panel-title" class="panel-title"></h2>
+    <p id="panel-cat" class="small muted"></p>
+    <div id="panel-tags" class="chips"></div>
+    <p id="panel-fc" class="small" hidden></p>
+    <a id="panel-link" href="#" class="btn btn-primary btn-block">{{ icon('book-open', 'icon-sm') }}Abrir nota</a>
+    <button type="button" id="panel-connect-btn" onclick="startConnectFrom()" class="btn btn-tinted btn-block" hidden>{{ icon('link', 'icon-sm') }}Conectar con otra nota</button>
+  </aside>
+
+  <div id="loadingOverlay" class="graph-loading">
+    <span class="skeleton" style="width:220px;height:14px"></span>
+    <span class="small muted">Colocando las notas…</span>
+  </div>
+</div>
+
+<footer id="legend" class="graph-legend" aria-label="Leyenda"></footer>
+{% endblock %}
+{% block fab %}{% endblock %}
+{% block scripts %}
+<script src="{{ asset('/static/vendor/vis-network/vis-network.min.js') }}"></script>
+<script src="{{ asset('/static/js/graph.js') }}"></script>
+{% endblock %}

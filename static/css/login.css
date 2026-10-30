@@ -1,0 +1,17 @@
+/* Pantalla de acceso (usa los tokens de ds.css) */
+.login { min-height: 100dvh; display: grid; place-items: center; padding: var(--sp-6) var(--sp-4); }
+.login-card {
+  width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: var(--sp-4); text-align: center;
+  background: var(--bg-elev); border-radius: var(--r-xl); padding: var(--sp-10) var(--sp-8) var(--sp-8);
+  box-shadow: var(--shadow-2), 0 0 0 0.5px var(--separator);
+}
+.login-card .field { text-align: left; }
+.login-logo { margin: 0 auto var(--sp-1); border-radius: 15px; box-shadow: var(--shadow-1); }
+.login-card h1 { font-size: var(--fs-28); }
+.login-card > .muted { margin-top: calc(-1 * var(--sp-3)); }
+.login-card .input { min-height: var(--touch); }
+.login-msg { padding: var(--sp-3); border-radius: var(--r-sm); font-size: var(--fs-13); text-align: left; }
+.login-msg.error { background: var(--danger-soft); color: var(--danger-text); }
+.login-msg.warn { background: var(--warning-soft); color: var(--warning-text); }
+.login-msg code { font-family: var(--font-mono); }
+@media (max-width: 480px) { .login-card { padding: var(--sp-8) var(--sp-5) var(--sp-6); } }

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Panel</title>
+<script src="lib/themes.js"></script>
+<script src="theme-init.js"></script>
+<link rel="stylesheet" href="themes.css">
+<link rel="stylesheet" href="ui.css">
+<link rel="stylesheet" href="popup.css">
+</head>
+<body>
+<header class="top">
+  <img class="brand" src="icons/icon.svg" alt="" width="28" height="28">
+  <div class="top-text">
+    <span class="top-title">Panel</span>
+    <div class="status" id="status" data-state="idle" role="status" aria-live="polite"><span class="dot"></span><span id="statusText">Comprobando…</span></div>
+  </div>
+  <button type="button" class="btn btn-ghost btn-icon" id="openPanel" title="Abrir el Panel" aria-label="Abrir el Panel"><svg class="icon"><use href="icons.svg#i-external-link"/></svg></button>
+  <button type="button" class="btn btn-ghost btn-icon" id="openOptions" title="Opciones" aria-label="Opciones"><svg class="icon"><use href="icons.svg#i-settings"/></svg></button>
+</header>
+
+<div class="segmented tabs" role="tablist" aria-label="Destino">
+  <button type="button" role="tab" id="tab-inbox" aria-controls="panel-inbox" aria-selected="true"><span class="tile" data-section="inbox"><svg class="icon"><use href="icons.svg#i-inbox"/></svg></span>Inbox</button>
+  <button type="button" role="tab" id="tab-vault" aria-controls="panel-vault" aria-selected="false" tabindex="-1"><span class="tile" data-section="baul"><svg class="icon"><use href="icons.svg#i-library"/></svg></span>Baúl</button>
+  <button type="button" role="tab" id="tab-cal" aria-controls="panel-cal" aria-selected="false" tabindex="-1"><span class="tile" data-section="calendario"><svg class="icon"><use href="icons.svg#i-calendar"/></svg></span>Agenda</button>
+</div>
+
+<div class="msg" id="setup" data-type="warn" hidden>
+  <svg class="icon"><use href="icons.svg#i-key-round"/></svg>
+  <div>Falta conectar la extensión con tu Panel. <button type="button" class="link" id="setupBtn">Configurar</button></div>
+</div>
+
+<form class="pane" id="panel-inbox" role="tabpanel" aria-labelledby="tab-inbox" novalidate>
+  <div class="field">
+    <label class="label" for="content">Qué quieres guardar</label>
+    <textarea class="textarea" id="content" rows="4" maxlength="20000" placeholder="Una idea, una tarea… (o selecciona texto en la página). Prefijos: t: i: r: e:"></textarea>
+  </div>
+  <label class="page-card" id="pageRef">
+    <svg class="icon favicon-fallback" id="pageIconFallback"><use href="icons.svg#i-globe"/></svg>
+    <span class="page-text">
+      <span class="page-title" id="pageTitle"></span>
+      <span class="page-host" id="pageHost"></span>
+    </span>
+    <input type="checkbox" class="switch" id="includeLink" role="switch" checked aria-label="Añadir el enlace de la página" title="Añadir el enlace de la página">
+  </label>
+  <div class="segmented" role="group" aria-label="Tipo">
+    <button type="button" data-type="tarea" aria-pressed="true"><svg class="icon"><use href="icons.svg#i-square-check"/></svg>Tarea</button>
+    <button type="button" data-type="nota" aria-pressed="false"><svg class="icon"><use href="icons.svg#i-lightbulb"/></svg>Idea</button>
+  </div>
+  <div class="field">
+    <label class="label" for="parent">Paso de <span class="hint">(opcional)</span></label>
+    <select class="input" id="parent"><option value="">Ninguno: elemento nuevo</option></select>
+  </div>
+  <div class="field">
+    <span class="label" id="priorityLabel">Prioridad</span>
+    <div class="prio" id="priority" role="radiogroup" aria-labelledby="priorityLabel">
+      <button type="button" role="radio" data-prio="" aria-checked="true">Ninguna</button>
+      <button type="button" role="radio" data-prio="alta" aria-checked="false" tabindex="-1"><svg class="icon"><use href="icons.svg#i-flag"/></svg>Alta</button>
+      <button type="button" role="radio" data-prio="media" aria-checked="false" tabindex="-1"><svg class="icon"><use href="icons.svg#i-flag"/></svg>Media</button>
+      <button type="button" role="radio" data-prio="baja" aria-checked="false" tabindex="-1"><svg class="icon"><use href="icons.svg#i-flag"/></svg>Baja</button>
+    </div>
+  </div>
+  <div class="field">
+    <label class="label" for="inboxCategory">Categoría</label>
+    <input class="input" id="inboxCategory" list="inboxCats" maxlength="60" placeholder="Opcional" autocomplete="off">
+    <datalist id="inboxCats"></datalist>
+    <div class="chips" id="inboxChips" role="group" aria-label="Categorías recientes" hidden></div>
+  </div>
+  <div class="actions"><span class="hint"><kbd>Ctrl</kbd> + <kbd>Intro</kbd></span><button type="submit" class="btn btn-primary" id="saveInbox"><svg class="icon"><use href="icons.svg#i-send"/></svg>Enviar al Inbox</button></div>
+</form>
+
+<form class="pane" id="panel-vault" role="tabpanel" aria-labelledby="tab-vault" hidden novalidate>
+  <div class="field">
+    <label class="label" for="vaultUrl">Enlace <span class="kind" id="kind" hidden></span></label>
+    <input class="input" id="vaultUrl" type="url" maxlength="2048" placeholder="https://…">
+  </div>
+  <div class="field">
+    <label class="label" for="vaultCategory">Categoría</label>
+    <input class="input" id="vaultCategory" list="vaultCats" maxlength="120" placeholder="General" autocomplete="off">
+    <datalist id="vaultCats"></datalist>
+    <div class="chips" id="vaultChips" role="group" aria-label="Categorías recientes" hidden></div>
+  </div>
+  <label class="page-card">
+    <svg class="icon favicon-fallback"><use href="icons.svg#i-clock"/></svg>
+    <span class="page-text">
+      <span class="page-title">Ver más tarde</span>
+      <span class="page-host">Aparece en la lista «Ver más tarde» del Baúl</span>
+    </span>
+    <input type="checkbox" class="switch" id="watchLater" role="switch" aria-label="Ver más tarde">
+  </label>
+  <div class="actions"><span class="hint"><kbd>Ctrl</kbd> + <kbd>Intro</kbd></span><button type="submit" class="btn btn-primary" id="saveVault"><svg class="icon"><use href="icons.svg#i-library"/></svg>Guardar en el Baúl</button></div>
+</form>
+
+<section class="pane" id="panel-cal" role="tabpanel" aria-labelledby="tab-cal" hidden>
+  <form class="cal-new" id="calForm" novalidate>
+    <label class="label" for="calText">Nuevo evento</label>
+    <div class="cal-new-row">
+      <input class="input" id="calText" maxlength="500" placeholder="dentista mañana 17:00" autocomplete="off">
+      <button type="submit" class="btn btn-primary" id="calSave" aria-label="Crear el evento"><svg class="icon"><use href="icons.svg#i-calendar-plus"/></svg></button>
+    </div>
+    <p class="cal-preview" id="calPreview" aria-live="polite"></p>
+  </form>
+  <div class="agenda" id="agenda" aria-live="polite"><p class="hint">Cargando la agenda…</p></div>
+</section>
+
+<div class="msg" id="result" role="alert" hidden></div>
+
+<script src="lib/panel.js"></script>
+<script src="popup.js"></script>
+</body>
+</html>

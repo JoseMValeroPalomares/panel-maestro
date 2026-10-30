@@ -1,0 +1,51 @@
+{#- Piezas comunes de tareas e ideas (items.js + item-list.js) -#}
+
+{#- Captura: la misma en el FAB/tecla C, el Inbox y Tareas. Guarda con Items.capture() -#}
+{% macro capture_form(id, rows=2, compact=False) -%}
+<form class="capture-form{% if compact %} is-compact{% endif %}" id="{{ id }}" data-capture>
+  <label class="sr-only" for="{{ id }}-text">Nueva tarea o idea</label>
+  <textarea id="{{ id }}-text" class="textarea" rows="{{ rows }}" maxlength="20000" data-capture-text placeholder="Una tarea o idea (e: para eventos)"></textarea>
+  <div class="row capture-row">
+    <div class="segmented" role="group" aria-label="Tipo">
+      <button type="button" data-capture-type="tarea" aria-pressed="true">{{ icon('square-check', 'icon-sm') }}Tarea</button>
+      <button type="button" data-capture-type="idea" aria-pressed="false">{{ icon('lightbulb', 'icon-sm') }}Idea</button>
+      <button type="button" data-capture-type="rutina" aria-pressed="false">{{ icon('repeat', 'icon-sm') }}Rutina</button>
+    </div>
+    <span class="grow"></span>
+    <span class="tiny subtle tabular" data-capture-count></span>
+    <span class="tiny subtle hide-mobile capture-hint"><kbd>Ctrl</kbd>+<kbd>Enter</kbd></span>
+    <button type="submit" class="btn btn-primary btn-sm">Guardar</button>
+  </div>
+  <div class="capture-repeat" data-capture-repeat hidden>
+    <span data-capture-days></span>
+    <label class="sr-only" for="{{ id }}-time">Hora (opcional)</label>
+    <input id="{{ id }}-time" type="time" class="input input-sm" data-repeat-time title="Hora (opcional)">
+  </div>
+</form>
+{%- endmacro %}
+
+{#- Llevar uno o varios elementos a una nota existente o nueva -#}
+{% macro note_dialog() -%}
+<dialog class="modal" id="noteDialog" aria-labelledby="noteDialogTitle">
+  <form>
+    <div class="modal-header">
+      <div><h2 id="noteDialogTitle">Llevar a una nota</h2><p class="modal-sub" id="noteDialogSub"></p></div>
+      <button type="button" class="btn btn-ghost btn-icon modal-close" data-close aria-label="Cerrar">{{ icon('x') }}</button>
+    </div>
+    <div class="modal-body stack">
+      <div class="segmented" role="group" aria-label="Destino">
+        <button type="button" data-dest="existing" aria-pressed="true">Nota existente</button>
+        <button type="button" data-dest="new" aria-pressed="false">Nota nueva</button>
+      </div>
+      <label class="field" data-for="existing"><span class="field-label">Nota</span><select class="select" name="note_id"></select></label>
+      <label class="field" data-for="new" hidden><span class="field-label">Título</span><input class="input" name="title" maxlength="300" autocomplete="off"></label>
+      <label class="field" data-for="new" hidden><span class="field-label">Categoría</span><input class="input" name="category" value="Inbox" maxlength="300" autocomplete="off"></label>
+      <p class="small muted">Las tareas pasan a ser casillas <code>- [ ]</code> de la nota (con sus pasos debajo): lo que cambies aquí o en la nota se ve en los dos sitios. Una idea queda como texto de la nota nueva.</p>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn" data-close>Cancelar</button>
+      <button type="submit" class="btn btn-primary">Llevar a la nota</button>
+    </div>
+  </form>
+</dialog>
+{%- endmacro %}

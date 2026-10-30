@@ -1,0 +1,28 @@
+/* Segundo paso de la captura (vista previa) y opciones de un elemento de la agenda: Intro elige,
+   Esc cancela. Mismo tema que los menús del sistema, sin barra de texto. */
+@import "~/.config/rofi/config.rasi"
+configuration { font: "JetBrainsMono Nerd Font 12"; }
+
+window {
+    width: 40%;
+    height: inherit;
+    y-offset: 10px;
+    location: north;
+    border: 2px;
+    border-color: white/25%;
+}
+mainbox { children: [ "message", "listview" ]; spacing: 0; background-color: @normal-background; }
+message { padding: 12px 12px 0 12px; background-color: transparent; }
+textbox {
+    margin: 0;
+    padding: 12px 14px;
+    border-radius: 10px;
+    background-color: white/6%;
+    text-color: @foreground;
+    horizontal-align: 0;
+    markup: true;
+}
+listview { columns: 1; lines: 6; fixed-height: false; scrollbar: false; padding: 8px 12px 12px 12px; spacing: 4px; }
+element { padding: 10px 14px; }
+element-icon { size: 0; }
+element-text { markup: true; }

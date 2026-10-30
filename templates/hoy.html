@@ -1,0 +1,32 @@
+{% extends "_layout.html" %}
+{% from "_items.html" import capture_form %}
+{% block head %}<link rel="stylesheet" href="{{ asset('/static/css/items.css') }}"><link rel="stylesheet" href="{{ asset('/static/css/hoy.css') }}">{% endblock %}
+{% block body_class %}page-hoy{% endblock %}
+{% block title_icon %}{{ icon('sun') }}{% endblock %}
+{% block heading %}<span id="hoyTitle">Hoy</span>{% endblock %}
+{% block actions %}
+<a class="btn btn-ghost btn-sm" href="/calendario">{{ icon('calendar', 'icon-sm') }}<span class="hide-mobile">Calendario</span></a>
+<button type="button" class="btn btn-ghost btn-sm" onclick="Palette.open()" title="Paleta de comandos (Ctrl+K)">{{ icon('command', 'icon-sm') }}<span class="hide-mobile">Ctrl K</span></button>
+{% endblock %}
+{% block content %}
+<div class="hoy">
+  <p class="hoy-sub small muted" id="hoySub" aria-live="polite"></p>
+  <a class="hoy-next" id="hoyNext" hidden></a>
+  <section class="capture-panel hoy-capture" aria-label="Captura rápida">{{ capture_form('hoyCapture', rows=1, compact=True) }}</section>
+  <div class="hoy-grid">
+    <section class="panel hoy-card" aria-labelledby="hAgenda"><div class="panel-header"><h2 id="hAgenda">{{ icon('calendar', 'icon-sm') }}Agenda</h2><span class="grow"></span><a class="tiny" href="/calendario?vista=day">Ver el día</a></div>
+      <div class="panel-body" id="hoyAgenda"><span class="skeleton skeleton-card"></span></div></section>
+    <section class="panel hoy-card" aria-labelledby="hRutinas"><div class="panel-header"><h2 id="hRutinas">{{ icon('repeat', 'icon-sm') }}Rutinas</h2><span class="grow"></span><span class="tiny muted tabular" id="hoyRutinasCount"></span><a class="tiny" href="/rutinas">Ver el día</a></div>
+      <div class="panel-body" id="hoyRutinas"></div></section>
+    <section class="panel hoy-card" aria-labelledby="hTareas"><div class="panel-header"><h2 id="hTareas">{{ icon('list-todo', 'icon-sm') }}Tareas</h2><span class="grow"></span><a class="tiny" href="/tareas">Todas</a></div>
+      <div class="panel-body" id="hoyTareas"></div></section>
+    <section class="panel hoy-card" aria-labelledby="hComida"><div class="panel-header"><h2 id="hComida">{{ icon('utensils-crossed', 'icon-sm') }}Comida del día</h2><span class="grow"></span><a class="tiny" href="/comidas/">Plan</a></div>
+      <div class="panel-body" id="hoyComida"></div></section>
+    <section class="panel hoy-card" aria-labelledby="hDinero" id="hoyDineroCard" hidden><div class="panel-header"><h2 id="hDinero">{{ icon('wallet', 'icon-sm') }}Dinero</h2><span class="grow"></span><a class="tiny" href="/economia">Economía</a></div>
+      <div class="panel-body" id="hoyDinero"></div></section>
+    <section class="panel hoy-card" aria-labelledby="hRepaso"><div class="panel-header"><h2 id="hRepaso">{{ icon('book-open', 'icon-sm') }}Repaso</h2></div>
+      <div class="panel-body" id="hoyRepaso"></div></section>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ asset('/static/js/hoy.js') }}"></script>{% endblock %}

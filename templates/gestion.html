@@ -1,0 +1,98 @@
+{% extends "_layout.html" %}
+{% block head %}<link rel="stylesheet" href="{{ asset('/static/css/gestion.css') }}">{% endblock %}
+{% block title_icon %}{{ icon('table-2') }}{% endblock %}
+{% block actions %}
+<button type="button" class="btn btn-ghost" id="btnImport">{{ icon('upload') }}<span class="hide-mobile">Importar</span><span class="sr-only show-mobile">Importar</span></button>
+<button type="button" class="btn btn-ghost" id="btnExportAll" aria-haspopup="menu">{{ icon('download') }}<span class="hide-mobile">Exportar</span><span class="sr-only show-mobile">Exportar</span></button>
+{% endblock %}
+{% block content %}
+<div class="gestion">
+  <div class="segmented gestion-tabs" role="tablist" aria-label="Qué gestionar">
+    <button type="button" role="tab" id="tab-notas" data-entity="notas" aria-selected="true" aria-controls="gestionPanel">{{ icon('notebook-pen', 'icon-sm') }}Notas</button>
+    <button type="button" role="tab" id="tab-platos" data-entity="platos" aria-selected="false" aria-controls="gestionPanel" tabindex="-1">{{ icon('utensils-crossed', 'icon-sm') }}Platos</button>
+    <button type="button" role="tab" id="tab-ingredientes" data-entity="ingredientes" aria-selected="false" aria-controls="gestionPanel" tabindex="-1">{{ icon('salad', 'icon-sm') }}Ingredientes</button>
+  </div>
+
+  <section id="gestionPanel" role="tabpanel" aria-labelledby="tab-notas" class="stack">
+    <div class="gestion-filters">
+      <label class="search grow">
+        {{ icon('search') }}
+        <span class="sr-only">Buscar</span>
+        <input id="filterSearch" class="input" type="search" placeholder="Buscar…" autocomplete="off">
+      </label>
+      <label class="sr-only" for="filterSelect">Filtrar</label>
+      <select id="filterSelect" class="select"></select>
+      <div id="filterChips" class="chips chips-scroll" role="group" aria-label="Filtro rápido"></div>
+    </div>
+    <div class="saved-row">
+      <p class="small muted count-line" id="countLine" aria-live="polite"></p>
+      <div id="savedChips" class="chips chips-scroll" role="group" aria-label="Filtros guardados"></div>
+      <button type="button" class="btn btn-ghost btn-sm" id="btnSaveFilter" disabled>{{ icon('bookmark', 'icon-sm') }}Guardar filtro</button>
+    </div>
+
+    <div class="table-wrap gestion-table-wrap">
+      <table class="table gestion-table" id="gestionTable" aria-describedby="countLine">
+        <thead><tr id="tableHead"></tr></thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+    <div id="tableEmpty" hidden></div>
+    <p class="tiny subtle hide-mobile">Mayús + clic selecciona un rango · Esc quita la selección.</p>
+  </section>
+</div>
+
+<div class="selection-bar" id="selectionBar" role="region" aria-label="Acciones sobre la selección" hidden>
+  <button type="button" class="btn btn-ghost btn-icon btn-sm" id="selClear" aria-label="Quitar la selección" title="Quitar la selección (Esc)">{{ icon('x') }}</button>
+  <span class="selection-count tabular" id="selCount" aria-live="polite"></span>
+  <span class="grow"></span>
+  <button type="button" class="btn btn-sm" id="selEdit">{{ icon('square-pen', 'icon-sm') }}<span class="btn-label">Editar</span><span class="sr-only show-mobile">Editar</span></button>
+  <button type="button" class="btn btn-sm" id="selDuplicate">{{ icon('copy', 'icon-sm') }}<span class="hide-mobile">Duplicar</span><span class="sr-only show-mobile">Duplicar</span></button>
+  <button type="button" class="btn btn-sm" id="selExport" aria-haspopup="menu">{{ icon('download', 'icon-sm') }}<span class="hide-mobile">Exportar</span><span class="sr-only show-mobile">Exportar</span></button>
+  <button type="button" class="btn btn-sm btn-danger" id="selDelete">{{ icon('trash-2', 'icon-sm') }}<span class="hide-mobile">Borrar</span><span class="sr-only show-mobile">Borrar</span></button>
+</div>
+
+<dialog class="modal" id="editModal" aria-labelledby="editTitle">
+  <form method="dialog" id="editForm">
+    <div class="modal-header">
+      <div><h2 id="editTitle">Editar selección</h2><p class="modal-sub" id="editSub"></p></div>
+      <button type="button" class="btn btn-ghost btn-icon modal-close" data-close aria-label="Cerrar">{{ icon('x') }}</button>
+    </div>
+    <div class="modal-body stack" id="editFields"></div>
+    <div class="modal-footer">
+      <p class="tiny subtle">Los campos vacíos no se cambian.</p>
+      <span class="spacer"></span>
+      <button type="button" class="btn" data-close>Cancelar</button>
+      <button type="submit" class="btn btn-primary" id="editSubmit">Aplicar</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="modal" id="importModal" aria-labelledby="importTitle">
+  <div class="modal-header">
+    <div><h2 id="importTitle">Importar</h2><p class="modal-sub" id="importSub"></p></div>
+    <button type="button" class="btn btn-ghost btn-icon modal-close" data-close aria-label="Cerrar">{{ icon('x') }}</button>
+  </div>
+  <div class="modal-body stack">
+    <label class="field" for="importFile">
+      <span class="field-label">Archivo CSV o JSON</span>
+      <input id="importFile" class="input" type="file" accept=".csv,.json,text/csv,application/json">
+      <span class="field-hint" id="importHint"></span>
+    </label>
+    <div class="field">
+      <span class="field-label" id="importModeLabel">Si ya existe</span>
+      <div class="segmented" role="group" aria-labelledby="importModeLabel">
+        <button type="button" data-mode="skip" aria-pressed="true">Conservar el actual</button>
+        <button type="button" data-mode="overwrite" aria-pressed="false">Sobrescribir</button>
+      </div>
+    </div>
+    <div id="importPreview" class="import-preview" aria-live="polite" hidden></div>
+  </div>
+  <div class="modal-footer">
+    <button type="button" class="btn" data-close>Cancelar</button>
+    <button type="button" class="btn btn-tinted" id="importPreviewBtn" disabled>Previsualizar</button>
+    <button type="button" class="btn btn-primary" id="importRun" disabled>Importar</button>
+  </div>
+</dialog>
+{% endblock %}
+{% block fab %}{% endblock %}
+{% block scripts %}<script src="{{ asset('/static/js/gestion.js') }}"></script>{% endblock %}

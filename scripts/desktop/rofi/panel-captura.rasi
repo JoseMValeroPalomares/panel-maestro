@@ -1,0 +1,49 @@
+/* Captura rápida del Panel (scripts/desktop/quick_capture.sh, Super+K).
+   Base: ~/.config/rofi/config-search.rasi (el menú de una línea del sistema): mismo tema, fuente, colores
+   (wallust), ancho y posición. Cambia la disposición: icono y campo a la izquierda, y la ayuda de los
+   prefijos en una caja discreta debajo en vez del bloque de color. */
+@import "~/.config/rofi/config.rasi"
+configuration { font: "JetBrainsMono Nerd Font 12"; }
+
+window {
+    width: 46%;
+    height: inherit;
+    y-offset: 10px;
+    location: north;
+    border: 2px;
+    border-color: white/25%;
+}
+mainbox { children: [ "inputbar", "message" ]; spacing: 0; background-color: @normal-background; }
+inputbar {
+    padding: 14px 18px;
+    spacing: 12px;
+    children: [ "textbox-prompt-colon", "entry" ];
+    background-image: none;
+    background-color: transparent;
+}
+textbox-prompt-colon {
+    str: "";
+    padding: 2px 0 0 0;
+    text-color: @color12;
+    background-color: transparent;
+    border-radius: 0;
+}
+entry {
+    expand: true;
+    placeholder: "Captura rápida: escribe y pulsa Intro";
+    placeholder-color: white/45%;
+    horizontal-align: 0;
+    padding: 0;
+    border-radius: 0;
+    background-color: transparent;
+}
+message { padding: 0 12px 12px 12px; background-color: transparent; }
+textbox {
+    margin: 0;
+    padding: 10px 14px;
+    border-radius: 10px;
+    background-color: white/6%;
+    text-color: @foreground;
+    horizontal-align: 0;
+    markup: true;
+}

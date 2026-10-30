@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex">
+<title>Entrar · Panel</title>
+<link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+<link rel="manifest" href="/manifest.webmanifest">
+<script src="{{ asset('/static/js/theme-init.js') }}"></script>
+<link rel="stylesheet" href="{{ asset('/static/css/ds.css') }}">
+<link rel="stylesheet" href="{{ asset('/static/css/themes.css') }}">
+<link rel="stylesheet" href="{{ asset('/static/css/login.css') }}">
+</head>
+<body>
+<main class="login">
+  <form class="login-card" method="post" action="/login">
+    <img src="/static/icons/icon.svg" alt="" width="64" height="64" class="login-logo">
+    <h1>Panel</h1>
+    <p class="muted">Notas, inbox, comidas y estudio.</p>
+    {% if not configured %}
+    <p class="login-msg warn" role="alert">Aún no hay contraseña. En el servidor ejecuta <code>python -m scripts.set_password</code> y reinicia.</p>
+    {% endif %}
+    {% if error %}<p class="login-msg error" role="alert">{{ error }}</p>{% endif %}
+    <label class="field">
+      <span class="field-label">Contraseña</span>
+      <input id="password" name="password" class="input" type="password" autocomplete="current-password" required autofocus maxlength="512">
+    </label>
+    <input type="hidden" name="next" value="{{ next }}">
+    <button type="submit" class="btn btn-primary btn-lg btn-block">Entrar</button>
+  </form>
+</main>
+</body>
+</html>

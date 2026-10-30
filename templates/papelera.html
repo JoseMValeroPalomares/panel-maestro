@@ -1,0 +1,11 @@
+{% extends "_layout.html" %}
+{% block title_icon %}{{ icon('trash-2') }}{% endblock %}
+{% block actions %}<button type="button" class="btn btn-danger btn-sm" id="trashEmpty" hidden>{{ icon('trash-2', 'icon-sm') }}Vaciar</button>{% endblock %}
+{% block content %}
+<div class="stack trash-page">
+  <p class="small muted" id="trashInfo">Lo que borras (notas, tareas, ideas, rutinas, eventos, platos, ingredientes y comidas del plan; también en lote) se queda aquí 30 días y después se vacía solo.</p>
+  <div class="chips" role="group" aria-label="Tipo" id="trashFilter"></div>
+  <ul class="list trash-list" id="trashList" aria-live="polite"></ul>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ asset('/static/js/papelera.js') }}"></script>{% endblock %}

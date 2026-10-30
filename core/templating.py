@@ -1,0 +1,98 @@
+"""
+Plantillas Jinja compartidas por las tres apps (todas usan templates/_layout.html).
+
+La navegación vive aquí para que la barra lateral, la barra de pestañas móvil
+y la hoja "Más" salgan siempre iguales, sea cual sea la app que renderiza.
+"""
+import hashlib
+import os
+
+from fastapi import Request
+from fastapi.templating import Jinja2Templates
+from markupsafe import Markup, escape
+
+from core import config
+from core.themes import CHOICES as THEME_CHOICES, preview as theme_preview
+
+# Menú agrupado por intención: (clave del grupo, título, [(clave, etiqueta, ruta, icono), …])
+NAV_GROUPS = [
+    ("planificar", "Planificar", [
+        ("hoy", "Hoy", "/hoy", "sun"),
+        ("calendario", "Calendario", "/calendario", "calendar"),
+        ("rutinas", "Rutinas", "/rutinas", "repeat"),
+        ("tareas", "Tareas", "/tareas", "list-todo"),
+        ("inbox", "Inbox", "/inbox", "inbox"),
+        ("revision", "Revisión", "/revision", "history"),
+    ]),
+    ("conocimiento", "Conocimiento", [
+        ("notas", "Notas", "/", "notebook-pen"),
+        ("grafo", "Grafo", "/graph", "waypoints"),
+        ("baul", "Baúl", "/vault", "library"),
+        ("repaso", "Repaso", "/repaso", "calendar-days"),
+        ("buscar", "Buscar", "/buscar", "search"),
+    ]),
+    ("vida", "Vida", [
+        ("comidas", "Comidas", "/comidas/", "utensils-crossed"),
+        ("economia", "Economía", "/economia", "wallet"),
+        ("estudio", "Estudio", "/estudio/", "graduation-cap"),
+    ]),
+    ("sistema", "Sistema", [
+        ("gestion", "Gestión", "/gestion", "table-2"),
+        ("backups", "Copias", "/backups", "database-backup"),
+        ("papelera", "Papelera", "/papelera", "trash-2"),
+    ]),
+]
+# Destinos de la barra inferior en móvil (el quinto es siempre "Más")
+TABBAR = ["hoy", "notas", "inbox", "comidas"]
+
+templates = Jinja2Templates(directory=str(config.PROJECT_ROOT / "templates"))
+
+
+def _all_nav():
+    return [item for _, _, items in NAV_GROUPS for item in items]
+
+
+# Carpeta de cada prefijo de URL de recursos estáticos
+_ASSET_DIRS = {"/static/": config.PROJECT_ROOT / "static", "/comidas/": config.PROJECT_ROOT / "comidas" / "static",
+               "/estudio/": config.PROJECT_ROOT / "estudio" / "static"}
+_asset_cache: dict[str, tuple[float, str]] = {}
+
+
+def asset(url: str) -> str:
+    """URL con ?v=<hash del contenido>. Así una página nueva nunca recibe un JS/CSS viejo de la caché del
+    service worker (que sirve /static con «stale-while-revalidate»)."""
+    for prefix, folder in _ASSET_DIRS.items():
+        if url.startswith(prefix):
+            path = folder / url[len(prefix):]
+            break
+    else:
+        return url
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        return url
+    cached = _asset_cache.get(url)
+    if not cached or cached[0] != mtime:
+        cached = (mtime, hashlib.sha256(path.read_bytes()).hexdigest()[:10])
+        _asset_cache[url] = cached
+    return f"{url}?v={cached[1]}"
+
+
+def icon(name: str, cls: str = "") -> Markup:
+    return Markup(
+        f'<svg class="icon {escape(cls)}" aria-hidden="true"><use href="{asset("/static/icons.svg")}#i-{escape(name)}"></use></svg>'
+    )
+
+
+templates.env.globals.update(
+    icon=icon, asset=asset, theme_choices=THEME_CHOICES, theme_preview=theme_preview,
+    nav_groups=NAV_GROUPS,
+    tabbar=lambda: [n for n in _all_nav() if n[0] in TABBAR],
+    nav_all=_all_nav,
+)
+
+
+def render(request: Request, name: str, section: str, title: str, **context):
+    return templates.TemplateResponse(
+        request=request, name=name, context={"section": section, "page_title": title, **context}
+    )

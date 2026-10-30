@@ -1,0 +1,39 @@
+{% extends "_layout.html" %}
+{% block head %}<link rel="stylesheet" href="{{ asset('/static/css/repaso.css') }}">{% endblock %}
+{% block title_icon %}{{ icon('calendar-days') }}{% endblock %}
+{% block actions %}
+<a class="btn btn-primary" href="/?flashcards=1" id="btnReview">{{ icon('layers') }}<span>Repasar ahora</span></a>
+{% endblock %}
+{% block content %}
+<div class="repaso stack stack-lg">
+  <p class="review-line" id="summary" aria-live="polite"><span class="skeleton skeleton-line" style="width:60%"></span></p>
+
+  <section class="panel review-panel" aria-labelledby="upHeading">
+    <div class="panel-header"><h2 id="upHeading">Próximas 4 semanas</h2><span class="grow"></span><span class="tiny subtle hide-mobile">flashcards que vencen cada día</span></div>
+    <div class="panel-body">
+      <p class="small muted rv-empty" id="upcomingEmpty" hidden>Nada programado en las próximas 4 semanas. Escribe <kbd>pregunta &gt;&gt; respuesta</kbd> en cualquier nota y la flashcard aparecerá aquí el día que toque repasarla.</p>
+      <div id="upcomingBody">
+      <div class="cal-head" aria-hidden="true"><span>L</span><span>M</span><span>X</span><span>J</span><span>V</span><span>S</span><span>D</span></div>
+      <ol class="cal-grid" id="upcoming"></ol>
+      <p class="small muted" id="dayDetail" aria-live="polite"></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel review-panel" aria-labelledby="heatHeading">
+    <div class="panel-header"><h2 id="heatHeading">Días de estudio</h2><span class="grow"></span><span class="tiny subtle hide-mobile" id="heatInfo"></span></div>
+    <div class="panel-body"><div class="heat-wrap">
+      <div class="heat-months" id="heatMonths" aria-hidden="true"></div>
+      <div class="heat-row"><div class="heat-days" aria-hidden="true"><span>L</span><span></span><span>X</span><span></span><span>V</span><span></span><span>D</span></div>
+        <ol class="heat" id="heat" aria-label="Días con estudio en las últimas semanas"></ol></div>
+      <div class="heat-legend tiny muted" aria-hidden="true"><span><i></i>Sin estudio</span><span><i data-on="true"></i>Estudiaste</span></div>
+    </div></div>
+  </section>
+
+  <section aria-labelledby="staleHeading" class="stack">
+    <div class="row"><h2 id="staleHeading" class="section-title">Notas que llevan tiempo sin repasar</h2><span class="grow"></span><span class="badge" id="staleCount"></span></div>
+    <ul class="list" id="staleList"></ul>
+  </section>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ asset('/static/js/repaso.js') }}"></script>{% endblock %}

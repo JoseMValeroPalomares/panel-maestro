@@ -1,0 +1,75 @@
+/* Copias de seguridad: estado + listado */
+.backups { max-width: 880px; margin: 0 auto; width: 100%; }
+
+.backup-status { padding: var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-4); }
+.status-main { display: flex; align-items: center; gap: var(--sp-4); }
+.health-icon {
+  display: inline-grid; place-items: center; width: 48px; height: 48px; border-radius: var(--r-md); flex-shrink: 0;
+  background: var(--success-soft); color: var(--success-text);
+}
+.health-icon .icon { width: 26px; height: 26px; }
+.backup-status[data-health="antigua"] .health-icon,
+.backup-status[data-health="sin-copias"] .health-icon { background: var(--warning-soft); color: var(--warning-text); }
+.backup-status[data-health="error"] .health-icon { background: var(--danger-soft); color: var(--danger-text); }
+.health-title { font-size: var(--fs-17); font-weight: 600; }
+.status-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: var(--sp-3); margin: 0; }
+.status-facts div { background: var(--bg-elev-2); border-radius: var(--r-sm); padding: var(--sp-3); min-width: 0; }
+.status-facts dt { font-size: var(--fs-12); color: var(--text-2); font-weight: 500; }
+.status-facts dd { margin: 2px 0 0; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+.backup-list .list-row { min-height: 64px; flex-wrap: wrap; }
+.backup-list .row-sub { white-space: normal; }
+.backup-list .row-trail { gap: var(--sp-1); }
+.kind { font-size: var(--fs-12); font-weight: 600; padding: 2px 8px; border-radius: var(--r-pill); background: var(--fill); color: var(--text-2); }
+.kind[data-kind="semanal"] { background: var(--accent-soft); color: var(--accent-text); }
+.kind[data-kind="pre-restauracion"] { background: var(--warning-soft); color: var(--warning-text); }
+.kind[data-kind="manual"] { background: var(--success-soft); color: var(--success-text); }
+
+/* Repositorios (dotfiles y el propio panel): tarjeta en la página y diálogo con cambios, contenido e historial */
+.repo-card[aria-busy="true"] .health-icon { background: var(--fill); color: var(--text-2); }
+.repo-card .status-main { flex-wrap: wrap; }
+.repo-card .status-main .grow { flex: 1 1 240px; min-width: 0; }
+.repo-actions { display: flex; gap: var(--sp-2); flex-shrink: 0; }
+dialog.modal#repoModal[open] { height: min(720px, 86dvh); } /* misma altura en las tres pestañas */
+.repo-tabs { padding: 0 var(--sp-6) var(--sp-3); flex-shrink: 0; } /* fuera del cuerpo: no se van con el scroll */
+.repo-chevron { color: var(--text-2); flex-shrink: 0; transition: transform var(--dur) var(--ease-out); }
+.repo-file[open] .repo-chevron { transform: rotate(90deg); }
+.repo-group { display: flex; flex-direction: column; }
+.repo-group-title { font-size: var(--fs-13); font-weight: 600; color: var(--text-2); padding: var(--sp-2) 0 var(--sp-1); }
+.repo-file { border-top: 1px solid var(--separator); }
+.repo-file summary {
+  display: flex; align-items: center; gap: var(--sp-3); min-height: var(--touch); padding: var(--sp-2) var(--sp-1);
+  cursor: pointer; border-radius: var(--r-sm);
+}
+.repo-file summary:hover { background: var(--fill); }
+.repo-path { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: var(--fs-13); font-family: var(--font-mono); }
+.kind[data-kind="nuevo"] { background: var(--success-soft); color: var(--success-text); }
+.kind[data-kind="conflicto"], .kind[data-kind="borrado"] { background: var(--danger-soft); color: var(--danger-text); }
+.kind[data-kind="repo"] { background: var(--warning-soft); color: var(--warning-text); }
+.repo-diff-box { padding-bottom: var(--sp-3); }
+.repo-diff {
+  margin: 0; padding: var(--sp-2) 0; overflow-x: auto; max-height: 340px; border-radius: var(--r-sm); background: var(--bg-elev-2);
+  font-family: var(--font-mono); font-size: var(--fs-12); line-height: 1.5;
+}
+.repo-diff span { display: block; width: max-content; min-width: 100%; padding: 0 var(--sp-3); white-space: pre; }
+.repo-diff .add { background: var(--success-soft); }
+.repo-diff .del { background: var(--danger-soft); }
+.repo-diff .hunk { color: var(--text-2); }
+.repo-components { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: var(--sp-2); }
+.repo-components li { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); border-radius: var(--r-sm); background: var(--bg-elev-2); }
+.repo-comp-name { font-weight: 600; overflow-wrap: anywhere; min-width: 0; }
+.repo-commit-title { white-space: normal; }
+
+.restore-warning { display: flex; gap: var(--sp-2); align-items: flex-start; padding: var(--sp-3); border-radius: var(--r-sm); background: var(--warning-soft); color: var(--text); font-size: var(--fs-13); }
+.restore-warning .icon { color: var(--warning); margin-top: 2px; flex-shrink: 0; }
+.restore-parts { border: 0; padding: 0; }
+.restore-parts .part { display: flex; gap: var(--sp-3); align-items: flex-start; min-height: var(--touch); padding: var(--sp-2) 0; cursor: pointer; }
+.restore-parts .part .checkbox { margin-top: 2px; }
+
+@media (max-width: 767px) {
+  .backup-list .row-trail { width: 100%; justify-content: flex-end; }
+  .backup-status { padding: var(--sp-4); }
+  .repo-actions { width: 100%; }
+  .repo-tabs { padding: 0 var(--sp-4) var(--sp-2); }
+  .repo-actions .btn { flex: 1; }
+}

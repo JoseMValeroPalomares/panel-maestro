@@ -1,0 +1,3 @@
+-r requirements.txt
+pytest==8.4.2
+playwright==1.64.0  # tests de navegador (tests/e2e); usa el Chromium de ~/.cache/ms-playwright

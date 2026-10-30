@@ -1,0 +1,105 @@
+{% extends "_layout.html" %}
+{% block head %}<link rel="stylesheet" href="{{ asset('/static/css/calendar.css') }}"><link rel="stylesheet" href="{{ asset('/estudio/estudio.css') }}">{% endblock %}
+{% block title_icon %}{{ icon('graduation-cap') }}{% endblock %}
+{% block actions %}
+<span id="connStatus" class="conn-status" data-online="checking" role="status" aria-live="polite"><span class="conn-dot"></span><span class="conn-label">Conectando con el ESP32…</span></span>
+<button type="button" id="btnOpenTheme" class="btn btn-ghost btn-icon" title="Fondo del panel ESP32" aria-label="Personalizar fondo">{{ icon('image') }}</button>
+{% endblock %}
+{% block content %}
+<div id="bgLayer" aria-hidden="true"></div>
+<div id="offlineNotice" class="offline-notice panel" hidden>
+  <span class="tile" data-section="estudio">{{ icon('wifi-off') }}</span>
+  {% if esp32_host %}
+  <div class="grow"><strong>El panel ESP32 no responde</strong>
+    <p class="small muted">Las tareas del panel y el pomodoro viven en el ESP32 ({{ esp32_host }}). Tras unos intentos se deja de buscar para no saturar la red: pulsa «Reintentar» cuando esté encendido.</p></div></div>
+  <button type="button" class="btn btn-sm" id="btnRetry">{{ icon('refresh-cw', 'icon-sm') }}Reintentar</button>
+  {% else %}
+  <div class="grow"><strong>Sin panel ESP32</strong>
+    <p class="small muted">Este panel de mesa es opcional y aquí no hay ninguno configurado. Si tienes uno, pon su dirección en <code>ESP32_HOST</code> dentro de <code>.env</code> y reinicia.</p></div>
+  <button type="button" id="btnRetry" hidden></button>
+  {% endif %}
+</div>
+
+<div class="estudio-grid">
+  <div class="estudio-col">
+    <section class="panel" aria-labelledby="calTitle">
+      <div class="panel-header"><h2 id="calTitle" class="grow">Calendario</h2>
+        <a class="btn btn-ghost btn-sm" href="/calendario">{{ icon('external-link', 'icon-sm') }}Abrir</a></div>
+      <div class="panel-body"><div id="estCalendar"></div>
+        <p class="tiny muted est-cal-hint">El mismo calendario del Panel: lo que añadas aquí o en el ESP32 se sincroniza en los dos sentidos.</p></div>
+    </section>
+
+    <section class="panel" aria-labelledby="tasksTitle">
+      <div class="panel-header"><h2 id="tasksTitle">Tareas del panel</h2></div>
+      <div class="panel-body stack">
+        <form class="row" id="newCategoryForm">
+          <label class="sr-only" for="newCategoryName">Nueva categoría</label>
+          <input type="text" id="newCategoryName" class="input" maxlength="40" placeholder="Nueva categoría (p. ej. Metaheurística)">
+          <button type="submit" id="btnAddCategory" class="btn btn-tinted">{{ icon('plus', 'icon-sm') }}Crear</button>
+        </form>
+        <div id="categoriesContainer" class="categories"></div>
+      </div>
+    </section>
+  </div>
+
+  <div class="estudio-col">
+    <section class="panel" aria-labelledby="eventsTitle">
+      <div class="panel-header"><h2 id="eventsTitle">Próximos 14 días</h2></div>
+      <div class="panel-body"><div id="estAgenda"></div></div>
+    </section>
+
+    <section class="panel" aria-labelledby="pomoTitle">
+      <div class="panel-header"><h2 id="pomoTitle">Pomodoro</h2></div>
+      <div class="panel-body pomo-layout">
+        <div class="pomo-ring" id="pomoRing" role="img" aria-label="Progreso del pomodoro">
+          <div class="pomo-ring-inner">
+            <div id="pomoTimeDisplay" class="pomo-time tabular">25:00</div>
+            <div id="pomoPhaseLabel" class="pomo-phase">Trabajo</div>
+          </div>
+        </div>
+        <div class="pomo-controls">
+          <div class="row">
+            <button type="button" id="btnPomoStartPause" class="btn btn-primary btn-lg grow">{{ icon('play') }}Iniciar</button>
+            <button type="button" id="btnPomoReset" class="btn btn-lg btn-icon" aria-label="Reiniciar">{{ icon('rotate-ccw') }}</button>
+          </div>
+          <div class="pomo-steppers">
+            <div class="stepper"><span class="field-label">Trabajo</span>
+              <div class="stepper-row">
+                <button type="button" class="btn btn-icon btn-sm btn-step" data-target="work" data-delta="-1" aria-label="Menos minutos de trabajo">{{ icon('minus', 'icon-sm') }}</button>
+                <span class="tabular"><b id="workMinLabel">25</b> min</span>
+                <button type="button" class="btn btn-icon btn-sm btn-step" data-target="work" data-delta="1" aria-label="Más minutos de trabajo">{{ icon('plus', 'icon-sm') }}</button>
+              </div></div>
+            <div class="stepper"><span class="field-label">Descanso</span>
+              <div class="stepper-row">
+                <button type="button" class="btn btn-icon btn-sm btn-step" data-target="break" data-delta="-1" aria-label="Menos minutos de descanso">{{ icon('minus', 'icon-sm') }}</button>
+                <span class="tabular"><b id="breakMinLabel">5</b> min</span>
+                <button type="button" class="btn btn-icon btn-sm btn-step" data-target="break" data-delta="1" aria-label="Más minutos de descanso">{{ icon('plus', 'icon-sm') }}</button>
+              </div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="notesTitle">
+      <div class="panel-header"><h2 id="notesTitle">Notas en el reloj</h2></div>
+      <div class="panel-body stack">
+        <label class="row review-toggle"><input type="checkbox" id="reviewAutoToggle" class="switch" checked disabled aria-describedby="reviewAutoHelp"><span>Mostrar una nota de repaso cada 15 minutos</span></label>
+        <p id="reviewAutoHelp" class="small muted">Si lo desactivas, la nota no salta sola: la tecla 9 del mando la muestra. La tecla 0 abre la pantalla Notas para leer cualquiera y abrirla en el PC.</p>
+      </div>
+    </section>
+  </div>
+</div>
+
+<dialog class="modal modal-sm" id="themeModal" aria-labelledby="themeTitle">
+  <div class="modal-header"><h2 id="themeTitle">Fondo del panel ESP32</h2>
+    <button type="button" id="btnCloseThemeModal" class="btn btn-ghost btn-icon modal-close" data-close aria-label="Cerrar">{{ icon('x') }}</button></div>
+  <div class="modal-body stack">
+    <p class="muted small">Elige una imagen: se envía a la pantalla del ESP32 y el color de acento se adapta a ella.</p>
+    <div id="themePreview" class="theme-preview" aria-hidden="true"></div>
+    <label class="btn btn-tinted btn-block file-btn">{{ icon('upload', 'icon-sm') }}Elegir imagen<input type="file" id="themeImageInput" accept="image/*" class="sr-only"></label>
+    <button type="button" id="btnResetTheme" class="btn btn-block">Restaurar el fondo por defecto</button>
+  </div>
+</dialog>
+<canvas id="colorCanvas" width="40" height="40" hidden></canvas>
+{% endblock %}
+{% block scripts %}<script src="{{ asset('/static/js/calendar.js') }}"></script><script src="{{ asset('/estudio/app.js') }}"></script>{% endblock %}

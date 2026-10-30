@@ -1,0 +1,67 @@
+{% extends "_layout.html" %}
+{% block head %}<link rel="stylesheet" href="{{ asset('/static/css/vault.css') }}">{% endblock %}
+{% block title_icon %}{{ icon('library') }}{% endblock %}
+{% block actions %}
+<div class="search hide-mobile vault-search">{{ icon('search') }}
+  <input id="searchInput" class="input" type="search" placeholder="Buscar en el Baúl" aria-label="Buscar en el Baúl" autocomplete="off"></div>
+<button type="button" class="btn btn-primary" onclick="openAddModal()">{{ icon('plus') }}<span class="hide-mobile">Añadir</span><span class="sr-only show-mobile">Añadir recurso</span></button>
+{% endblock %}
+{% block content %}
+<div class="vault">
+  <div class="vault-controls">
+    <div class="segmented" role="tablist" aria-label="Vista">
+      <button type="button" class="main-tab" data-maintab="library" role="tab" aria-selected="true" onclick="switchMainTab(this,'library')">Biblioteca</button>
+      <button type="button" class="main-tab" data-maintab="watchlater" role="tab" aria-selected="false" onclick="switchMainTab(this,'watchlater')">Para más tarde <span class="badge" id="wlBadge" hidden>0</span></button>
+      <button type="button" class="main-tab" data-maintab="watched" role="tab" aria-selected="false" onclick="switchMainTab(this,'watched')">Vistos <span class="badge" id="watchedBadge" hidden>0</span></button>
+    </div>
+    <div class="search show-mobile">{{ icon('search') }}
+      <input id="searchInputMobile" class="input" type="search" placeholder="Buscar en el Baúl" aria-label="Buscar en el Baúl" autocomplete="off"></div>
+    <div id="filterBar" class="filter-bar">
+      <div class="segmented" role="group" aria-label="Tipo">
+        <button type="button" class="type-chip" data-type="all" aria-pressed="true">Todo</button>
+        <button type="button" class="type-chip" data-type="youtube" aria-pressed="false">{{ icon('youtube', 'icon-sm') }}Vídeos</button>
+        <button type="button" class="type-chip" data-type="web" aria-pressed="false">{{ icon('globe', 'icon-sm') }}Web</button>
+      </div>
+      <div id="catChips" class="chips chips-scroll" role="group" aria-label="Categoría"></div>
+    </div>
+  </div>
+  <div id="vaultContent" class="vault-content" aria-live="polite">
+    <div class="yt-grid">{% for _ in range(8) %}<div class="yt-card"><span class="skeleton yt-thumb"></span><span class="skeleton skeleton-line" style="width:80%;margin:12px"></span></div>{% endfor %}</div>
+  </div>
+</div>
+
+<dialog class="modal modal-sm" id="addModal" aria-labelledby="addTitle">
+  <div class="modal-header"><h2 id="addTitle">Añadir recurso</h2>
+    <button type="button" class="btn btn-ghost btn-icon modal-close" data-close aria-label="Cerrar">{{ icon('x') }}</button></div>
+  <form class="modal-body stack" id="addForm">
+    <label class="field"><span class="field-label">Enlace</span>
+      <input id="addUrl" class="input" type="url" required maxlength="2048" placeholder="https://…" inputmode="url" autocomplete="off">
+      <span class="field-hint">Vídeos de YouTube, artículos o cualquier web. El título y la miniatura se cargan solos.</span></label>
+    <label class="field"><span class="field-label">Categoría</span>
+      <input id="addCat" class="input" type="text" maxlength="120" list="catList" placeholder="Programación, Biología…" autocomplete="off"></label>
+    <datalist id="catList"></datalist>
+    <label class="row"><input type="checkbox" id="addWatchLater" class="checkbox"><span>Guardar en «Para más tarde»</span></label>
+  </form>
+  <div class="modal-footer">
+    <button type="button" class="btn" data-close>Cancelar</button>
+    <button type="submit" form="addForm" id="btnSubmit" class="btn btn-primary">Guardar</button>
+  </div>
+</dialog>
+
+<dialog class="modal modal-sm" id="editModal" aria-labelledby="editTitleH">
+  <div class="modal-header"><h2 id="editTitleH">Editar recurso</h2>
+    <button type="button" class="btn btn-ghost btn-icon modal-close" data-close aria-label="Cerrar">{{ icon('x') }}</button></div>
+  <form class="modal-body stack" id="editForm">
+    <input type="hidden" id="editId">
+    <label class="field"><span class="field-label">Título</span><input id="editTitle" class="input" type="text" maxlength="500"></label>
+    <label class="field"><span class="field-label">Descripción</span><textarea id="editDesc" class="textarea" rows="3" maxlength="5000"></textarea></label>
+    <label class="field"><span class="field-label">Categoría</span><input id="editCat" class="input" type="text" maxlength="120" list="catList"></label>
+    <label class="row"><input type="checkbox" id="editWatchLater" class="checkbox"><span>Para más tarde</span></label>
+  </form>
+  <div class="modal-footer">
+    <button type="button" class="btn" data-close>Cancelar</button>
+    <button type="submit" form="editForm" class="btn btn-primary">Guardar cambios</button>
+  </div>
+</dialog>
+{% endblock %}
+{% block scripts %}<script src="{{ asset('/static/js/vault.js') }}"></script>{% endblock %}

@@ -1,0 +1,57 @@
+/* Pantalla «Hoy» */
+.hoy { display: flex; flex-direction: column; gap: var(--sp-4); }
+.hoy-sub { margin-top: calc(var(--sp-2) * -1); }
+.hoy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: var(--sp-4); align-items: start; }
+.hoy-card .panel-header h2 { display: flex; align-items: center; gap: 8px; }
+.hoy-card .panel-header h2 .icon { color: var(--text-2); }
+.hoy-list { list-style: none; padding: 0; display: flex; flex-direction: column; }
+.hoy-row { display: flex; align-items: center; gap: var(--sp-2); min-height: 44px; border-bottom: 1px solid var(--separator); }
+.hoy-row:last-child { border-bottom: 0; }
+.hoy-row.is-done .hoy-title { text-decoration: line-through; color: var(--text-2); }
+.hoy-row.is-past { opacity: 0.6; }
+.hoy-row.is-now .hoy-time { color: var(--success-text); font-weight: 600; }
+.hoy-time { flex: 0 0 6.5em; font-size: var(--fs-13); color: var(--text-2); }
+.hoy-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--tile-grafo); flex-shrink: 0; margin: 0 8px; }
+.hoy-row[data-type="examen"] .hoy-dot { background: var(--danger); }
+.hoy-row[data-type="entrega"] .hoy-dot { background: var(--warning); }
+.hoy-title { flex: 1; min-width: 0; color: var(--text); text-decoration: none; overflow-wrap: anywhere; }
+a.hoy-title:hover { color: var(--accent-text); }
+.hoy-streak { display: inline-flex; align-items: center; gap: 2px; color: var(--warning-text); font-weight: 600; font-size: var(--fs-13); }
+.hoy-late { color: var(--danger-text); font-weight: 600; }
+.hoy-h3 { font-size: var(--fs-13); color: var(--text-2); margin: var(--sp-3) 0 var(--sp-1); }
+.hoy-empty { padding: var(--sp-2) 0; }
+.hoy-meals { list-style: none; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); margin-bottom: var(--sp-4); }
+.hoy-meals li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 var(--sp-2); }
+.hoy-meal-name { font-weight: 600; font-size: var(--fs-13); }
+.hoy-meal-platos { grid-column: 1; font-size: var(--fs-13); color: var(--text-2); }
+.hoy-meals .tiny { grid-row: 1; grid-column: 2; }
+.hoy-macros { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-3); }
+.hoy-macro { display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-13); }
+.hoy-bar { height: 6px; border-radius: 3px; background: var(--fill-strong); overflow: hidden; }
+.hoy-bar > span { display: block; height: 100%; background: var(--tile-comidas); border-radius: 3px; }
+.hoy-macro.is-over .hoy-bar > span { background: var(--warning); }  /* pasarse de kcal, hidratos o grasa no es «cumplido» */
+.hoy-macro.is-over b { color: var(--warning-text, var(--text)); }
+.hoy-card .btn { margin-top: var(--sp-2); }
+
+/* Revisión semanal: barras por día (una serie) */
+.rev-bars { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; height: 150px; align-items: end; margin-top: var(--sp-3); }
+.rev-day { display: grid; grid-template-rows: auto 1fr auto auto; height: 100%; justify-items: center; gap: 2px; }
+.rev-bar { align-self: end; width: 70%; max-width: 32px; min-height: 2px; border-radius: 4px 4px 0 0; background: var(--tile-tareas); }
+.rev-val { font-size: var(--fs-12); color: var(--text); font-weight: 600; }
+.rev-dow { font-size: var(--fs-12); color: var(--text-2); font-weight: 600; }
+.rev-rut { color: var(--text-2); }
+.revision .hoy-row .icon { color: var(--text-2); flex-shrink: 0; }
+.revision ~ * .cal-nav, .page-actions .cal-nav { display: flex; align-items: center; gap: 2px; }
+
+/* Lo siguiente del día */
+.hoy-next { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-md);
+  background: var(--accent-soft); color: var(--text); text-decoration: none; font-size: var(--fs-14); }
+.hoy-next[hidden] { display: none; }
+.hoy-next:hover { text-decoration: none; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
+.hoy-next .icon { color: var(--accent-text); }
+.hoy-next > span:last-child { margin-left: auto; font-size: var(--fs-13); }
+/* Dinero */
+.hoy-money { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); margin-bottom: var(--sp-2); }
+.hoy-money > div { display: flex; flex-direction: column; gap: 2px; }
+.hoy-money b { font-size: var(--fs-20); }
+.hoy-money-hint { margin: var(--sp-2) 0 0; }

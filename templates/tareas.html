@@ -1,0 +1,42 @@
+{% extends "_layout.html" %}
+{% from "_items.html" import capture_form, note_dialog %}
+{% block head %}<link rel="stylesheet" href="{{ asset('/static/css/items.css') }}">{% endblock %}
+{% block body_class %}page-tareas{% endblock %}
+{% block title_icon %}{{ icon('list-todo') }}{% endblock %}
+{% block actions %}
+<div class="segmented status-seg" role="group" aria-label="Estado">
+  <button type="button" data-status="pending" aria-pressed="true">Pendientes <span class="tabular" data-status-count="pendientes"></span></button>
+  <button type="button" data-status="done" aria-pressed="false">Hechas <span class="tabular" data-status-count="hechas"></span></button>
+  <button type="button" data-status="all" aria-pressed="false">Todas</button>
+</div>
+{% endblock %}
+{% block content %}
+<div class="tareas stack">
+  <section class="capture-panel" aria-label="Nueva tarea o idea">{{ capture_form('tareasCapture', rows=1, compact=True) }}</section>
+
+  <div class="task-filters" role="search">
+    <div class="chips" role="group" aria-label="Tipo">
+      <button type="button" class="chip" data-type-filter="all" aria-pressed="true">Todo</button>
+      <button type="button" class="chip" data-type-filter="tarea" aria-pressed="false">{{ icon('square-check', 'icon-sm') }}Tareas</button>
+      <button type="button" class="chip" data-type-filter="idea" aria-pressed="false">{{ icon('lightbulb', 'icon-sm') }}Ideas</button>
+      <button type="button" class="chip" data-type-filter="rutina" aria-pressed="false">{{ icon('repeat', 'icon-sm') }}Rutinas</button>
+    </div>
+    <label class="sr-only" for="catFilter">Categoría</label>
+    <select id="catFilter" class="select input-sm cat-filter"><option value="">Todas las categorías</option></select>
+    <label class="search grow">
+      {{ icon('search') }}<span class="sr-only">Buscar</span>
+      <input id="taskSearch" class="input" type="search" placeholder="Buscar en tareas, ideas y notas…" autocomplete="off">
+    </label>
+    <button type="button" class="btn btn-ghost btn-sm" id="btnSelect" aria-pressed="false">{{ icon('list-checks', 'icon-sm') }}Seleccionar</button>
+  </div>
+
+  <div id="itemList" class="il-host" aria-live="polite"></div>
+  <p class="tiny subtle tareas-help">Arrastra para ordenar, llevar a otro grupo o nota, o suelta sobre el centro de una tarjeta para meterla como paso.
+    <span class="hide-mobile">Doble clic o <kbd>Enter</kbd> edita; <kbd>Espacio</kbd> marca; <kbd>Alt</kbd> + flechas mueve; <kbd>Alt</kbd> + <kbd>Mayús</kbd> + <kbd>→</kbd>/<kbd>←</kbd> mete o saca de su elemento; <kbd>X</kbd> selecciona.</span>
+    <span class="show-mobile">Mantén pulsada una tarjeta para arrastrarla; toca … para más acciones.</span>
+    Las casillas <code>- [ ]</code> de tus notas aparecen en «Notas» y se cambian en los dos sentidos.</p>
+</div>
+{{ note_dialog() }}
+{% endblock %}
+{% block scripts %}<script src="{{ asset('/static/vendor/marked/marked.min.js') }}"></script><script src="{{ asset('/static/vendor/dompurify/purify.min.js') }}"></script>
+<script src="{{ asset('/static/js/item-list.js') }}"></script><script src="{{ asset('/static/js/tareas.js') }}"></script>{% endblock %}

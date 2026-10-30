@@ -1,0 +1,34 @@
+{% extends "_layout.html" %}
+{% block head %}<link rel="stylesheet" href="{{ asset('/static/css/buscar.css') }}">{% endblock %}
+{% block title_icon %}{{ icon('search') }}{% endblock %}
+{% block content %}
+<div class="buscar stack">
+  <form class="search-big" id="searchForm" role="search">
+    <label class="search grow">
+      {{ icon('search') }}
+      <span class="sr-only">Buscar en notas e Inbox</span>
+      <input id="q" class="input" type="search" name="q" placeholder="Busca en todas tus notas…" autocomplete="off" autofocus enterkeyhint="search">
+      <kbd class="hide-mobile">Ctrl K</kbd>
+    </label>
+  </form>
+  <div class="search-tools">
+    <label class="sr-only" for="fStatus">Estado</label>
+    <select id="fStatus" class="select input-sm">
+      <option value="">Cualquier estado</option>
+      <option value="por-escribir">Por escribir</option>
+      <option value="en-desarrollo">En desarrollo</option>
+      <option value="consolidado">Consolidado</option>
+    </select>
+    <label class="sr-only" for="fCategory">Área</label>
+    <input id="fCategory" class="input input-sm" list="dlAreas" placeholder="Cualquier área" autocomplete="off">
+    <datalist id="dlAreas"></datalist>
+    <span class="grow"></span>
+    <button type="button" class="btn btn-ghost btn-sm" id="btnSaveFilter" disabled>{{ icon('bookmark', 'icon-sm') }}Guardar búsqueda</button>
+  </div>
+  <div id="savedFilters" class="chips chips-scroll" role="group" aria-label="Búsquedas guardadas" hidden></div>
+  <p class="small muted" id="resultInfo" aria-live="polite"></p>
+  <div id="results" class="stack"></div>
+  <p class="tiny subtle">Sin tildes también vale. Varias palabras: tienen que aparecer todas. Entre comillas: frase exacta. Busca por el principio de la palabra («mioc» encuentra «miocardio»).</p>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ asset('/static/js/buscar.js') }}"></script>{% endblock %}

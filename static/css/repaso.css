@@ -1,0 +1,46 @@
+/* Calendario de repaso */
+.repaso { max-width: 960px; margin: 0 auto; width: 100%; }
+.review-line { font-size: var(--fs-17); color: var(--text-2); line-height: 1.5; }
+.review-line b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.review-line .warn b, .review-line .warn { color: var(--warning); }
+
+.cal-head, .cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.cal-head { font-size: var(--fs-12); color: var(--text-3); font-weight: 600; text-align: center; margin-bottom: 6px; }
+.cal-grid { list-style: none; padding: 0; margin: 0; }
+.cal-day {
+  min-height: 64px; border-radius: var(--r-sm); background: var(--bg-elev-2); padding: 6px 8px;
+  display: flex; flex-direction: column; justify-content: space-between; text-align: left; width: 100%;
+  box-shadow: inset 0 0 0 1px transparent; transition: box-shadow var(--dur-fast);
+}
+button.cal-day:hover { box-shadow: inset 0 0 0 1px var(--separator-strong); }
+.cal-day[aria-pressed="true"] { box-shadow: inset 0 0 0 2px var(--accent); }
+.cal-day .d { font-size: var(--fs-12); color: var(--text-2); font-variant-numeric: tabular-nums; }
+.cal-day .n { font-size: var(--fs-17); font-weight: 700; font-variant-numeric: tabular-nums; }
+.cal-day[data-level="0"] .n { color: var(--text-3); font-weight: 500; }
+.cal-day[data-level="1"] { background: color-mix(in srgb, var(--tile-estudio) 12%, var(--bg-elev-2)); }
+.cal-day[data-level="2"] { background: color-mix(in srgb, var(--tile-estudio) 24%, var(--bg-elev-2)); }
+.cal-day[data-level="3"] { background: color-mix(in srgb, var(--tile-estudio) 38%, var(--bg-elev-2)); }
+.cal-day.today .d { color: var(--text); font-weight: 700; }
+.cal-pad { visibility: hidden; }
+
+.rv-empty { margin: 0; }
+/* Días de estudio: ocupa el ancho; columnas = semanas (lunes arriba), meses encima, días a la izquierda */
+.heat-wrap { display: flex; flex-direction: column; gap: 6px; }
+.heat-row { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 6px; }
+.heat-days { display: grid; grid-template-rows: repeat(7, 1fr); gap: 4px; font-size: 10px; color: var(--text-3); line-height: 1; align-items: center; }
+.heat-months, .heat { display: grid; grid-template-columns: repeat(var(--cols, 26), minmax(0, 22px)); gap: 4px; justify-content: space-between; }
+.heat-months { margin-left: 22px; font-size: 11px; color: var(--text-3); text-transform: capitalize; }
+.heat-months span { white-space: nowrap; overflow: visible; }
+.heat { list-style: none; padding: 0; margin: 0; grid-auto-flow: column; grid-template-rows: repeat(7, auto); }
+.heat li { aspect-ratio: 1; border-radius: 3px; background: var(--fill); }
+.heat li[data-on="true"], .heat-legend i[data-on="true"] { background: var(--success); }
+.heat li.future { visibility: hidden; }
+.heat-legend { display: flex; justify-content: flex-end; gap: var(--sp-4); margin-top: 4px; }
+.heat-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.heat-legend i { width: 10px; height: 10px; border-radius: 3px; background: var(--fill); }
+
+@media (max-width: 767px) {
+  .review-line { font-size: var(--fs-15); }
+  .cal-day { min-height: 48px; padding: 4px 6px; }
+  .cal-day .n { font-size: var(--fs-15); }
+}

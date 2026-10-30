@@ -1,0 +1,103 @@
+{% extends "_layout.html" %}
+{% macro repo_card(key, title, icon_name) %}
+  <section class="backup-status panel repo-card" aria-labelledby="{{ key }}Heading" id="{{ key }}Panel" data-repo="{{ key }}" aria-busy="true">
+    <div class="status-main">
+      <span class="health-icon" aria-hidden="true">{{ icon(icon_name) }}</span>
+      <div class="grow">
+        <h2 class="health-title" id="{{ key }}Heading">{{ title }}</h2>
+        <p class="small muted" id="{{ key }}Text" aria-live="polite"><span class="skeleton skeleton-line" style="width:240px"></span></p>
+      </div>
+      <div class="repo-actions" data-actions hidden>
+        <button type="button" class="btn" data-view aria-label="Ver {{ title }}">Ver</button>
+        <button type="button" class="btn btn-primary" data-push>{{ icon('upload') }}Subir a GitHub</button>
+      </div>
+    </div>
+    <p class="restore-warning" id="{{ key }}Alert" role="alert" hidden>{{ icon('triangle-alert', 'icon-sm') }}<span></span></p>
+  </section>
+{% endmacro %}
+{% block head %}<link rel="stylesheet" href="{{ asset('/static/css/backups.css') }}">{% endblock %}
+{% block title_icon %}{{ icon('database-backup') }}{% endblock %}
+{% block actions %}
+<button type="button" class="btn btn-primary" id="btnBackupNow">{{ icon('database-backup') }}<span class="hide-mobile">Hacer copia ahora</span><span class="show-mobile">Copiar</span></button>
+{% endblock %}
+{% block content %}
+<div class="backups stack stack-lg">
+  <section class="backup-status panel" aria-labelledby="statusHeading" id="statusPanel" aria-busy="true">
+    <h2 id="statusHeading" class="sr-only">Estado</h2>
+    <div class="status-main">
+      <span class="health-icon" id="healthIcon" aria-hidden="true">{{ icon('shield-check') }}</span>
+      <div class="grow">
+        <p class="health-title" id="healthTitle"><span class="skeleton skeleton-line" style="width:200px"></span></p>
+        <p class="small muted" id="healthText"></p>
+      </div>
+    </div>
+    <dl class="status-facts" id="statusFacts"></dl>
+  </section>
+
+  {% if show_dotfiles %}{{ repo_card('dotfiles', 'Dotfiles', 'git-branch') }}{% endif %}
+  {% if show_project %}{{ repo_card('proyecto', 'Panel Maestro', 'brain') }}{% endif %}
+
+  <section aria-labelledby="listHeading" class="stack">
+    <div class="row-wrap row">
+      <h2 id="listHeading" class="section-title">Copias guardadas</h2>
+      <span class="grow"></span>
+      <div id="kindChips" class="chips chips-scroll" role="group" aria-label="Filtrar por tipo"></div>
+    </div>
+    <ul class="list backup-list" id="backupList" aria-live="polite"></ul>
+    <p class="tiny subtle" id="retentionNote"></p>
+  </section>
+</div>
+
+<dialog class="modal" id="restoreModal" aria-labelledby="restoreTitle">
+  <form id="restoreForm">
+    <div class="modal-header">
+      <div><h2 id="restoreTitle">Restaurar copia</h2><p class="modal-sub" id="restoreSub"></p></div>
+      <button type="button" class="btn btn-ghost btn-icon modal-close" data-close aria-label="Cerrar">{{ icon('x') }}</button>
+    </div>
+    <div class="modal-body stack">
+      <p class="restore-warning">{{ icon('triangle-alert', 'icon-sm') }}<span>Lo que elijas se sustituye por el contenido de la copia. Antes se guarda automáticamente una copia del estado actual para poder volver atrás.</span></p>
+      <fieldset class="stack-sm restore-parts">
+        <legend class="field-label">Qué restaurar</legend>
+        <label class="part"><input type="checkbox" class="checkbox" name="parts" value="notas" checked><span><strong>Notas</strong><span class="small muted" data-count="notas"> · los archivos .md (se quitan las notas creadas después)</span></span></label>
+        <label class="part"><input type="checkbox" class="checkbox" name="parts" value="cerebro" checked><span><strong>Cerebro</strong><span class="small muted"> · inbox, baúl, tableros, grafo, flashcards</span></span></label>
+        <label class="part"><input type="checkbox" class="checkbox" name="parts" value="comidas" checked><span><strong>Comidas</strong><span class="small muted"> · ingredientes, platos, plan, lista de la compra, perfil</span></span></label>
+        <label class="part"><input type="checkbox" class="checkbox" name="parts" value="imagenes" checked><span><strong>Imágenes</strong><span class="small muted"> · solo añade las que falten, nunca borra</span></span></label>
+      </fieldset>
+      <label class="field" for="restoreConfirm">
+        <span class="field-label">Escribe RESTAURAR para confirmar</span>
+        <input id="restoreConfirm" class="input" name="confirm" autocomplete="off" autocapitalize="characters" spellcheck="false" required>
+      </label>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn" data-close>Cancelar</button>
+      <button type="submit" class="btn btn-danger-solid" id="restoreSubmit" disabled>Restaurar</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="modal modal-lg" id="repoModal" aria-labelledby="repoTitle">
+  <div class="modal-header">
+    <div><h2 id="repoTitle"></h2><p class="modal-sub" id="repoSub"></p></div>
+    <button type="button" class="btn btn-ghost btn-icon modal-close" data-close aria-label="Cerrar">{{ icon('x') }}</button>
+  </div>
+  <div class="repo-tabs">
+    <div class="segmented" id="repoTabs" role="group" aria-label="Qué ver">
+      <button type="button" data-pane="cambios" aria-pressed="true">Cambios <span class="chip-count" id="repoChangesCount"></span></button>
+      <button type="button" data-pane="contenido" aria-pressed="false">Contenido</button>
+      <button type="button" data-pane="historial" aria-pressed="false">Historial</button>
+    </div>
+  </div>
+  <div class="modal-body stack">
+    <div class="repo-pane stack" data-pane="cambios" id="repoChanges"></div>
+    <div class="repo-pane stack" data-pane="contenido" id="repoContents" hidden></div>
+    <div class="repo-pane stack" data-pane="historial" id="repoHistory" hidden></div>
+  </div>
+  <div class="modal-footer">
+    <button type="button" class="btn" data-close>Cerrar</button>
+    <button type="button" class="btn btn-primary" id="repoModalPush">{{ icon('upload') }}<span>Subir a GitHub</span></button>
+  </div>
+</dialog>
+{% endblock %}
+{% block fab %}{% endblock %}
+{% block scripts %}<script src="{{ asset('/static/js/backups.js') }}"></script>
+<script src="{{ asset('/static/js/repos.js') }}"></script>{% endblock %}

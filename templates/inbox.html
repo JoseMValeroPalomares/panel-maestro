@@ -1,0 +1,123 @@
+{% extends "_layout.html" %}
+{% block head %}<link rel="stylesheet" href="{{ asset('/static/css/calendar.css') }}"><link rel="stylesheet" href="{{ asset('/static/css/items.css') }}"><link rel="stylesheet" href="{{ asset('/static/css/inbox.css') }}"><link rel="stylesheet" href="{{ asset('/static/css/board.css') }}">{% endblock %}
+{% block body_class %}page-inbox{% endblock %}
+{% block title_icon %}{{ icon('inbox') }}{% endblock %}
+{% block actions %}
+<button type="button" class="btn btn-ghost" id="btnSidebar" aria-controls="inboxSidebar" aria-expanded="true">{{ icon('panel-left') }}<span class="hide-mobile">Tareas e ideas</span><span class="show-mobile">Lista</span></button>
+{% endblock %}
+{% from "_items.html" import capture_form, note_dialog %}
+{% block content %}
+<div class="inbox-layout" id="inboxLayout">
+  <aside class="inbox-sidebar" id="inboxSidebar" aria-label="Tareas e ideas">
+    <div class="sheet-grabber show-mobile" aria-hidden="true"></div>
+    <section class="capture-panel" aria-label="Nueva captura">{{ capture_form('inboxCapture', rows=2) }}</section>
+
+    <div class="segmented sidebar-panes" role="tablist" aria-label="Qué ver en el panel">
+      <button type="button" role="tab" id="paneTabLista" data-pane="lista" aria-selected="true" aria-controls="paneLista">{{ icon('list-todo', 'icon-sm') }}Lista</button>
+      <button type="button" role="tab" id="paneTabAgenda" data-pane="agenda" aria-selected="false" aria-controls="paneAgenda">{{ icon('calendar', 'icon-sm') }}7 días</button>
+      <button type="button" role="tab" id="paneTabPlantilla" data-pane="plantilla" aria-selected="false" aria-controls="panePlantilla">{{ icon('shapes', 'icon-sm') }}Plantilla</button>
+    </div>
+
+    <div class="sidebar-tabs" data-pane-only="lista">
+      <div class="segmented" role="group" aria-label="Estado">
+        <button type="button" data-status="pending" aria-pressed="true">Pendientes <span class="tabular" data-status-count="pendientes"></span></button>
+        <button type="button" data-status="done" aria-pressed="false">Hechas <span class="tabular" data-status-count="hechas"></span></button>
+      </div>
+      <span class="grow"></span>
+      <a class="btn btn-ghost btn-sm" href="/tareas" title="Gestionar en Tareas">{{ icon('external-link', 'icon-sm') }}<span class="sr-only">Abrir en Tareas</span></a>
+    </div>
+    <div class="choice-chips choice-chips-sm type-chips" data-pane-only="lista" role="radiogroup" aria-label="Tipo">
+      {% for v, l in [('all', 'Todo'), ('tarea', 'Tareas'), ('idea', 'Ideas'), ('rutina', 'Rutinas')] %}
+      <label class="choice-chip"><input type="radio" name="inboxType" value="{{ v }}" {% if v == 'all' %}checked{% endif %}><span>{{ l }}</span></label>
+      {% endfor %}
+    </div>
+
+    <div class="sidebar-scroll">
+      <div class="sidebar-pane" id="paneLista" role="tabpanel" aria-labelledby="paneTabLista" data-pane="lista">
+        <div id="itemList" class="il-host" aria-live="polite"></div>
+        <p class="tiny subtle sidebar-hint">Arrastra una tarjeta al tablero, entre grupos o dentro de otra; doble clic o <kbd>Enter</kbd> para editar; <kbd>Alt</kbd> + flechas con teclado.</p>
+      </div>
+
+      <section class="inbox-col sidebar-pane" id="paneAgenda" role="tabpanel" aria-labelledby="paneTabAgenda" data-pane="agenda" hidden>
+        <header class="col-head"><span class="col-icon" data-kind="calendario">{{ icon('calendar', 'icon-sm') }}</span><h2>Calendario · 7 días</h2>
+          <a class="btn btn-ghost btn-icon btn-sm col-link" href="/calendario" aria-label="Abrir el calendario" title="Abrir el calendario">{{ icon('external-link', 'icon-sm') }}</a></header>
+        <div class="col-body" id="secAgenda"><div id="inboxAgenda"></div></div>
+      </section>
+
+      <section class="inbox-col palette-col sidebar-pane" id="panePlantilla" role="tabpanel" aria-labelledby="paneTabPlantilla" data-pane="plantilla" hidden>
+        <div class="col-body" id="secPlantilla">
+          <p class="tiny subtle palette-hint">Arrastra una forma al tablero o haz clic para añadirla en el centro.</p>
+          <div id="shapePalette" class="shape-palette" aria-label="Formas"></div>
+          <div class="tpl-head"><h3>Mis plantillas</h3><button type="button" class="btn btn-ghost btn-sm" id="templateSave">{{ icon('save', 'icon-sm') }}Guardar selección</button></div>
+          <div id="templateList" class="template-list" aria-label="Plantillas"></div>
+          <div class="tpl-head"><h3>Rutinas</h3></div>
+          <div class="tpl-routine-actions">
+            <button type="button" class="btn btn-tinted btn-sm" id="routineToBoard">{{ icon('repeat', 'icon-sm') }}Poner una rutina en el tablero</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="routineFromSel">{{ icon('list-checks', 'icon-sm') }}Crear una rutina con la selección</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </aside>
+
+  <section class="board-area" id="boardArea" aria-label="Tablero">
+    <div class="board-bar">
+      <label class="sr-only" for="boardSelect">Tablero</label>
+      <select id="boardSelect" class="select input-sm board-select"></select>
+      <button type="button" class="btn btn-ghost btn-icon btn-sm" id="btnBoardMenu" aria-label="Opciones del tablero" aria-haspopup="menu">{{ icon('ellipsis') }}</button>
+      <button type="button" class="btn btn-tinted btn-sm" id="btnNewBoard">{{ icon('plus', 'icon-sm') }}<span class="hide-mobile">Nuevo</span><span class="sr-only show-mobile">Nuevo tablero</span></button>
+      <a class="btn btn-ghost btn-sm board-item-link" id="boardItemLink" hidden title="Este tablero es de una tarea: ábrela">{{ icon('list-todo', 'icon-sm') }}<span class="board-item-title" data-item-title></span></a>
+      <span class="grow"></span>
+      <span id="boardSaveStatus" class="tiny subtle" role="status" aria-live="polite"></span>
+    </div>
+    <div class="toolbar board-toolbar" role="toolbar" aria-label="Herramientas del tablero">
+      <button type="button" class="tool-btn" data-tool="select" title="Seleccionar y mover (V)" aria-label="Seleccionar (V)">{{ icon('mouse-pointer-2') }}</button>
+      <button type="button" class="tool-btn" data-tool="hand" title="Desplazar (H, o Espacio + arrastrar)" aria-label="Desplazar (H)">{{ icon('hand') }}</button>
+      <span class="toolbar-sep"></span>
+      <button type="button" class="tool-btn" data-tool="rect" title="Caja (R)" aria-label="Caja (R)">{{ icon('square') }}</button>
+      <button type="button" class="tool-btn" data-tool="ellipse" title="Óvalo (O)" aria-label="Óvalo (O)">{{ icon('circle') }}</button>
+      <button type="button" class="tool-btn" data-tool="sticky" title="Nota adhesiva (S)" aria-label="Nota adhesiva (S)">{{ icon('sticky-note') }}</button>
+      <button type="button" class="tool-btn" data-tool="text" title="Texto (T)" aria-label="Texto (T)">{{ icon('type') }}</button>
+      <button type="button" class="tool-btn" data-tool="arrow" title="Conector: arrastra de una forma a otra (A)" aria-label="Conector (A)">{{ icon('move-right') }}</button>
+      <button type="button" class="tool-btn" data-tool="pen" title="Lápiz (P)" aria-label="Lápiz (P)">{{ icon('pencil') }}</button>
+      <button type="button" class="tool-btn" data-tool="eraser" title="Borrador (E)" aria-label="Borrador (E)">{{ icon('eraser') }}</button>
+      <span class="toolbar-sep"></span>
+      <button type="button" class="tool-btn" id="btnProps" title="Propiedades: relleno, borde, texto, conector, bloquear (Ctrl+Alt+C / V copia y pega estilo)" aria-label="Panel de propiedades" aria-controls="boardProps" aria-pressed="true">{{ icon('sliders-horizontal') }}</button>
+      <button type="button" class="tool-btn" id="btnArrange" title="Alinear, distribuir, agrupar" aria-label="Organizar" aria-haspopup="menu">{{ icon('layout-grid') }}</button>
+      <button type="button" class="tool-btn" id="btnTemplates" title="Plantillas" aria-label="Plantillas" aria-haspopup="menu">{{ icon('layers') }}</button>
+      <button type="button" class="tool-btn" id="btnDuplicate" data-needs-selection title="Duplicar (Ctrl+D)" aria-label="Duplicar (Ctrl+D)">{{ icon('copy') }}</button>
+      <button type="button" class="tool-btn" id="btnDelete" data-needs-selection title="Eliminar (Supr)" aria-label="Eliminar (Supr)">{{ icon('trash-2') }}</button>
+      <span class="toolbar-sep"></span>
+      <button type="button" class="tool-btn" id="btnUndo" title="Deshacer (Ctrl+Z)" aria-label="Deshacer">{{ icon('undo-2') }}</button>
+      <button type="button" class="tool-btn" id="btnRedo" title="Rehacer (Ctrl+Shift+Z)" aria-label="Rehacer">{{ icon('redo-2') }}</button>
+      <span class="grow"></span>
+      <button type="button" class="tool-btn" id="btnSnap" title="Ajustar a la cuadrícula (G)" aria-label="Ajustar a la cuadrícula" aria-pressed="true">{{ icon('layout-grid', 'icon-sm') }}<span class="hide-mobile">Cuadrícula</span></button>
+      <button type="button" class="tool-btn" id="btnMinimap" title="Minimapa (M)" aria-label="Minimapa" aria-pressed="true">{{ icon('map', 'icon-sm') }}</button>
+      <button type="button" class="tool-btn" id="btnZoomOut" title="Alejar (-)" aria-label="Alejar">{{ icon('zoom-out') }}</button>
+      <button type="button" class="tool-btn zoom-label" id="btnZoomReset" title="Zoom al 100 % (0)"><span id="zoomLabel" class="tabular">100%</span></button>
+      <button type="button" class="tool-btn" id="btnZoomIn" title="Acercar (+)" aria-label="Acercar">{{ icon('zoom-in') }}</button>
+      <button type="button" class="tool-btn" id="btnFit" title="Ajustar a pantalla (F)" aria-label="Ajustar a pantalla">{{ icon('scan') }}</button>
+      <button type="button" class="tool-btn" id="btnFullscreen" title="Pantalla completa" aria-label="Pantalla completa" aria-pressed="false">{{ icon('maximize-2') }}</button>
+    </div>
+    <div class="board-body" id="boardBody">
+    <div class="board-wrap" id="boardWrap">
+      <div class="board-empty" id="boardEmpty" hidden>
+        <p data-when="board"><strong>Tablero vacío.</strong> Arrastra aquí tareas, ideas o formas de «Plantilla»; haz doble clic para escribir un texto.</p>
+        <p data-when="none" hidden><strong>Aún no tienes tableros.</strong> Crea uno con «Nuevo» para ordenar tus tareas e ideas en un lienzo.</p>
+      </div>
+      <div class="board-minimap" id="boardMinimap" title="Minimapa: haz clic para moverte" hidden></div>
+    </div>
+    </div>
+  </section>
+</div>
+{{ note_dialog() }}
+{% endblock %}
+{% block fab %}{% endblock %}
+{% block scripts %}
+<script src="{{ asset('/static/vendor/marked/marked.min.js') }}"></script><script src="{{ asset('/static/vendor/dompurify/purify.min.js') }}"></script>
+<script src="{{ asset('/static/js/item-list.js') }}"></script>
+<script src="{{ asset('/static/js/calendar.js') }}"></script>
+<script src="{{ asset('/static/js/inbox.js') }}"></script>
+<script src="{{ asset('/static/js/board.js') }}"></script>
+<script src="{{ asset('/static/js/inbox-layout.js') }}"></script>
+{% endblock %}

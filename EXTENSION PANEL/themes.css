@@ -1,0 +1,111 @@
+/* Generado por `python -m scripts.themes` — no editar a mano. Temas de la extensión (los mismos del Panel). */
+
+/* Catppuccin Mocha */
+:root, :root[data-theme="mocha"] {
+  color-scheme: dark;
+  --bg: #1e1e2e; --field: #11111b; --control: #303042;
+  --border: #414356; --border-strong: #56596d;
+  --text: #cdd6f4; --text-2: #bac2de; --text-3: #a6adc8; --placeholder: #a6adc8;
+  --accent: #89b4fa; --accent-hover: #b4befe; --on-accent: #11111b; --link: #89b4fa;
+  --success: #a6e3a1; --warning: #fab387; --danger: #f38ba8;
+  --tile-fg: #11111b; --tile-inbox: #fab387; --tile-baul: #f9e2af; --tile-grafo: #89b4fa;
+}
+
+/* Catppuccin Latte */
+:root[data-theme="latte"] {
+  color-scheme: light;
+  --bg: #eff1f5; --field: #e6e9ef; --control: #dfe1e7;
+  --border: #ced1d9; --border-strong: #bbbdc8;
+  --text: #4c4f69; --text-2: #5c5f77; --text-3: #5c5f77; --placeholder: #5c5f77;
+  --accent: #1e66f5; --accent-hover: #1a56d0; --on-accent: #ffffff; --link: #1d5bd6;
+  --success: #2b7a1d; --warning: #b34700; --danger: #d20f39;
+  --tile-fg: #ffffff; --tile-inbox: #fe640b; --tile-baul: #e64553; --tile-grafo: #1e66f5;
+}
+
+/* Claro */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #ffffff; --field: #f2f2f5; --control: #e8e8e9;
+  --border: #d2d2d2; --border-strong: #b7b7b7;
+  --text: #1d1d1f; --text-2: #5c5c63; --text-3: #66666d; --placeholder: #66666d;
+  --accent: #0071e3; --accent-hover: #0077ed; --on-accent: #ffffff; --link: #0066cc;
+  --success: #1c7c34; --warning: #a35200; --danger: #c4271b;
+  --tile-fg: #ffffff; --tile-inbox: #d0480f; --tile-baul: #8e6a3e; --tile-grafo: #0071e3;
+}
+
+/* Oscuro */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #1c1c1f; --field: #0c0c0e; --control: #323235;
+  --border: #47474a; --border-strong: #616164;
+  --text: #f5f5f7; --text-2: #b8b8bf; --text-3: #9d9da5; --placeholder: #9d9da5;
+  --accent: #0a6fd6; --accent-hover: #0a63c0; --on-accent: #ffffff; --link: #4aa3ff;
+  --success: #4cd964; --warning: #ffb340; --danger: #ff6b61;
+  --tile-fg: #ffffff; --tile-inbox: #d0480f; --tile-baul: #8e6a3e; --tile-grafo: #0071e3;
+}
+
+/* Nord */
+:root[data-theme="nord"] {
+  color-scheme: dark;
+  --bg: #3b4252; --field: #272c36; --control: #4d5362;
+  --border: #5e6572; --border-strong: #747986;
+  --text: #eceff4; --text-2: #e5e9f0; --text-3: #d8dee9; --placeholder: #d8dee9;
+  --accent: #88c0d0; --accent-hover: #8fbcbb; --on-accent: #2e3440; --link: #88c0d0;
+  --success: #a3be8c; --warning: #ebcb8b; --danger: #ec9aa1;
+  --tile-fg: #2e3440; --tile-inbox: #d08770; --tile-baul: #ebcb8b; --tile-grafo: #88c0d0;
+}
+
+/* Dracula */
+:root[data-theme="dracula"] {
+  color-scheme: dark;
+  --bg: #282a36; --field: #191a21; --control: #3d3f49;
+  --border: #52535c; --border-strong: #6b6c72;
+  --text: #f8f8f2; --text-2: #e2e2dc; --text-3: #b6b9d0; --placeholder: #b6b9d0;
+  --accent: #bd93f9; --accent-hover: #d6b4fc; --on-accent: #21222c; --link: #bd93f9;
+  --success: #50fa7b; --warning: #ffb86c; --danger: #ff6e6e;
+  --tile-fg: #21222c; --tile-inbox: #ffb86c; --tile-baul: #f1fa8c; --tile-grafo: #a9b6e8;
+}
+
+/* Gruvbox */
+:root[data-theme="gruvbox"] {
+  color-scheme: dark;
+  --bg: #282828; --field: #141617; --control: #3c3a36;
+  --border: #4f4c44; --border-strong: #666154;
+  --text: #ebdbb2; --text-2: #d5c4a1; --text-3: #bdae93; --placeholder: #bdae93;
+  --accent: #83a598; --accent-hover: #8ec07c; --on-accent: #1d2021; --link: #83a598;
+  --success: #b8bb26; --warning: #fe8019; --danger: #fb4934;
+  --tile-fg: #1d2021; --tile-inbox: #fe8019; --tile-baul: #fabd2f; --tile-grafo: #7fa2a3;
+}
+
+/* Tokyo Night */
+:root[data-theme="tokyo"] {
+  color-scheme: dark;
+  --bg: #1a1b26; --field: #101014; --control: #2b2c3b;
+  --border: #3b3e4f; --border-strong: #4f5368;
+  --text: #c0caf5; --text-2: #a9b1d6; --text-3: #9aa5ce; --placeholder: #9aa5ce;
+  --accent: #7aa2f7; --accent-hover: #7dcfff; --on-accent: #16161e; --link: #7aa2f7;
+  --success: #9ece6a; --warning: #ff9e64; --danger: #f7768e;
+  --tile-fg: #16161e; --tile-inbox: #ff9e64; --tile-baul: #e0af68; --tile-grafo: #7aa2f7;
+}
+
+:root[data-theme="system"] {
+  color-scheme: light;
+  --bg: #ffffff; --field: #f2f2f5; --control: #e8e8e9;
+  --border: #d2d2d2; --border-strong: #b7b7b7;
+  --text: #1d1d1f; --text-2: #5c5c63; --text-3: #66666d; --placeholder: #66666d;
+  --accent: #0071e3; --accent-hover: #0077ed; --on-accent: #ffffff; --link: #0066cc;
+  --success: #1c7c34; --warning: #a35200; --danger: #c4271b;
+  --tile-fg: #ffffff; --tile-inbox: #d0480f; --tile-baul: #8e6a3e; --tile-grafo: #0071e3;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="system"] {
+    color-scheme: dark;
+    --bg: #1c1c1f; --field: #0c0c0e; --control: #323235;
+    --border: #47474a; --border-strong: #616164;
+    --text: #f5f5f7; --text-2: #b8b8bf; --text-3: #9d9da5; --placeholder: #9d9da5;
+    --accent: #0a6fd6; --accent-hover: #0a63c0; --on-accent: #ffffff; --link: #4aa3ff;
+    --success: #4cd964; --warning: #ffb340; --danger: #ff6b61;
+    --tile-fg: #ffffff; --tile-inbox: #d0480f; --tile-baul: #8e6a3e; --tile-grafo: #0071e3;
+  }
+}

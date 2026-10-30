@@ -1,0 +1,49 @@
+# Iconos Lucide incluidos en static/icons.svg (uno por línea o separados por espacios)
+brain notebook-pen file-text files inbox list-checks library waypoints utensils-crossed graduation-cap table-2 database-backup settings
+search plus x check chevron-right chevron-left chevron-down chevron-up ellipsis ellipsis-vertical pencil eye eye-off trash-2 lock lock-open save
+shuffle layers activity flame tag tags hash bold italic underline strikethrough code heading-1 heading-2 heading-3 link list list-ordered
+quote minus table sigma play scissors file-plus sun moon monitor log-out menu panel-left maximize-2 minimize-2 columns-2 refresh-cw calendar
+calendar-days shopping-cart user pin pin-off wand-sparkles star clock youtube globe bookmark external-link filter download upload copy undo-2 redo-2
+rotate-ccw triangle-alert info circle-check circle circle-dot square square-check grip-vertical send image music timer history folder
+folder-tree sticky-note type move hand eraser mouse-pointer-2 zoom-in zoom-out arrow-right move-right salad beef wheat droplet scale target
+chart-column clipboard-list layout-grid house cloud wifi wifi-off skip-back skip-forward pause volume-2 alarm-clock share printer check-check
+archive-restore bell sunrise cookie coffee sparkles book-open lightbulb circle-plus arrow-left square-pen list-todo circle-play shield-check
+key-round smartphone gauge sliders-horizontal arrow-up-down replace merge split circle-pause repeat zap leaf egg fish milk apple map scan
+shapes diamond square-dashed spline corner-down-right image-down file-json file-up bring-to-front send-to-back a-large-small panel-right slash arrow-left-right group ungroup
+panel-left-close panel-left-open
+flag tag
+unlink calendar-plus calendar-clock calendar-check calendar-range command keyboard bell-ring ruler chart-line archive plug-zap link-2 utensils layout-template copy-plus star-off rows-3 columns-3 grid-3x3 sunset moon-star clock-3 move-vertical hourglass sun-moon trash notebook-text
+map-pin
+palette
+dumbbell
+play
+timer
+skip-forward
+pause
+calendar-check
+sunrise
+graduation-cap
+wallet
+piggy-bank
+hand-coins
+receipt
+shopping-bag
+trending-up
+trending-down
+banknote
+credit-card
+landmark
+circle-dollar-sign
+bus
+film
+house
+shirt
+heart-pulse
+gift
+utensils
+ellipsis-vertical
+tag
+git-branch
+workflow
+kanban
+layout-dashboard

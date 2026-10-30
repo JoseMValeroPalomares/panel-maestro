@@ -1,0 +1,61 @@
+{% extends "_layout.html" %}
+{% block head %}<link rel="stylesheet" href="{{ asset('/static/css/hoy.css') }}"><link rel="stylesheet" href="{{ asset('/static/css/economia.css') }}">{% endblock %}
+{% block body_class %}page-economia{% endblock %}
+{% block title_icon %}{{ icon('wallet') }}{% endblock %}
+{% block actions %}
+<div class="cal-nav ec-month">
+  <button type="button" class="btn btn-ghost btn-icon" data-month="-1" aria-label="Mes anterior">{{ icon('chevron-left') }}</button>
+  <button type="button" class="btn btn-sm" data-month="0" id="ecMonthLabel">Este mes</button>
+  <button type="button" class="btn btn-ghost btn-icon" data-month="1" aria-label="Mes siguiente">{{ icon('chevron-right') }}</button>
+</div>
+<button type="button" class="btn btn-primary btn-sm" id="ecNew">{{ icon('plus', 'icon-sm') }}<span>Apuntar</span></button>
+{% endblock %}
+{% block content %}
+<p class="hoy-sub small muted" id="ecSub" aria-live="polite"></p>
+<div class="ec">
+  <div class="ec-grid">
+    <div class="ec-col">
+      <section class="panel hoy-card" aria-labelledby="ecMoneyH">
+      <div class="panel-header"><h2 id="ecMoneyH">{{ icon('wallet', 'icon-sm') }}Tu dinero</h2><span class="grow"></span>
+        <button type="button" class="btn btn-ghost btn-sm" data-add="account">{{ icon('plus', 'icon-sm') }}Cuenta</button></div>
+      <div class="panel-body" id="ecMoney"><span class="skeleton skeleton-card"></span></div>
+    </section>
+    <section class="panel hoy-card" aria-labelledby="ecWishH">
+      <div class="panel-header"><h2 id="ecWishH">{{ icon('shopping-bag', 'icon-sm') }}Quiero comprar</h2><span class="grow"></span>
+        <button type="button" class="btn btn-ghost btn-sm" data-add="wish">{{ icon('plus', 'icon-sm') }}Añadir</button></div>
+      <div class="panel-body" id="ecWishes"></div>
+    </section>
+    </div>
+    <div class="ec-col">
+    <section class="panel hoy-card" aria-labelledby="ecMonthH">
+      <div class="panel-header"><h2 id="ecMonthH">{{ icon('receipt', 'icon-sm') }}<span id="ecMonthTitle">Este mes</span></h2><span class="grow"></span>
+        <button type="button" class="btn btn-ghost btn-sm" data-budgets>{{ icon('target', 'icon-sm') }}Presupuestos</button></div>
+      <div class="panel-body" id="ecMonth"></div>
+    </section>
+    </div>
+    <div class="ec-col">
+    <section class="panel hoy-card" aria-labelledby="ecDebtH">
+      <div class="panel-header"><h2 id="ecDebtH">{{ icon('hand-coins', 'icon-sm') }}Deudas</h2><span class="grow"></span>
+        <button type="button" class="btn btn-ghost btn-sm" data-add="debt">{{ icon('plus', 'icon-sm') }}Añadir</button></div>
+      <div class="panel-body" id="ecDebts"></div>
+    </section>
+    <section class="panel hoy-card" aria-labelledby="ecRecH">
+      <div class="panel-header"><h2 id="ecRecH">{{ icon('repeat', 'icon-sm') }}Cada mes</h2><span class="grow"></span>
+        <button type="button" class="btn btn-ghost btn-sm" data-add="recurring">{{ icon('plus', 'icon-sm') }}Añadir</button></div>
+      <div class="panel-body" id="ecRecurring"></div>
+    </section>
+    </div>
+  </div>
+  <section class="panel ec-movs" aria-labelledby="ecMovH">
+    <div class="panel-header"><h2 id="ecMovH">Movimientos</h2><span class="grow"></span>
+      <a class="btn btn-ghost btn-sm" id="ecExport" href="/api/finance/export.csv" download title="Descargar los movimientos del mes en CSV (hoja de cálculo)">{{ icon('download', 'icon-sm') }}<span class="hide-mobile">CSV</span></a>
+      <label class="search ec-search">{{ icon('search') }}<span class="sr-only">Buscar movimientos</span>
+        <input id="ecQ" class="input input-sm" type="search" placeholder="Buscar" autocomplete="off"></label></div>
+    <div class="panel-body">
+      <div class="chips chips-scroll" id="ecCats" role="group" aria-label="Categoría"></div>
+      <div id="ecMovs"></div>
+    </div>
+  </section>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ asset('/static/js/economia.js') }}"></script>{% endblock %}

@@ -1,0 +1,58 @@
+{% extends "_layout.html" %}
+{% block head %}<link rel="stylesheet" href="{{ asset('/static/css/hoy.css') }}"><link rel="stylesheet" href="{{ asset('/static/css/calendar.css') }}">{% endblock %}
+{% block body_class %}page-calendario{% endblock %}
+{% block title_icon %}{{ icon('calendar') }}{% endblock %}
+{% block heading %}Calendario{% endblock %}
+{% block actions %}
+<form class="cal-quick" id="calQuick" autocomplete="off" role="search" aria-label="Nuevo evento escribiendo">
+  <label class="search cal-quick-field">{{ icon('plus') }}<span class="sr-only">Nuevo evento: qué y cuándo</span>
+    <input id="calQuickText" class="input input-sm" maxlength="300" placeholder="Nuevo evento: dentista mañana 17:00" aria-describedby="calQuickHint"></label>
+</form>
+<button type="button" class="btn btn-ghost btn-icon" id="calMenuBtn" aria-label="Más acciones del calendario" aria-haspopup="menu">{{ icon('ellipsis') }}</button>
+{% endblock %}
+{% block content %}
+<p class="hoy-sub small muted cal-quick-hint" id="calQuickHint" aria-live="polite" hidden></p>
+<div class="cal-page">
+  <aside class="cal-side" aria-label="Crear, navegar y programar">
+    <section class="panel hoy-card" aria-labelledby="calMiniH"><div class="panel-header"><h2 id="calMiniH">{{ icon('calendar', 'icon-sm') }}Ir a un día</h2></div>
+      <div class="panel-body cal-mini" id="calMini"></div></section>
+    <section class="panel hoy-card" aria-labelledby="calRutH"><div class="panel-header"><h2 id="calRutH">{{ icon('repeat', 'icon-sm') }}Rutinas de hoy</h2><span class="grow"></span><span class="tiny muted tabular" id="calRutCount"></span></div>
+      <div class="panel-body"><ul class="hoy-list" id="calRoutines"></ul></div></section>
+    <section class="panel hoy-card" aria-labelledby="calSinH"><div class="panel-header"><h2 id="calSinH">{{ icon('list-todo', 'icon-sm') }}Sin fecha</h2></div>
+      <div class="panel-body">
+        <p class="tiny muted hide-mobile cal-side-hint">Arrastra una tarea o idea a la rejilla para reservarle un bloque.</p>
+        <ul class="hoy-list" id="calUnscheduled"></ul>
+      </div></section>
+    <section class="panel hoy-card" aria-labelledby="calColH"><div class="panel-header"><h2 id="calColH">{{ icon('palette', 'icon-sm') }}Colores</h2></div>
+      <div class="panel-body">
+        <ul class="cal-legend cal">
+          <li data-kind="event" data-type="evento">Evento</li><li data-kind="event" data-type="examen">Examen</li>
+          <li data-kind="event" data-type="entrega">Entrega</li><li data-kind="task" data-type="tarea">Tarea o bloque</li>
+          <li data-kind="task" data-type="idea">Idea</li><li data-kind="routine" data-type="rutina">Rutina</li>
+        </ul>
+      </div></section>
+  </aside>
+  <section class="cal-main panel" aria-labelledby="calTitle">
+    <div class="panel-header cal-toolbar">
+      <div class="cal-nav">
+        <button type="button" class="btn btn-ghost btn-icon btn-sm" data-cal-go="-1" aria-label="Anterior" title="Anterior (←)">{{ icon('chevron-left') }}</button>
+        <button type="button" class="btn btn-sm" data-cal-go="0" title="Hoy (T)">Hoy</button>
+        <button type="button" class="btn btn-ghost btn-icon btn-sm" data-cal-go="1" aria-label="Siguiente" title="Siguiente (→)">{{ icon('chevron-right') }}</button>
+      </div>
+      <h2 id="calTitle" class="cal-heading" aria-live="polite"></h2>
+      <span class="grow"></span>
+      <button type="button" class="btn btn-ghost btn-sm cal-routines-btn" id="calRoutinesBtn" aria-pressed="true" title="Ver u ocultar los bloques de las rutinas">{{ icon('repeat', 'icon-sm') }}<span class="hide-mobile">Rutinas</span></button>
+      <button type="button" class="btn btn-ghost btn-sm cal-hours-btn" id="calHoursBtn" title="Horario visible en Día, 3 días y Semana">{{ icon('clock', 'icon-sm') }}<span id="calHoursLabel" class="tabular">8–22 h</span></button>
+      <div class="segmented cal-views" role="group" aria-label="Vista">
+        <button type="button" data-cal-view="day" aria-pressed="false" title="Día (D)">Día</button>
+        <button type="button" data-cal-view="3d" aria-pressed="false" title="3 días (3)">3 días</button>
+        <button type="button" data-cal-view="week" aria-pressed="true" title="Semana (S)">Semana</button>
+        <button type="button" data-cal-view="month" aria-pressed="false" title="Mes (M)">Mes</button>
+        <button type="button" data-cal-view="agenda" aria-pressed="false" title="Agenda (A)">Agenda</button>
+      </div>
+    </div>
+    <div id="calendar"></div>
+  </section>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ asset('/static/js/calendar.js') }}"></script><script src="{{ asset('/static/js/calendario.js') }}"></script>{% endblock %}

@@ -1,0 +1,287 @@
+{% extends "_layout.html" %}
+{% block head %}<link rel="stylesheet" href="{{ asset('/comidas/css/comidas.css') }}">{% endblock %}
+{% block title_icon %}{{ icon('utensils-crossed') }}{% endblock %}
+{% block actions %}
+<div class="segmented tabs-seg hide-mobile" role="tablist" aria-label="Secciones de Comidas">
+  <button type="button" role="tab" data-tab="plan" aria-selected="true">Plan</button>
+  <button type="button" role="tab" data-tab="platos" aria-selected="false">Platos</button>
+  <button type="button" role="tab" data-tab="compra" aria-selected="false">Compra</button>
+  <button type="button" role="tab" data-tab="ingredientes" aria-selected="false">Ingredientes</button>
+  <button type="button" role="tab" data-tab="objetivos" aria-selected="false">Objetivos</button>
+</div>
+{% endblock %}
+{% block content %}
+<div class="segmented tabs-seg tabs-mobile show-mobile" role="tablist" aria-label="Secciones de Comidas">
+  <button type="button" role="tab" data-tab="plan" aria-selected="true">Plan</button>
+  <button type="button" role="tab" data-tab="platos" aria-selected="false">Platos</button>
+  <button type="button" role="tab" data-tab="compra" aria-selected="false">Compra</button>
+  <button type="button" role="tab" data-tab="ingredientes" aria-selected="false">Ingredientes</button>
+  <button type="button" role="tab" data-tab="objetivos" aria-selected="false">Objetivos</button>
+</div>
+
+<!-- ═════════ PLAN ═════════ -->
+<section id="tab-plan" class="tab-panel" role="tabpanel" aria-label="Plan semanal">
+  <div class="plan-toolbar">
+    <div class="week-nav">
+      <button type="button" class="btn btn-ghost btn-icon" onclick="changeWeek(-7)" aria-label="Semana anterior">{{ icon('chevron-left') }}</button>
+      <h2 id="weekLabel" class="week-label tabular"></h2>
+      <button type="button" class="btn btn-ghost btn-icon" onclick="changeWeek(7)" aria-label="Semana siguiente">{{ icon('chevron-right') }}</button>
+      <button type="button" class="btn btn-sm" id="btnThisWeek" onclick="goThisWeek()">Hoy</button>
+    </div>
+    <span class="grow"></span>
+    <div class="segmented" role="group" aria-label="Comidas al día">
+      <button type="button" data-mode="4" aria-pressed="true">Todas</button>
+      <button type="button" data-mode="2" aria-pressed="false">Comida y cena</button>
+    </div>
+    <button type="button" class="btn btn-tinted" id="btnGenerate" onclick="generateWeek()">{{ icon('wand-sparkles') }}<span>Generar semana</span></button>
+    <button type="button" class="btn btn-ghost btn-icon" onclick="openPlanMenu(this)" aria-label="Más acciones del plan" aria-haspopup="menu">{{ icon('ellipsis') }}</button>
+  </div>
+
+  <div class="plan-layout">
+    <div class="plan-main">
+      <div class="day-strip" id="dayStrip" role="tablist" aria-label="Días de la semana"></div>
+      <div class="planner-wrap hide-below-desktop"><div class="planner-grid" id="plannerGrid"></div></div>
+    </div>
+    <aside class="panel day-panel" id="dayPanel" aria-live="polite"></aside>
+    <section class="panel week-summary" aria-labelledby="weekSummaryTitle">
+      <div class="panel-header"><h2 id="weekSummaryTitle">Semana</h2><span class="grow"></span><span class="small muted" id="weekSummarySub"></span></div>
+      <div class="panel-body" id="weekSummary"></div>
+    </section>
+  </div>
+</section>
+
+<!-- ═════════ PLATOS ═════════ -->
+<section id="tab-platos" class="tab-panel" role="tabpanel" aria-label="Platos" hidden>
+  <div class="list-toolbar">
+    <div class="search grow">{{ icon('search') }}<input type="search" id="mealSearch" class="input" placeholder="Buscar platos" aria-label="Buscar platos"></div>
+    <button type="button" class="btn btn-primary" onclick="openMealForm()">{{ icon('plus') }}<span>Nuevo plato</span></button>
+  </div>
+  <div class="chips chips-scroll" id="franjaChips" role="group" aria-label="Franja">
+    <button type="button" class="chip" data-franja="" aria-pressed="true">Todas</button>
+    <button type="button" class="chip" data-franja="desayuno" aria-pressed="false">Desayuno</button>
+    <button type="button" class="chip" data-franja="comida" aria-pressed="false">Comida</button>
+    <button type="button" class="chip" data-franja="merienda" aria-pressed="false">Merienda</button>
+    <button type="button" class="chip" data-franja="cena" aria-pressed="false">Cena</button>
+  </div>
+  <div class="meals-grid" id="mealsGrid">{% for _ in range(8) %}<span class="skeleton skeleton-card"></span>{% endfor %}</div>
+</section>
+
+<!-- ═════════ COMPRA ═════════ -->
+<section id="tab-compra" class="tab-panel" role="tabpanel" aria-label="Lista de la compra" hidden>
+  <div class="list-toolbar">
+    <div class="grow"><h2 class="section-title" style="margin:0">Lista de la compra</h2><p class="small muted" id="shopCountLabel"></p></div>
+    <button type="button" class="btn btn-tinted" onclick="generateWeekShoppingList()">{{ icon('calendar-days') }}<span>Desde el plan</span></button>
+    <button type="button" class="btn btn-primary" onclick="openAddShopping()">{{ icon('plus') }}<span>Añadir</span></button>
+    <button type="button" class="btn btn-ghost btn-icon" onclick="openShopMenu(this)" aria-label="Más acciones de la lista" aria-haspopup="menu">{{ icon('ellipsis') }}</button>
+  </div>
+  <div id="shopLists" class="shop-lists"></div>
+</section>
+
+<!-- ═════════ INGREDIENTES ═════════ -->
+<section id="tab-ingredientes" class="tab-panel" role="tabpanel" aria-label="Ingredientes" hidden>
+  <div class="list-toolbar">
+    <div class="search grow">{{ icon('search') }}<input type="search" id="ingSearch" class="input" placeholder="Buscar ingredientes" aria-label="Buscar ingredientes"></div>
+    <button type="button" class="btn btn-primary" onclick="openIngredientForm()">{{ icon('plus') }}<span>Nuevo ingrediente</span></button>
+  </div>
+  <div class="chips chips-scroll" id="ingCatChips" role="group" aria-label="Categoría"></div>
+  <div id="ingValidation"></div>
+  <div id="ingredientsTable"></div>
+</section>
+
+<!-- ═════════ OBJETIVOS ═════════ -->
+<section id="tab-objetivos" class="tab-panel" role="tabpanel" aria-label="Objetivos" hidden>
+  <div class="goals-layout">
+    <form class="panel" id="profileForm" aria-labelledby="profileTitle">
+      <div class="panel-header"><h2 id="profileTitle">Tus datos</h2></div>
+      <div class="panel-body goals-form">
+        <label class="field"><span class="field-label">Edad</span><input type="number" id="pEdad" class="input" min="10" max="120" inputmode="numeric" required></label>
+        <label class="field"><span class="field-label">Peso (kg)</span><input type="number" id="pPeso" class="input" min="20" max="400" step="0.1" inputmode="decimal" required></label>
+        <label class="field"><span class="field-label">Altura (cm)</span><input type="number" id="pAltura" class="input" min="100" max="250" step="0.5" inputmode="decimal" required></label>
+        <div class="field"><span class="field-label" id="sexoLabel">Sexo</span>
+          <div class="segmented" role="group" aria-labelledby="sexoLabel">
+            <button type="button" data-sexo="hombre" aria-pressed="true">Hombre</button>
+            <button type="button" data-sexo="mujer" aria-pressed="false">Mujer</button>
+          </div></div>
+        <label class="field span-2"><span class="field-label">Actividad</span>
+          <select id="pActividad" class="select">
+            <option value="1.2">Sedentario (poco o ningún ejercicio)</option>
+            <option value="1.375">Ligero (ejercicio 1-3 días/semana)</option>
+            <option value="1.55">Moderado (3-5 días/semana)</option>
+            <option value="1.725">Intenso (6-7 días/semana)</option>
+            <option value="1.9">Muy intenso (trabajo físico o doble sesión)</option>
+          </select></label>
+        <div class="field span-2"><span class="field-label" id="objLabel">Objetivo</span>
+          <div class="segmented seg-full" role="group" aria-labelledby="objLabel">
+            <button type="button" data-objetivo="definicion" aria-pressed="false">Definición</button>
+            <button type="button" data-objetivo="mantenimiento" aria-pressed="true">Mantenimiento</button>
+            <button type="button" data-objetivo="volumen" aria-pressed="false">Volumen</button>
+          </div></div>
+        <label class="field"><span class="field-label">Ajuste de calorías (%)</span>
+          <input type="number" id="pAjuste" class="input" min="-40" max="40" step="1" inputmode="numeric">
+          <span class="field-hint" id="ajusteHint">Vacío = el del objetivo</span></label>
+        <label class="field"><span class="field-label">Proteína (g por kg)</span>
+          <input type="number" id="pProteina" class="input" min="0.5" max="4" step="0.1" inputmode="decimal" required>
+          <span class="field-hint">Fuerza: 1,6–2,2 g/kg</span></label>
+        <label class="field"><span class="field-label">Grasa (% de las kcal)</span>
+          <input type="number" id="pGrasa" class="input" min="10" max="60" step="1" inputmode="numeric" required>
+          <span class="field-hint">Habitual: 20–35 %</span></label>
+        <p class="field-hint span-2">Los hidratos cubren el resto de las calorías.</p>
+      </div>
+      <div class="modal-footer goals-footer">
+        <button type="button" class="btn" onclick="loadProfile()">Descartar cambios</button>
+        <button type="submit" class="btn btn-primary">Guardar objetivos</button>
+      </div>
+    </form>
+    <section class="panel" aria-labelledby="resultTitle">
+      <div class="panel-header"><h2 id="resultTitle">Objetivo diario</h2></div>
+      <div class="panel-body" id="goalsResult"></div>
+    </section>
+  </div>
+
+  <div class="goals-layout goals-more">
+    <section class="panel body-panel" aria-labelledby="bodyTitle">
+      <div class="panel-header"><h2 id="bodyTitle">Peso y medidas</h2><span class="grow"></span>
+        <div class="segmented" role="group" aria-label="Periodo">
+          <button type="button" data-body-days="30" aria-pressed="false">1 mes</button>
+          <button type="button" data-body-days="90" aria-pressed="true">3 meses</button>
+          <button type="button" data-body-days="365" aria-pressed="false">1 año</button>
+        </div></div>
+      <div class="panel-body stack">
+        <form id="bodyForm" class="body-form" aria-label="Nuevo registro">
+          <label class="field"><span class="field-label">Fecha</span><input type="date" id="bFecha" class="input" required></label>
+          <label class="field"><span class="field-label">Peso (kg)</span><input type="number" id="bPeso" class="input" min="20" max="400" step="0.1" inputmode="decimal"></label>
+          <label class="field"><span class="field-label">Cintura (cm)</span><input type="number" id="bCintura" class="input" min="30" max="250" step="0.5" inputmode="decimal"></label>
+          <label class="field"><span class="field-label">Cadera (cm)</span><input type="number" id="bCadera" class="input" min="30" max="250" step="0.5" inputmode="decimal"></label>
+          <label class="field"><span class="field-label">Pecho (cm)</span><input type="number" id="bPecho" class="input" min="30" max="250" step="0.5" inputmode="decimal"></label>
+          <label class="field"><span class="field-label">Brazo (cm)</span><input type="number" id="bBrazo" class="input" min="10" max="100" step="0.5" inputmode="decimal"></label>
+          <label class="field"><span class="field-label">Muslo (cm)</span><input type="number" id="bMuslo" class="input" min="20" max="150" step="0.5" inputmode="decimal"></label>
+          <label class="field"><span class="field-label">Grasa (%)</span><input type="number" id="bGrasa" class="input" min="2" max="70" step="0.1" inputmode="decimal"></label>
+          <button type="submit" class="btn btn-primary body-save">{{ icon('save', 'icon-sm') }}Guardar</button>
+        </form>
+        <div id="bodyTrend" class="body-trend" aria-live="polite"></div>
+        <figure class="body-chart" id="bodyChart" aria-label="Evolución del peso"></figure>
+        <details class="body-table-wrap"><summary>Ver todos los registros</summary><div id="bodyTable"></div></details>
+      </div>
+    </section>
+    <section class="panel" aria-labelledby="franjasTitle">
+      <div class="panel-header"><h2 id="franjasTitle">Comidas del día</h2><span class="grow"></span>
+        <button type="button" class="btn btn-sm" id="btnAddFranja">{{ icon('plus', 'icon-sm') }}Añadir</button></div>
+      <div class="panel-body stack">
+        <p class="small muted">La parte de las kcal del día de cada comida la usa «Generar semana». Las que tienen 0 % (extras…) se rellenan a mano, con plantillas o con «1.º y 2.º».</p>
+        <ul class="list franjas-list" id="franjasList"></ul>
+        <p class="small" id="franjasSum"></p>
+      </div>
+    </section>
+  </div>
+</section>
+
+<!-- Detalle de plato -->
+<dialog class="modal" id="recipeModal" aria-labelledby="recipeTitle">
+  <div class="modal-header"><h2 id="recipeTitle">Plato</h2>
+    <button type="button" class="btn btn-ghost btn-icon modal-close" data-close aria-label="Cerrar">{{ icon('x') }}</button></div>
+  <div class="modal-body" id="recipeBody"></div>
+  <div class="modal-footer">
+    <button type="button" class="btn" id="recipeShopBtn">{{ icon('shopping-cart', 'icon-sm') }}A la compra</button>
+    <span class="spacer"></span>
+    <button type="button" class="btn btn-tinted" id="recipeEditBtn">{{ icon('pencil', 'icon-sm') }}Editar</button>
+  </div>
+</dialog>
+
+<!-- Formulario de plato -->
+<dialog class="modal modal-lg" id="mealFormModal" aria-labelledby="mealFormTitle">
+  <div class="modal-header"><h2 id="mealFormTitle">Nuevo plato</h2>
+    <button type="button" class="btn btn-ghost btn-icon modal-close" data-close aria-label="Cerrar">{{ icon('x') }}</button></div>
+  <form class="modal-body meal-form" id="mealForm">
+    <input type="hidden" id="mealEditingId">
+    <div class="form-grid">
+      <label class="field span-2"><span class="field-label">Nombre</span><input type="text" id="mealNombre" class="input" maxlength="200" required placeholder="Salmón con brócoli"></label>
+      <label class="field"><span class="field-label">Franja</span>
+        <select id="mealFranja" class="select"><option value="desayuno">Desayuno</option><option value="comida" selected>Comida</option><option value="merienda">Merienda</option><option value="cena">Cena</option></select></label>
+      <label class="field"><span class="field-label">Tiempo (min)</span><input type="number" id="mealTiempo" class="input" min="0" max="10000" value="30" inputmode="numeric"></label>
+      <label class="field"><span class="field-label">Ración estándar (g)</span>
+        <div class="row"><input type="number" id="mealGramos" class="input" min="0" max="10000" value="0" inputmode="numeric"><button type="button" class="btn btn-sm" onclick="suggestGramos()">Sugerir</button></div>
+        <span class="field-hint" id="mealGramosHint">0 = se sugiere al guardar</span></label>
+      <label class="field row-field"><input type="checkbox" id="mealUnica" class="switch"><span>La receta entera es una ración</span></label>
+      <label class="field span-2"><span class="field-label">Etiquetas</span><input type="text" id="mealTags" class="input" maxlength="500" placeholder="pescado, verdura, rápido"></label>
+      <label class="field span-2"><span class="field-label">Foto (URL, opcional)</span><input type="url" id="mealImage" class="input" maxlength="2048" placeholder="https://…" inputmode="url"></label>
+    </div>
+    <div class="form-section">
+      <div class="row"><h3 class="grow">Ingredientes</h3><button type="button" class="btn btn-tinted btn-sm" onclick="addIngredientRow()">{{ icon('plus', 'icon-sm') }}Añadir</button></div>
+      <div id="ingredientRows" class="ing-rows"></div>
+      <datalist id="ingredientOptions"></datalist>
+      <div class="macro-preview" id="macroPreview"></div>
+    </div>
+    <div class="form-section">
+      <div class="row"><h3 class="grow">Pasos</h3><button type="button" class="btn btn-tinted btn-sm" onclick="addStepRow()">{{ icon('plus', 'icon-sm') }}Añadir paso</button></div>
+      <ol id="stepRows" class="step-rows"></ol>
+    </div>
+  </form>
+  <div class="modal-footer">
+    <button type="button" class="btn btn-danger" id="mealDeleteBtn" hidden>{{ icon('trash-2', 'icon-sm') }}Eliminar</button>
+    <span class="spacer"></span>
+    <button type="button" class="btn" data-close>Cancelar</button>
+    <button type="submit" form="mealForm" class="btn btn-primary">Guardar plato</button>
+  </div>
+</dialog>
+
+<!-- Elegir plato para una comida del plan -->
+<dialog class="modal" id="assignModal" aria-labelledby="assignTitle">
+  <div class="modal-header"><div class="grow"><h2 id="assignTitle">Añadir plato</h2><p class="modal-sub" id="assignSub"></p></div>
+    <button type="button" class="btn btn-ghost btn-icon modal-close" data-close aria-label="Cerrar">{{ icon('x') }}</button></div>
+  <div class="modal-body stack">
+    <div class="search">{{ icon('search') }}<input type="search" id="assignSearch" class="input" placeholder="Buscar plato" aria-label="Buscar plato"></div>
+    <div class="assign-quick" id="assignQuick" role="group" aria-label="Atajos"></div>
+    <div class="chips chips-scroll" id="assignFranja" role="group" aria-label="Franja"></div>
+    <ul class="list assign-list" id="assignList"></ul>
+  </div>
+</dialog>
+
+<!-- Ingrediente -->
+<dialog class="modal" id="ingredientModal" aria-labelledby="ingFormTitle">
+  <div class="modal-header"><h2 id="ingFormTitle">Nuevo ingrediente</h2>
+    <button type="button" class="btn btn-ghost btn-icon modal-close" data-close aria-label="Cerrar">{{ icon('x') }}</button></div>
+  <form class="modal-body stack" id="ingForm">
+    <input type="hidden" id="ingEditingId">
+    <div class="form-grid">
+      <label class="field span-2"><span class="field-label">Nombre</span><input type="text" id="ingNombre" class="input" maxlength="120" required placeholder="Salmón fresco"></label>
+      <label class="field span-2"><span class="field-label">Categoría</span><select id="ingCategoria" class="select"></select></label>
+    </div>
+    <h3 class="small muted">Valores por 100 g</h3>
+    <div class="nutri-grid">
+      <label class="field"><span class="field-label">Kcal</span><input type="number" id="ingKcal" class="input" min="0" max="900" step="0.1" inputmode="decimal" required></label>
+      <label class="field"><span class="field-label">Proteína (g)</span><input type="number" id="ingProt" class="input" min="0" max="100" step="0.1" inputmode="decimal"></label>
+      <label class="field"><span class="field-label">Hidratos (g)</span><input type="number" id="ingCarb" class="input" min="0" max="100" step="0.1" inputmode="decimal"></label>
+      <label class="field"><span class="field-label">Grasa (g)</span><input type="number" id="ingFat" class="input" min="0" max="100" step="0.1" inputmode="decimal"></label>
+      <label class="field"><span class="field-label">Saturada (g)</span><input type="number" id="ingSat" class="input" min="0" max="100" step="0.1" inputmode="decimal"></label>
+      <label class="field"><span class="field-label">Azúcares (g)</span><input type="number" id="ingSugar" class="input" min="0" max="100" step="0.1" inputmode="decimal"></label>
+      <label class="field"><span class="field-label">Sal (g)</span><input type="number" id="ingSalt" class="input" min="0" max="100" step="0.01" inputmode="decimal"></label>
+      <label class="field"><span class="field-label">Trans (g)</span><input type="number" id="ingTrans" class="input" min="0" max="100" step="0.1" inputmode="decimal"></label>
+    </div>
+    <p id="ingAtwater" class="atwater" role="status"></p>
+    <h3 class="small muted">Si se mide en unidades (opcional)</h3>
+    <div class="form-grid">
+      <label class="field"><span class="field-label">Gramos por unidad</span><input type="number" id="ingGpu" class="input" min="0" max="5000" step="0.1" inputmode="decimal" placeholder="60"></label>
+      <label class="field"><span class="field-label">Nombre de la unidad</span><input type="text" id="ingUnidad" class="input" maxlength="40" placeholder="huevo"></label>
+    </div>
+  </form>
+  <div class="modal-footer">
+    <button type="button" class="btn" data-close>Cancelar</button>
+    <button type="submit" form="ingForm" class="btn btn-primary">Guardar</button>
+  </div>
+</dialog>
+
+<!-- Añadir a la compra -->
+<dialog class="modal modal-sm" id="shopModal" aria-labelledby="shopTitle">
+  <div class="modal-header"><h2 id="shopTitle">Añadir a la lista</h2>
+    <button type="button" class="btn btn-ghost btn-icon modal-close" data-close aria-label="Cerrar">{{ icon('x') }}</button></div>
+  <form class="modal-body stack" id="shopForm">
+    <label class="field"><span class="field-label">Producto</span><input type="text" id="shopName" class="input" list="ingredientOptions" maxlength="200" required placeholder="Tomates"></label>
+    <label class="field"><span class="field-label">Cantidad (g)</span><input type="number" id="shopQty" class="input" min="0" max="1000000" value="500" inputmode="numeric"></label>
+  </form>
+  <div class="modal-footer">
+    <button type="button" class="btn" data-close>Cancelar</button>
+    <button type="submit" form="shopForm" class="btn btn-primary">Añadir</button>
+  </div>
+</dialog>
+{% endblock %}
+{% block scripts %}<script src="{{ asset('/comidas/js/comidas.js') }}"></script>{% endblock %}

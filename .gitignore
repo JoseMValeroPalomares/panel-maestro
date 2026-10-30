@@ -1,0 +1,43 @@
+# Entorno y dependencias
+venv/
+.venv/
+node_modules/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Secretos y credenciales
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+estudio/calendar_sync_state.json
+
+# Datos personales
+data/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite3
+static/uploads/
+comidas/data/
+backups/
+logs/
+
+# Herramientas
+.playwright-cli/
+screenshots/
+*.log
+
+# Extensión empaquetada (python -m scripts.build_extension)
+dist/
+
+# Firmware del ESP32: credenciales y compilaciones
+esp32_deskclock/secrets.h
+esp32_deskclock/build/
+esp32_deskclock/tools/__pycache__/
+
+# Capturas de verificación (muestran datos personales)
+docs/capturas/
+estudio/calendar_sync_v2.json

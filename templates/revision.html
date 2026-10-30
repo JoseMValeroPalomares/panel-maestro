@@ -1,0 +1,27 @@
+{% extends "_layout.html" %}
+{% block head %}<link rel="stylesheet" href="{{ asset('/static/css/hoy.css') }}">{% endblock %}
+{% block title_icon %}{{ icon('history') }}{% endblock %}
+{% block heading %}Revisión<span class="hide-mobile"> semanal</span>{% endblock %}
+{% block actions %}
+<div class="cal-nav">
+  <button type="button" class="btn btn-ghost btn-icon" data-week="-1" aria-label="Semana anterior">{{ icon('chevron-left') }}</button>
+  <button type="button" class="btn btn-sm" data-week="0">Esta semana</button>
+  <button type="button" class="btn btn-ghost btn-icon" data-week="1" aria-label="Semana siguiente">{{ icon('chevron-right') }}</button>
+</div>
+{% endblock %}
+{% block content %}
+<div class="hoy revision">
+  <p class="hoy-sub small muted" id="revRange" aria-live="polite"></p>
+  <div class="hoy-grid">
+    <section class="panel hoy-card" aria-labelledby="revResumen"><div class="panel-header"><h2 id="revResumen">{{ icon('chart-column', 'icon-sm') }}La semana</h2></div>
+      <div class="panel-body" id="revStats"></div></section>
+    <section class="panel hoy-card" aria-labelledby="revHechas"><div class="panel-header"><h2 id="revHechas">{{ icon('circle-check', 'icon-sm') }}Completadas</h2></div>
+      <div class="panel-body" id="revList"></div></section>
+    <section class="panel hoy-card" aria-labelledby="revRutinas"><div class="panel-header"><h2 id="revRutinas">{{ icon('repeat', 'icon-sm') }}Rutinas cumplidas</h2></div>
+      <div class="panel-body" id="revRut"></div></section>
+  </div>
+  <section class="panel" aria-labelledby="revLogH"><div class="panel-header"><h2 id="revLogH">{{ icon('history', 'icon-sm') }}Registro de cambios</h2></div>
+    <div class="panel-body"><ul class="hoy-list" id="revLog"></ul><button type="button" class="btn btn-sm" id="revMore" hidden>Ver más</button></div></section>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ asset('/static/js/revision.js') }}"></script>{% endblock %}
