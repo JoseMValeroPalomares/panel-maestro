@@ -64,6 +64,11 @@
   font-size: var(--fs-13); color: var(--text-3); border: 1px dashed var(--separator-strong); border-radius: var(--r-md);
 }
 
+/* Color de cada tipo: tarea, idea o rutina */
+.il-item { --type-color: var(--tile-tareas); }
+.il-item[data-type="idea"] { --type-color: var(--tile-baul); }
+.il-item[data-type="rutina"] { --type-color: var(--tile-rutinas); }
+
 /* Tarjeta */
 .il-list > .il-item {
   background: var(--bg-elev); border-radius: var(--r-md); box-shadow: var(--shadow-1), 0 0 0 0.5px var(--separator);
@@ -105,11 +110,10 @@
 @media (pointer: coarse) { .il-chip-btn { min-height: 32px; padding: 4px 10px; } }
 
 /* Pasos: debajo de su elemento, con sangría y línea guía */
-.il-children { list-style: none; padding: 0 0 0 var(--sp-3); margin: var(--sp-1) 0 0 37px; border-left: 2px solid var(--separator); }
+.il-children { list-style: none; padding: 0 0 0 var(--sp-2); margin: var(--sp-1) 0 0 37px; border-left: 2px solid color-mix(in srgb, var(--type-color) 40%, var(--separator)); }
 .il-children:empty, .il-children[data-folded] { display: none; }
-.il-child { padding: 2px 0 2px 4px; box-shadow: 0 -1px 0 var(--separator); }
-.il-child:first-child { box-shadow: none; }
-.il-child.is-selected { border-radius: var(--r-sm); }
+.il-child { padding: 1px 0 1px 4px; border-radius: var(--r-sm); transition: background var(--dur-fast); }
+.il-child:hover { background: var(--hover); }
 .il-child .il-row { align-items: center; min-height: 36px; }
 .il-child .il-text { font-size: var(--fs-13); -webkit-line-clamp: 3; }
 .il-child .il-body { padding-top: 0; }
@@ -118,7 +122,17 @@
 .il-children > .sortable-placeholder { min-height: 36px; max-height: 36px; }
 .il-list > .il-item.sortable-nest { box-shadow: var(--shadow-2), 0 0 0 2px color-mix(in srgb, var(--accent) 60%, transparent); background: color-mix(in srgb, var(--accent) 6%, var(--bg-elev)); }
 .il-list > .il-item.sortable-nest-invalid { box-shadow: var(--shadow-2), 0 0 0 2px color-mix(in srgb, var(--danger) 60%, transparent); background: color-mix(in srgb, var(--danger) 7%, var(--bg-elev)); }
+/* Lo que se arrastra: el bloque entero, con su fondo (en body ya no le llega el de la lista) y el color de su tipo */
+.il-item.sortable-ghost {
+  list-style: none; padding: var(--sp-2) var(--sp-3); background: var(--bg-elev-2); border-radius: var(--r-md); opacity: 1; rotate: -0.6deg; overflow: hidden;
+  box-shadow: var(--shadow-3), 0 0 0 1.5px color-mix(in srgb, var(--type-color) 70%, transparent);
+}
+.il-item.sortable-ghost.il-child { padding: var(--sp-1) var(--sp-2); }
 .sortable-ghost .il-children:empty, .sortable-ghost .il-addform { display: none !important; }
+.sortable-ghost :is(.drag-handle, .il-copy, .il-more, .il-addstep, .il-run, .il-select, .il-resize, .il-kids-fold) { display: none !important; }
+.sortable-ghost .il-children { margin-left: 9px; max-height: none; }
+.sortable-ghost .il-child:hover { background: none; }
+.il-ghost-more { padding: 2px 4px 2px 30px; }
 
 /* Casilla circular (hecho) */
 .card-check {
@@ -156,6 +170,18 @@
 .il-bulk-count { font-size: var(--fs-13); font-weight: 600; }
 @keyframes il-rise { from { opacity: 0; transform: translateY(8px); } }
 
+/* Copiar el texto: junto al check, como el asa */
+.il-copy {
+  display: inline-grid; place-items: center; flex-shrink: 0; width: 22px; height: 22px; margin: 1px -6px 0 -6px; border-radius: 6px; color: var(--text-3);
+  opacity: 0; transition: opacity var(--dur-fast), background var(--dur-fast), color var(--dur-fast);
+}
+.il-child .il-copy { margin-top: 0; }
+.il-copy .icon { width: 13px; height: 13px; }
+.il-item:hover > .il-row > .il-copy, .il-item:focus-within > .il-row > .il-copy, .il-copy:focus-visible { opacity: 1; }
+.il-copy:hover { background: var(--hover); color: var(--text); }
+.is-selecting .il-copy, .il-row:has(> .il-body > .il-editor) > .il-copy { display: none; }
+@media (hover: none) { .il-copy { opacity: 0.7; } }
+
 /* Asa de arrastre: visible al pasar el ratón o con foco; siempre en táctil */
 .drag-handle {
   display: inline-grid; place-items: center; flex-shrink: 0; width: 20px; height: 28px; margin: -1px -6px 0 -10px;
@@ -170,14 +196,32 @@
 
 /* Edición en línea */
 .il-editor { display: flex; flex-direction: column; gap: var(--sp-2); padding: 2px 0 var(--sp-1); }
-.il-editor-grid { display: grid; grid-template-columns: auto repeat(3, minmax(0, 1fr)); gap: var(--sp-2); align-items: end; }
-.il-editor .field { gap: 2px; min-width: 0; }
-.il-editor-grid .day-picker { grid-column: 1 / -1; }
-.il-editor .field-label { font-size: var(--fs-12); }
+.il-editor-fields { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.il-editor-fields .day-picker { flex: 1 1 100%; }
+.il-editor-fields .segmented { flex: 0 0 auto; }
+.il-editor-fields .segmented button { padding-inline: var(--sp-2); }
+.il-editor textarea[name="text"] { min-height: 0; }
+.il-ed {
+  display: flex; align-items: center; gap: 5px; flex: 1 1 100px; min-width: 0; height: 32px; padding: 0 8px; border-radius: var(--r-sm);
+  background: var(--fill); color: var(--text-3); font-size: var(--fs-13); cursor: text;
+}
+.il-ed.is-wide { flex-grow: 2; }
+.il-ed.is-time { flex: 1 1 88px; }
+.il-ed.is-short { flex: 1 1 66px; }
+.il-ed:hover { background: var(--fill-strong); }
+.il-ed:focus-within { outline: 2px solid var(--accent); outline-offset: -1px; }
+.il-ed .icon { flex-shrink: 0; }
+.il-ed input, .il-ed select { flex: 1; width: 100%; min-width: 0; height: 100%; padding: 0; border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; }
+.il-ed select { cursor: pointer; }
+.il-ed select option { background: var(--bg-elev); color: var(--text); }
+.il-ed input::placeholder { color: var(--text-3); opacity: 1; }
+.il-ed input[type="number"] { appearance: textfield; }
+.il-ed input[type="number"]::-webkit-inner-spin-button { display: none; }
+.il-ed-unit { flex-shrink: 0; font-size: var(--fs-12); }
+.il-ed-notes { min-height: 0; resize: vertical; }
+.il-ed-notes[rows="1"] { height: 34px; padding-block: 6px; }
 .il-editor .segmented button:disabled { opacity: 0.45; cursor: not-allowed; }
 .il-editor-actions { gap: var(--sp-2); flex-wrap: wrap; }
-.il-sidebar .il-editor-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.il-sidebar .il-editor-grid .segmented { grid-column: 1 / -1; }
 .il-addform { display: flex; gap: var(--sp-2); margin: var(--sp-2) 0 var(--sp-1) 37px; }
 .il-note-body > .il-addform { margin-left: 0; }
 .il-addform .input { flex: 1; min-width: 0; }
@@ -201,6 +245,12 @@
   .is-matrix .il-item.is-sized > .il-row { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
   .is-matrix .il-item.is-sized > .il-children { flex: 1 1 0; min-height: 0; max-height: none; }
   .is-matrix .il-resize { display: block; position: absolute; z-index: 1; }
+  /* Mientras se arrastra: la pastilla de cada tarjeta donde soltar para meter dentro (sortable.js); no tapa el título */
+  .is-matrix .il-list > .il-item.sortable-can-nest::after {
+    content: "Meter dentro"; position: absolute; right: 8px; bottom: 8px; z-index: 2; display: grid; place-items: center; height: 26px; padding: 0 12px; border-radius: var(--r-pill);
+    border: 1.5px dashed color-mix(in srgb, var(--accent) 55%, var(--separator)); background: var(--bg-elev-2); color: var(--text-2); font-size: var(--fs-12); font-weight: 600; pointer-events: none;
+  }
+  .is-matrix .il-list > .il-item.sortable-nest::after { content: "Suelta para meterla"; border-style: solid; border-color: var(--accent); background: var(--accent-soft); color: var(--accent-text); }
   .is-matrix .il-resize[data-resize="e"] { top: 0; right: 0; bottom: 14px; width: 7px; cursor: ew-resize; }
   .is-matrix .il-resize[data-resize="s"] { left: 0; right: 14px; bottom: 0; height: 7px; cursor: ns-resize; }
   .is-matrix .il-resize[data-resize="se"] { right: 0; bottom: 0; width: 16px; height: 16px; cursor: nwse-resize; }
@@ -213,12 +263,10 @@
   .is-matrix .il-item:has(.il-editor) > .il-resize, .sortable-ghost .il-resize { display: none; }
   .is-matrix .il-list:empty { display: block; }
   /* Se edita dentro de la tarjeta: el formulario se adapta a su ancho y le deja sitio lo que hay a su derecha */
-  .is-matrix .il-editor-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .is-matrix .il-editor-grid .segmented { grid-column: 1 / -1; display: flex; }
-  .is-matrix .il-editor-grid .segmented button { flex: 1; padding-inline: var(--sp-1); }
+  .is-matrix .il-editor-fields .segmented { flex: 1 1 100%; display: flex; }
+  .is-matrix .il-editor-fields .segmented button { flex: 1; padding-inline: var(--sp-1); }
   .is-matrix .il-editor .day-options { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
   .is-matrix .il-editor-actions .tiny { display: none; }
-  .is-matrix .il-editor-grid .field:has(input[type="date"]) { grid-column: 1 / -1; }
   .is-matrix .il-row:has(> .il-body > .il-editor) { align-items: flex-start; }
   .is-matrix .il-row:has(> .il-body > .il-editor) > :is(.il-fold, .il-more) { display: none; }
   .is-matrix .il-child > .il-row:has(> .il-body > .il-editor) > :is(.drag-handle, .card-check) { display: none; }
@@ -241,8 +289,14 @@ body[data-resize="se"], body[data-resize="se"] * { cursor: nwse-resize !importan
 
 @media (max-width: 767px) {
   .card-check { width: 24px; height: 24px; }
-  .il-editor-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .il-editor-grid .segmented { grid-column: 1 / -1; }
+  .il-editor-fields .segmented { flex: 1 1 100%; display: flex; }
+  .il-editor-fields .segmented button { flex: 1; }
+  /* a 16 px: categoría, prioridad y fecha necesitan su línea; hora y duración caben juntas */
+  .il-ed, .il-ed.is-wide { flex-basis: 150px; height: 40px; }
+  .il-ed:has(input[type="date"]) { flex-basis: 100%; }
+  .il-ed.is-time { flex-basis: 104px; }
+  .il-ed.is-short { flex-basis: 92px; }
+  .il-ed input, .il-ed select { font-size: 16px; }  /* con menos, el iPhone hace zoom al enfocar */
   .il-children { margin-left: 24px; }
   .il-cat-body { margin-left: 9px; padding-left: var(--sp-2); }
   .il-list > .il-item { padding-left: var(--sp-2); }

@@ -16,12 +16,13 @@
 /* La línea: hora · raíl con punto · bloque */
 .rp-line { list-style: none; padding: 0; margin: 0; }
 .rp-step { display: grid; grid-template-columns: 58px 22px minmax(0, 1fr); column-gap: var(--sp-2); }
-.rp-time { padding-top: 5px; display: flex; justify-content: flex-end; height: fit-content; }
+.rp-time { padding-top: 5px; display: flex; flex-direction: column; height: fit-content; }
 .rp-time-input { width: 100%; min-width: 0; height: 28px; padding: 0 4px; border: 0; border-radius: var(--r-xs); background: transparent; color: var(--text-2);
   font: inherit; font-size: var(--fs-13); text-align: right; cursor: text; }
 .rp-time-input::placeholder { color: var(--text-3); opacity: 1; }
+.rp-time-input[data-time="end"] { height: 22px; color: var(--text-3); font-size: var(--fs-12, 12px); }
 .rp-time-input:hover, .rp-time-input:focus { background: var(--fill); color: var(--text); }
-@media (pointer: coarse) { .rp-time-input { height: 44px; margin-block: -8px; } }
+@media (pointer: coarse) { .rp-time-input, .rp-time-input[data-time="end"] { height: 36px; } }
 .rp-rail { position: relative; display: flex; justify-content: center; }
 .rp-rail::before { content: ""; position: absolute; top: 0; bottom: 0; width: 2px; background: var(--separator); }
 .rp-step:first-child .rp-rail::before { top: 14px; }
@@ -34,6 +35,11 @@
 .rp-body { min-width: 0; padding: 2px 0 var(--sp-2); }
 .rp-row { display: flex; align-items: center; gap: var(--sp-2); min-height: 36px; padding: 0 var(--sp-2); border-radius: var(--r-sm); }
 .rp-step.is-now .rp-row { background: color-mix(in srgb, var(--tile-rutinas) 12%, transparent); }
+.rp-grip { display: grid; place-items: center; width: 20px; height: 28px; margin-left: -6px; flex-shrink: 0; border-radius: var(--r-xs); color: var(--text-3); cursor: grab; opacity: 0;
+  touch-action: none; transition: opacity var(--dur-fast); }
+.rp-step:hover .rp-grip, .rp-step:focus-within .rp-grip, .rp-step:focus-visible .rp-grip { opacity: 1; }
+.rp-grip:hover { background: var(--hover); color: var(--text); }
+@media (hover: none) { .rp-grip { opacity: 0.75; } }
 .rp-step-title { text-align: left; font-size: var(--fs-15); font-weight: 500; color: var(--text); min-width: 0; overflow-wrap: anywhere; }
 .rp-step-title:hover { color: var(--accent-text); }
 .rp-step.is-done .rp-step-title { text-decoration: line-through; color: var(--text-2); }
@@ -71,14 +77,16 @@
   .rp-days > button { flex: 1; min-width: 0; }
   .rp-card { padding: var(--sp-3) var(--sp-3) var(--sp-2); }
   .rp-step, .rp-gap { grid-template-columns: 54px 18px minmax(0, 1fr); column-gap: 6px; }
-  .rp-time-input, .rp-add .rp-add-at { font-size: 16px; }  /* con menos, el iPhone hace zoom al enfocar */
+  .rp-time-input, .rp-time-input[data-time="end"], .rp-add .rp-add-at { font-size: 16px; }  /* con menos, el iPhone hace zoom al enfocar */
+  .rp-add { flex-wrap: wrap; }
+  .rp-add .input:not(.rp-add-at) { flex-basis: 100%; }
   .rp-tasks { margin-left: var(--sp-3); }
   .rp-loose, .rp-add, .rp-other { margin-left: 0; }
   /* la duración, debajo del nombre: en la misma fila se recortaba */
   .rp-row { flex-wrap: wrap; row-gap: 0; padding-block: 4px; }
   .rp-row .grow { display: none; }
   .rp-step-title { flex: 1 1 0; }
-  .rp-row .rp-dur { order: 9; flex: 0 0 100%; padding-left: 30px; }
+  .rp-row .rp-dur { order: 9; flex: 0 0 100%; padding-left: 50px; }
   .rp-row .rp-dur:empty { display: none; }
 }
 

@@ -16,7 +16,8 @@ rutina. Así una rutina «Mi día» cambia según el día. Un paso se marca por 
 todos los pasos de ese día hechos la rutina queda hecha, y marcar la rutina marca los de ese día.
 Horario: cada paso va a su hora, sin depender de los demás (entre dos bloques puede haber huecos libres),
 y dos bloques que tocan el mismo día no pueden pisarse (`ensure_free`, también entre rutinas). Sin hora, un
-paso es flexible: no ocupa sitio en el día. Solo la rutina cuenta para la racha y el historial. Las tareas e ideas pueden ir asociadas a una
+paso es flexible: no ocupa sitio en el día. Arrastrar un bloque a otro sitio de la línea le da la hora de
+ese sitio (`hour_between`); si no cabe, solo con permiso se mueven los siguientes (`pushed`). Solo la rutina cuenta para la racha y el historial. Las tareas e ideas pueden ir asociadas a una
 rutina o a uno de sus pasos (`inbox.routine_step`): se ven dentro del bloque. Racha = ocurrencias seguidas hechas hasta hoy (si
 hoy toca y aún no está hecha, no rompe la racha). Cada marca va también a `item_log`
 (historial de la revisión semanal).
@@ -295,8 +296,9 @@ def _require_free(block: dict, others: list[dict]) -> None:
 
 
 def ensure_free(conn, row, *, due_time: str | None = None, duration_min: int | None = None,
-                step_days: list[int] | None = None, repeat: dict | None = None) -> None:
-    """Antes de guardar: 409 si con estos cambios un bloque pisaría a otro el mismo día. None = no cambia."""
+                step_days: list[int] | None = None, repeat: dict | None = None, ignore: frozenset = frozenset()) -> None:
+    """Antes de guardar: 409 si con estos cambios un bloque pisaría a otro el mismo día. None = no cambia;
+    `ignore`: bloques que se están moviendo a la vez."""
     if row["item_type"] != "rutina":
         return
     is_step = row["parent_id"] is not None
@@ -318,7 +320,35 @@ def ensure_free(conn, row, *, due_time: str | None = None, duration_min: int | N
         own = step_rule(row) if step_days is None else ({"freq": "weekly", "days": step_days} if 0 < len(set(step_days)) < 7 else None)
     dur = row["duration_min"] if duration_min is None else duration_min
     # su rutina tampoco cuenta: el primer paso puede ir a la hora de ella, que deja de ocupar sitio
-    _require_free(_block(row, rule, own, at, dur), _busy(conn, {row["id"], row["parent_id"]}))
+    _require_free(_block(row, rule, own, at, dur), _busy(conn, {row["id"], row["parent_id"], *ignore}))
+
+
+def hour_between(step: dict, prev: dict | None, nxt: dict | None) -> int | None:
+    """Minuto en que empieza un bloque soltado entre `prev` y `nxt` (la línea del día, sin él): justo al acabar el de
+    arriba o, en lo alto, antes del de abajo. None = sigue sin hora (se suelta entre los que no tienen)."""
+    dur = step.get("duration_min") or 0
+    if prev and prev.get("at") and (nxt is None or nxt.get("at") or step.get("due_time")):
+        p = _mins(prev["at"])
+        if prev.get("duration_min"):
+            return p + prev["duration_min"]
+        t = p + UNTIMED_MIN  # el de arriba no dice cuánto dura: se le deja lo mismo que en el calendario, si hay sitio
+        return min(t, max(p + 1, _mins(nxt["at"]) - max(dur, 1))) if nxt and nxt.get("at") else t
+    if not prev and nxt and nxt.get("at"):
+        return max(0, _mins(nxt["at"]) - (dur or UNTIMED_MIN))
+    return None
+
+
+def pushed(start: int, dur: int, following: list[dict]) -> list[dict]:
+    """Los bloques siguientes que habría que retrasar para que quepa uno: solo lo justo, los huecos absorben el resto."""
+    out, need = [], start + max(dur, 1)
+    for s in following:
+        if not s.get("at") or _mins(s["at"]) >= need:
+            break
+        out.append({**s, "at": _hhmm(need), "by": need - _mins(s["at"])})
+        need += max(s.get("duration_min") or 0, 1)
+    if need > 1440:
+        raise HTTPException(status_code=422, detail="Ahí no cabe: los bloques siguientes pasarían de medianoche")
+    return out
 
 
 def schedule(start: str | None, steps: list[dict]) -> list[dict]:
@@ -337,6 +367,7 @@ def schedule(start: str | None, steps: list[dict]) -> list[dict]:
     return out
 
 
+UNTIMED_MIN = 15  # lo que se le supone a un bloque sin duración al colocarlo (y lo que ocupa en el calendario)
 DURATION_RE = re.compile(r"\s*[·,-]?\s*\(?(\d{1,3})\s*(min|mins|minutos|m|h|horas?)\)?\s*$", re.I)
 
 

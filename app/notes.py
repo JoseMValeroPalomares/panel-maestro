@@ -16,12 +16,14 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.bulk import NotesSelection, bulk_delete
 from app.database import get_db
+from app.indexer import sync_notes_to_db, upsert_note, valid_category
 from app.note_tasks import sync_note_items
 from app.notes_core import (MAX_NOTE_CONTENT, MAX_TAGS, MAX_TITLE, extract_wiki_links, normalize_status, note_path, slugify,
                             split_category_path, sync_flashcards, update_index_for_area)
 from app.ordering import category_key
 from app.study import register_study_day
 from app.versions import snapshot as snapshot_version
+from core.files import atomic_write
 
 router = APIRouter()
 
@@ -62,8 +64,9 @@ def create_category(payload: CategoryIn):
         slug = slugify(payload.name)
         if payload.parent_id:
             parent = conn.execute("SELECT slug FROM categories WHERE id=?", (payload.parent_id,)).fetchone()
-            if parent:
-                slug = f"{parent['slug']}/{slug}"
+            if not parent:
+                raise HTTPException(status_code=404, detail="La categoría superior no existe")
+            slug = f"{parent['slug']}/{slug}"
         try:
             cursor = conn.cursor()
             cursor.execute(
@@ -113,6 +116,15 @@ def get_notes_in_branch(category_id: int):
 @router.delete("/api/categories/{category_id}")
 def delete_category(category_id: int):
     with get_db() as conn:
+        # Las notas de la rama se quedan sin categoría del árbol: si no, la clave foránea impide borrar
+        conn.execute('''
+            WITH RECURSIVE branch(id) AS (
+                SELECT id FROM categories WHERE id = ?
+                UNION ALL
+                SELECT c.id FROM categories c JOIN branch b ON c.parent_id = b.id
+            )
+            UPDATE notes SET category_id = NULL WHERE category_id IN (SELECT id FROM branch)
+        ''', (category_id,))
         conn.execute("DELETE FROM categories WHERE id=?", (category_id,))
         conn.commit()
     return {"status": "success"}
@@ -178,26 +190,21 @@ def rename_category_bulk(data: CategoryRename):
     if not data.old_category.strip() or not data.new_category.strip():
         return JSONResponse(status_code=400, content={"error": "Categorías vacías no permitidas"})
 
+    new_category = data.new_category.strip()
     with get_db() as conn:
-        rows = conn.execute(
-            "SELECT id FROM notes WHERE category=?", (data.old_category,)
-        ).fetchall()
+        rows = conn.execute("SELECT id FROM notes WHERE category=? AND status != 'indice'", (data.old_category,)).fetchall()
 
-        for row in rows:
-            note_id = row['id']
-            filepath = note_path(note_id)
-            if os.path.exists(filepath):
-                with open(filepath, 'r', encoding='utf-8') as f:
-                    post = frontmatter.load(f)
-                post['category'] = data.new_category.strip()
-                with open(filepath, 'w', encoding='utf-8') as f:
-                    f.write(frontmatter.dumps(post))
+    for row in rows:
+        filepath = note_path(row['id'])
+        if os.path.exists(filepath):
+            with open(filepath, 'r', encoding='utf-8') as f:
+                post = frontmatter.load(f)
+            post['category'] = new_category
+            atomic_write(filepath, frontmatter.dumps(post))
 
-        conn.execute(
-            "UPDATE notes SET category=?, last_modified=? WHERE category=?",
-            (data.new_category.strip(), time.time(), data.old_category)
-        )
-        conn.commit()
+    sync_notes_to_db()
+    for area in {split_category_path(data.old_category)[0], split_category_path(new_category)[0]}:
+        update_index_for_area(area)
     return {"status": "success", "updated": len(rows)}
 
 @router.get("/api/notes/{note_id}")
@@ -226,6 +233,7 @@ def save_note(note_id: str, note_data: NoteData):
     # --- Blindaje: una nota índice no puede perder su status por un guardado normal ---
     with get_db() as conn:
         current = conn.execute("SELECT status FROM notes WHERE id = ?", (note_id,)).fetchone()
+        category_id = valid_category(conn, note_data.category_id)
     incoming_status = normalize_status(note_data.status)
     if current and current["status"] == "indice" and incoming_status != "indice":
         status = "indice"
@@ -237,29 +245,25 @@ def save_note(note_id: str, note_data: NoteData):
     post.content = note_data.content
     post['title'] = note_data.title
     post['category'] = note_data.category
-    post['category_id'] = note_data.category_id
+    post['category_id'] = category_id
     post['status'] = status
     post['tags'] = tags
     post['encrypted'] = note_data.encrypted
 
     snapshot_version(note_id)
-    with open(filepath, 'w', encoding='utf-8') as f:
-        f.write(frontmatter.dumps(post))
+    atomic_write(filepath, frontmatter.dumps(post))
 
     with get_db() as conn:
         cursor = conn.cursor()
-        last_modified = os.path.getmtime(filepath)
+        upsert_note(conn, {"id": note_id, "title": note_data.title, "category": note_data.category, "category_id": category_id,
+                           "tags": ",".join(tags), "content": note_data.content, "status": status,
+                           "encrypted": int(note_data.encrypted), "last_modified": os.path.getmtime(filepath)})
 
-        cursor.execute('''
-            INSERT OR REPLACE INTO notes (id, title, category, category_id, tags, content, status, last_modified, encrypted, last_reviewed)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT last_reviewed FROM notes WHERE id=?), 0))
-        ''', (note_id, note_data.title, note_data.category, note_data.category_id,
-              ",".join(tags), note_data.content, status, last_modified, int(note_data.encrypted), note_id))
-
-        if not note_data.encrypted:
-            links = extract_wiki_links(note_data.content)
-            cursor.execute("DELETE FROM graph_edges WHERE source = ? AND type = 'auto'", (note_id,))
-            for target in links:
+        cursor.execute("DELETE FROM graph_edges WHERE source = ? AND type = 'auto'", (note_id,))
+        if note_data.encrypted:  # de lo cifrado no queda nada en claro en la caché
+            cursor.execute("DELETE FROM flashcards WHERE note_id = ?", (note_id,))
+        else:
+            for target in extract_wiki_links(note_data.content):
                 cursor.execute('''
                     INSERT OR IGNORE INTO graph_edges (source, target, type)
                     VALUES (?, ?, 'auto')
@@ -287,16 +291,19 @@ def save_note(note_id: str, note_data: NoteData):
 def update_note_status(note_id: str, data: StatusUpdate):
     status = normalize_status(data.status)
     filepath = note_path(note_id)
-    if os.path.exists(filepath):
-        with open(filepath, 'r', encoding='utf-8') as f:
-            post = frontmatter.load(f)
-        post['status'] = status
-        with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(frontmatter.dumps(post))
+    if not os.path.exists(filepath):
+        return JSONResponse(status_code=404, content={"error": "Nota no encontrada"})
+    with open(filepath, 'r', encoding='utf-8') as f:
+        post = frontmatter.load(f)
+    if post.get('status') == 'indice':  # igual que al guardar: una nota índice no pierde su estado
+        return {"status": "success", "new_status": "indice"}
+    post['status'] = status
+    atomic_write(filepath, frontmatter.dumps(post))
 
     with get_db() as conn:
         conn.execute("UPDATE notes SET status = ? WHERE id = ?", (status, note_id))
         conn.commit()
+    update_index_for_area(split_category_path(post.get('category', ''))[0])  # el índice enseña el estado de cada nota
     return {"status": "success", "new_status": status}
 
 
@@ -362,12 +369,13 @@ def get_wikilink_suggestions(note_id: str):
         ).fetchall()
 
     existing_links = set(extract_wiki_links(content))
+    lowered = content.lower()
     suggestions = []
 
     for row in others:
         title = (row['title'] or "").strip()
         target_id = row['id']
-        if len(title) < 3 or target_id in existing_links:
+        if len(title) < 3 or target_id in existing_links or title.lower() not in lowered:
             continue
         # busca el título como palabra completa, pero ignora si ya está
         # dentro de un [[...]] (evita contar lo que ya es un wikilink)
@@ -422,8 +430,6 @@ def delete_note(note_id: str):
         raise HTTPException(status_code=404, detail="La nota no existe")
     snapshot_version(note_id, force=True)  # además, el contenido sigue en data/versions
     res = bulk_delete(NotesSelection(ids=[note_id]))
-    with get_db() as conn:
-        sync_note_items(conn, note_id, None)
     return {"status": "success", "undo_token": res["undo_token"]}
 
 
@@ -439,16 +445,18 @@ def update_note_meta(note_id: str, data: NoteMetaUpdate):
 
     with open(filepath, 'r', encoding='utf-8') as f:
         post = frontmatter.load(f)
+    old_area = split_category_path(post.get('category', ''))[0]
 
     if data.title is not None and data.title.strip():
         post['title'] = data.title.strip()
     if data.category is not None:
         post['category'] = data.category.strip()
-    if data.category_id is not None:
-        post['category_id'] = data.category_id
+    with get_db() as conn:
+        category_id = valid_category(conn, data.category_id)
+    if category_id is not None:
+        post['category_id'] = category_id
 
-    with open(filepath, 'w', encoding='utf-8') as f:
-        f.write(frontmatter.dumps(post))
+    atomic_write(filepath, frontmatter.dumps(post))
 
     with get_db() as conn:
         last_modified = os.path.getmtime(filepath)
@@ -460,13 +468,16 @@ def update_note_meta(note_id: str, data: NoteMetaUpdate):
         if data.category is not None:
             updates.append("category=?")
             params.append(data.category.strip())
-        if data.category_id is not None:
+        if category_id is not None:
             updates.append("category_id=?")
-            params.append(data.category_id)
+            params.append(category_id)
         if updates:
             updates.append("last_modified=?")
             params.append(last_modified)
             params.append(note_id)
             conn.execute(f"UPDATE notes SET {', '.join(updates)} WHERE id=?", params)
             conn.commit()
+    if post.get('status') != 'indice':
+        for area in {old_area, split_category_path(post.get('category', ''))[0]}:
+            update_index_for_area(area)
     return {"status": "success"}

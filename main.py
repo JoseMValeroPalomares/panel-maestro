@@ -5,7 +5,7 @@ Punto de entrada UNICO para las tres apps del panel personal.
 - Panel ESP32 (Estudio/Spotify/Reloj) -> "/estudio"
 - Comidas (macros/recetas/compra)     -> "/comidas"
 
-Arranque (desde ~/Documents/panel-maestro/):
+Arranque (desde la raiz del proyecto):
     uvicorn main:app --host 0.0.0.0 --port 8000
 
 IMPORTANTE - por que existe este archivo y no basta con app.mount():
@@ -24,6 +24,8 @@ manualmente al router de la app raiz DESPUES del mount.
 
 import contextlib
 
+from starlette.middleware.gzip import GZipMiddleware
+
 from core.logging_config import setup_logging
 
 setup_logging()
@@ -31,7 +33,7 @@ setup_logging()
 from core.auth import AuthMiddleware, router as auth_router  # noqa: E402
 from core.pwa import router as pwa_router  # noqa: E402
 from core.errors import SecurityHeadersMiddleware, install_error_handlers  # noqa: E402
-from app.main import app as cerebro_app        # digital-brain/app/main.py, SIN TOCAR
+from app.main import app as cerebro_app  # noqa: E402
 from estudio.main import app as estudio_app  # noqa: E402  # migracion de server.py (aiohttp -> FastAPI)
 from comidas.main import app as comidas_app  # noqa: E402  # macros / recetas / lista de la compra
 
@@ -66,6 +68,8 @@ CSP = "; ".join([
     "frame-ancestors 'self'",
 ])
 
+# Comprime HTML, JS, CSS y JSON (no imágenes, fuentes ni zip: ya lo van)
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.add_middleware(AuthMiddleware)
 app.add_middleware(SecurityHeadersMiddleware, csp=CSP)
 

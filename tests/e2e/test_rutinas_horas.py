@@ -25,7 +25,7 @@ def _dia(page, server, api):
 
 
 def _hora(page, sid):
-    return f"[data-step='{sid}'] .rp-time-input"
+    return f"[data-step='{sid}'] [data-time=start]"
 
 
 def test_poner_hora_en_la_linea_y_ver_los_huecos(page, server, api):
@@ -138,3 +138,97 @@ def test_plantilla_con_horas_editables(page, server, api):
     page.locator(".toast", has_text="creada").wait_for()
     pasos = {i["text"]: i["due_time"] for i in _items(api).values() if i["type"] == "rutina" and i["parent_id"]}
     assert pasos["Beber un vaso de agua"] == "08:00" and pasos["Mirar la agenda del día"] == "19:00"
+
+
+def _arrastrar_a(page, sid, antes_de):
+    """Suelta el bloque por su asa justo encima de otro."""
+    a = page.locator(f"[data-step='{sid}'] [data-drag-handle]").bounding_box()
+    b = page.locator(f"[data-step='{antes_de}']").bounding_box()
+    page.mouse.move(a["x"] + a["width"] / 2, a["y"] + a["height"] / 2)
+    page.mouse.down()
+    page.mouse.move(a["x"] + a["width"] / 2 + 6, a["y"] - 12, steps=4)
+    page.mouse.move(b["x"] + 120, b["y"] + 4, steps=12)
+    page.wait_for_timeout(120)
+    page.mouse.up()
+    page.wait_for_timeout(400)  # sortable.js descarta el clic justo después de soltar
+
+
+def test_arrastrar_un_bloque_olvidado_a_su_sitio(page, server, api):
+    rid, a, b, c = _dia(page, server, api)
+    assert page.locator(f"[data-step='{c}'] .rp-grip").count() == 1
+    _arrastrar_a(page, c, b)
+    page.locator(".toast", has_text="«Leer» a las 08:20").wait_for()
+    expect(page.locator(_hora(page, c))).to_have_value("08:20")
+    assert page.locator(".rp-step").evaluate_all("l => l.map(e => Number(e.dataset.step))") == [a, c, b]
+    assert _items(api)[b]["due_time"] == "17:30"
+
+
+def test_si_no_cabe_pregunta_antes_de_mover_los_siguientes(page, server, api):
+    _limpiar(api)
+    rid = _nuevo(api, "Mañana apretada", "rutina")
+    a = _nuevo(api, "Desayuno 20 min", parent_id=rid, due_time="08:00")
+    b = _nuevo(api, "Clase 1h", parent_id=rid, due_time="08:20")
+    c = _nuevo(api, "Ducha 15 min", parent_id=rid)
+    page.goto(f"{server}/rutinas")
+    page.locator(f"[data-step='{c}']").wait_for()
+    _arrastrar_a(page, c, b)
+    dlg = page.locator("dialog[open]", has_text="no cabe ahí")
+    dlg.wait_for()
+    assert "«Clase» empezaría 15 min más tarde" in dlg.inner_text()
+    dlg.get_by_role("button", name="Cancelar").click()
+    expect(page.locator(_hora(page, c))).to_have_value("")
+    assert _items(api)[b]["due_time"] == "08:20"
+    page.wait_for_load_state("networkidle")
+    _arrastrar_a(page, c, b)
+    page.locator("dialog[open]", has_text="no cabe ahí").get_by_role("button", name="Mover").click()
+    expect(page.locator(_hora(page, c))).to_have_value("08:20")
+    assert _items(api)[b]["due_time"] == "08:35" and _items(api)[a]["due_time"] == "08:00"
+
+
+def test_el_fin_se_escribe_en_la_linea(page, server, api):
+    rid, a, b, c = _dia(page, server, api)
+    fin = f"[data-step='{a}'] [data-time=end]"
+    expect(page.locator(fin)).to_have_value("08:20")
+    assert page.locator(f"[data-step='{c}'] [data-time=end]").count() == 0  # sin inicio no hay fin
+    # escribir el fin da la duración
+    page.fill(fin, "0915")
+    page.press(fin, "Enter")
+    expect(page.locator(fin)).to_have_value("09:15")
+    assert _items(api)[a]["duration_min"] == 75
+    expect(page.locator(f"[data-step='{a}'] .rp-dur")).to_have_text("1 h 15")
+    # mover el inicio lleva el fin consigo y conserva la duración
+    page.fill(_hora(page, a), "1000")
+    page.press(_hora(page, a), "Enter")
+    expect(page.locator(fin)).to_have_value("11:15")
+    assert _items(api)[a]["duration_min"] == 75
+    # un fin que choca se rechaza; vacío quita la duración
+    page.fill(fin, "18:00")
+    page.press(fin, "Enter")
+    page.locator(".toast", has_text="choca con «Gimnasio»").wait_for()
+    expect(page.locator(fin)).to_have_value("11:15")
+    page.fill(fin, "")
+    page.press(fin, "Enter")
+    expect(page.locator(fin)).to_have_value("")
+    assert _items(api)[a]["duration_min"] is None
+
+
+def test_anadir_con_inicio_y_fin_y_dialogo_del_bloque(page, server, api):
+    rid, a, b, c = _dia(page, server, api)
+    page.fill(f"#rp-add-{rid}", "Comer")
+    page.fill(f"#rp-add-at-{rid}", "14")
+    page.fill(f"#rp-add-end-{rid}", "1530")
+    page.press(f"#rp-add-{rid}", "Enter")
+    page.locator(".rp-step", has_text="Comer").wait_for()
+    nuevo = next(i for i in _items(api).values() if i["text"] == "Comer")
+    assert nuevo["due_time"] == "14:00" and nuevo["duration_min"] == 90
+    # en el diálogo los tres campos van juntos
+    page.locator(f"[data-step='{nuevo['id']}'] .rp-step-title").click()
+    page.locator("#rpStepEnd").wait_for()
+    assert page.input_value("#rpStepEnd") == "15:30" and page.input_value("#rpStepDur") == "90"
+    page.locator("dialog[open] [data-dur='30']").click()
+    assert page.input_value("#rpStepEnd") == "14:30"
+    page.fill("#rpStepEnd", "15:00")
+    page.locator("#rpStepEnd").dispatch_event("change")
+    assert page.input_value("#rpStepDur") == "60"
+    page.get_by_role("button", name="Guardar").click()
+    expect(page.locator(f"[data-step='{nuevo['id']}'] [data-time=end]")).to_have_value("15:00")

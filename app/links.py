@@ -18,6 +18,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from app.database import get_db
+from core.files import atomic_write
 
 TOKEN_RE = re.compile(r"\[\[(tarea|idea|rutina|item):(\d+)\]\]")
 LINK_LINE_RE = re.compile(r"^\s*(?:[-*+]\s+)?(?:🔗\s*)?(?:Enlazad[ao]s?:\s*)?((?:\[\[(?:tarea|idea|rutina|item):\d+\]\]\s*)+)$")
@@ -88,8 +89,7 @@ def _write_note(note_id: str, fn) -> None:
     if new_body == body:
         return
     snapshot_version(note_id)
-    with open(path, "w", encoding="utf-8", newline="") as f:
-        f.write(head + new_body)
+    atomic_write(path, head + new_body, newline="")
     os.utime(path)
     sync_notes_to_db()
     with get_db() as conn:  # por si la caché no vio el cambio (misma marca de tiempo)

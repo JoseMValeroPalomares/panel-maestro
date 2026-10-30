@@ -241,7 +241,7 @@ def _web_metadata(url: str, force_type: str = "web") -> dict:
             "image": "",
             "resource_type": force_type,
         }
-    except Exception as e:
+    except Exception:
         return {
             "title": _hostname(url),
             "description": "No se pudo cargar la página",
@@ -306,10 +306,8 @@ def _hostname(url: str) -> str:
 
 def _favicon(soup: BeautifulSoup, url: str) -> str:
     """Intenta sacar el favicon como imagen de fallback."""
-    parsed = urlparse(url)
-    base = f"{parsed.scheme}://{parsed.netloc}"
     # Google favicon service como último recurso
-    return f"https://www.google.com/s2/favicons?domain={parsed.netloc}&sz=128"
+    return f"https://www.google.com/s2/favicons?domain={urlparse(url).netloc}&sz=128"
 
 
 # ──────────────────────────────────────────────────────────────
@@ -377,7 +375,9 @@ def cache_thumbnail(image_url: str, thumbs_dir) -> str:
                 img = img.convert("RGBA" if img.mode in ("RGBA", "LA", "P") else "RGB")
                 if img.width > THUMB_WIDTH:
                     img = img.resize((THUMB_WIDTH, max(1, round(img.height * THUMB_WIDTH / img.width))), Image.LANCZOS)
-                img.save(target, "WEBP", quality=78, method=4)
+                # temporal + cambio de golpe: un corte a mitad dejaría una miniatura rota para siempre (ya «existe»)
+                img.save(target + ".tmp", "WEBP", quality=78, method=4)
+                os.replace(target + ".tmp", target)
         return f"/static/uploads/thumbs/{name}"
     except Exception as e:  # imagen inválida, URL privada, timeout…
         log.info("No se pudo cachear la miniatura %s: %s", image_url, e)

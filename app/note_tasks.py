@@ -17,6 +17,8 @@ byte a byte iguales). Sin dependencias de app.main: lo usa el indexador.
 import re
 import sqlite3
 
+from core.files import atomic_write
+
 TASK_RE = re.compile(r"^(\s*)([-*+]) \[([ xX])\] (.+?)\s*$")
 FENCE_RE = re.compile(r"^\s*(```|~~~)")
 FRONTMATTER_RE = re.compile(r"\A---\r?\n.*?\r?\n---\r?\n", re.DOTALL)
@@ -225,8 +227,7 @@ class NoteDoc:
         return [t["k"] for t in self.tasks() if at <= t["line"] < at + len(out)]
 
     def save(self) -> None:
-        with open(self.path, "w", encoding="utf-8", newline="") as f:
-            f.write(self.head + "".join(self.lines))
+        atomic_write(self.path, self.head + "".join(self.lines), newline="")
 
 
 def task_line(text: str, done: bool = False) -> str:

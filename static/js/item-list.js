@@ -72,6 +72,9 @@
   const notesHidden = () => Prefs.get(NOTES_HIDDEN, {}) || {};
 
   /* ---------- Rutinas: repetición y hábito ---------- */
+  // Un campo del editor: con su icono y sin ocupar una línea para el nombre
+  const edField = (iconName, label, control, cls = '') => `<label class="il-ed ${cls}" title="${label}"><span class="sr-only">${label}</span>${icon(iconName, 'icon-sm')}${control}</label>`;
+  const GHOST_STEPS = 6;
   const routineMinutes = (it) => it.duration_min || Items.children(it.id).reduce((a, k) => a + (k.duration_min || 0), 0);
   const fmtMin = (m) => (m >= 60 ? `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60}` : ''}` : `${m} min`);
 
@@ -465,6 +468,7 @@
           <button type="button" class="card-check${child ? ' small-check' : ''}${it.done ? ' done' : ''}${it.type === 'rutina' ? ' is-routine' : ''}" data-act="done" role="checkbox" aria-checked="${it.done}"
             ${it.type === 'rutina' && !it.today ? 'disabled title="Hoy no toca"' : ''}
             aria-label="${it.done ? 'Volver a pendiente' : ({ idea: 'Marcar como procesada', rutina: 'Hecha hoy' }[it.type] || 'Marcar como hecha')}: ${esc(label)}">${icon('check', 'icon-sm')}</button>
+          <button type="button" class="il-copy" data-act="copy" aria-label="Copiar «${esc(label)}»" title="Copiar el texto">${icon('copy', 'icon-sm')}</button>
           <div class="il-body">
             ${editing ? this.editorHTML(it, kids.length) : `<p class="il-text" data-act="edit-text">${linkify(esc(it.text))}</p>
             ${meta.length ? `<div class="il-meta">${meta.join('')}</div>` : ''}
@@ -499,28 +503,23 @@
       const isStep = it.type === 'rutina' && it.parent_id;
       return `<form class="il-editor no-drag" data-edit="${it.id}">
         <label class="sr-only" for="${id}">Texto</label>
-        <textarea id="${id}" name="text" class="textarea" rows="${Math.min(6, Math.max(2, it.text.split('\n').length))}" maxlength="20000">${esc(it.text)}</textarea>
-        <div class="il-editor-grid">
+        <textarea id="${id}" name="text" class="textarea" rows="${Math.min(6, Math.max(2, it.text.split('\n').length, Math.ceil(it.text.length / 70)))}" maxlength="20000">${esc(it.text)}</textarea>
+        <div class="il-editor-fields">
           <div class="segmented" role="group" aria-label="Tipo" ${lockType ? `title="${esc(lockType)}"` : ''}>
             <button type="button" data-ed-type="tarea" aria-pressed="${it.type === 'tarea'}" ${lockType ? 'disabled' : ''}>${icon('square-check', 'icon-sm')}Tarea</button>
             <button type="button" data-ed-type="idea" aria-pressed="${it.type === 'idea'}" ${lockType ? 'disabled' : ''}>${icon('lightbulb', 'icon-sm')}Idea</button>
             <button type="button" data-ed-type="rutina" aria-pressed="${it.type === 'rutina'}" ${lockType ? 'disabled' : ''}>${icon('repeat', 'icon-sm')}Rutina</button>
           </div>
-          <label class="field"><span class="field-label">Categoría</span>
-            <input class="input input-sm" name="category" list="il-cats-${this.variant}" maxlength="60" value="${esc(isNote ? it.note_category || '' : it.category || '')}" ${isNote ? 'disabled title="La de su nota"' : ''} placeholder="Sin categoría"></label>
-          <label class="field"><span class="field-label">Prioridad</span>
-            <select class="select input-sm" name="priority"><option value="">Sin prioridad</option>
-              ${Object.entries(Items.PRIO).map(([k, v]) => `<option value="${k}" ${it.priority === k ? 'selected' : ''}>${v.replace('Prioridad ', '')}</option>`).join('')}</select></label>
-          ${isStep ? '' : it.type === 'rutina' ? dayPicker({ rule: it.repeat || { freq: 'daily' }, legend: 'Se repite', note: everyNote(it.repeat, it.repeat_text || '') })
-            : `<label class="field"><span class="field-label">Fecha</span>
-            <input class="input input-sm" type="date" name="due_date" value="${esc(it.due_date || '')}"></label>`}
-          <label class="field"><span class="field-label">Hora</span>
-            <input class="input input-sm" type="time" name="due_time" value="${esc(it.due_time || '')}"></label>
-          <label class="field"><span class="field-label">Duración (min)</span>
-            <input class="input input-sm" type="number" name="duration_min" min="${it.type === 'rutina' ? 1 : 5}" max="1440" step="${it.type === 'rutina' ? 1 : 5}" value="${it.duration_min || ''}" placeholder="${isStep ? 10 : it.type === 'rutina' ? 30 : 60}"></label>
+          ${edField('tag', 'Categoría', `<input name="category" list="il-cats-${this.variant}" maxlength="60" value="${esc(isNote ? it.note_category || '' : it.category || '')}" ${isNote ? 'disabled title="La de su nota"' : ''} placeholder="Categoría">`, 'is-wide')}
+          ${edField('flag', 'Prioridad', `<select name="priority"><option value="">Prioridad</option>
+              ${Object.entries(Items.PRIO).map(([k, v]) => `<option value="${k}" ${it.priority === k ? 'selected' : ''}>${v.replace('Prioridad ', '')}</option>`).join('')}</select>`)}
+          ${isStep || it.type === 'rutina' ? '' : edField('calendar', 'Fecha', `<input type="date" name="due_date" value="${esc(it.due_date || '')}">`)}
+          ${edField('clock', 'Hora', `<input type="time" name="due_time" value="${esc(it.due_time || '')}">`, 'is-time')}
+          ${edField('timer', 'Duración en minutos', `<input type="number" name="duration_min" min="${it.type === 'rutina' ? 1 : 5}" max="1440" step="${it.type === 'rutina' ? 1 : 5}" value="${it.duration_min || ''}" placeholder="${isStep ? 10 : it.type === 'rutina' ? 30 : 60}"><span class="il-ed-unit" aria-hidden="true">min</span>`, 'is-short')}
+          ${!isStep && it.type === 'rutina' ? dayPicker({ rule: it.repeat || { freq: 'daily' }, legend: 'Se repite', note: everyNote(it.repeat, it.repeat_text || '') }) : ''}
         </div>
-        <label class="field"><span class="field-label">Notas</span>
-          <textarea name="details" class="textarea" rows="2" maxlength="20000" placeholder="Detalles, enlaces…">${esc(it.details || '')}</textarea></label>
+        <label class="sr-only" for="${id}-notas">Notas</label>
+        <textarea id="${id}-notas" name="details" class="textarea il-ed-notes" rows="${it.details ? 3 : 1}" maxlength="20000" placeholder="Notas, detalles, enlaces…">${esc(it.details || '')}</textarea>
         <div class="row il-editor-actions">
           <button type="submit" class="btn btn-primary btn-sm">Guardar</button>
           <button type="button" class="btn btn-sm" data-act="cancel-edit">Cancelar</button>
@@ -545,10 +544,23 @@
           group: 'items', items: '.il-item', handle: '[data-drag-handle]', keyboard: !isKids, label,
           nest: isKids ? null : (li) => li.querySelector(':scope > .il-children'), nestRow: ':scope > .il-row',
           id: (el) => el.dataset.id, data: dest,
+          ghost: isKids ? null : (clone, li) => this.fillGhost(clone, li),
           accepts: (ctx) => Items.moveError(Number(ctx.id), ctx.to.data),
           onDrop: (ctx) => Items.move(Number(ctx.id), { ...ctx.to.data, before_id: ctx.beforeId ? Number(ctx.beforeId) : null }),
         });
       });
+    }
+
+    // Lo que se arrastra es el bloque entero: la tarjeta con sus pasos, aunque estén plegados
+    fillGhost(clone, li) {
+      const kids = Items.children(Number(li.dataset.id));
+      const ul = clone.querySelector(':scope > .il-children');
+      if (!kids.length || !ul) return false;
+      ul.removeAttribute('data-folded');
+      const more = kids.length - GHOST_STEPS;
+      ul.innerHTML = kids.slice(0, GHOST_STEPS).map((k) => this.itemHTML(k, true)).join('')
+        + (more > 0 ? `<li class="il-ghost-more tiny muted">y ${more} más</li>` : '');
+      return true;
     }
 
     /* ---------- Acciones de una tarjeta ---------- */
@@ -858,6 +870,10 @@
       }
       if (e.shiftKey && this.selectMode) { this.selectRange(it.id); return; }
       if (act === 'done') { li.classList.toggle('is-done', !it.done); Items.setDone(it.id, !it.done); }
+      if (act === 'copy') {
+        copyText(it.text).then((ok) => toast(ok ? 'Copiado' : 'No se pudo copiar', { type: ok ? 'success' : 'error', duration: 1400 }));
+        return;
+      }
       if (act === 'add-step') { this.stepFor(it); return; }
       if (act === 'run-routine') { Routines.run(it.id); return; }
       if (act === 'details') {

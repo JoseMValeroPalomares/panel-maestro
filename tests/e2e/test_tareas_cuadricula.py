@@ -416,14 +416,15 @@ def test_soltar_nada_mas_parar_cae_donde_apunta(page, server, api, muchas):
     assert ids.index(primero["id"]) == ids.index(destino["id"]) + 1  # ocupa la celda a la que apuntaba
 
 
-def test_en_el_centro_de_una_tarjeta_se_mete_como_paso_sin_recolocar(page, server, api, celdas):
+def test_la_pastilla_mete_como_paso_sin_recolocar(page, server, api, celdas):
     page.goto(f"{server}/tareas")
     page.click("[data-view=matriz]")
     card(page, "Celda D").wait_for()
-    a = card(page, "Celda A").locator(":scope > .il-row").bounding_box()
+    a = card(page, "Celda A").bounding_box()
     d = card(page, "Celda D").bounding_box()
     _agarrar(page, {"x": d["x"], "y": d["y"], "w": d["width"]})
-    page.mouse.move(a["x"] + a["width"] / 2, a["y"] + a["height"] / 2, steps=5)
+    assert page.locator(".il-item.sortable-can-nest").count() >= 3  # todas enseñan su pastilla
+    page.mouse.move(a["x"] + a["width"] - 40, a["y"] + a["height"] - 14, steps=5)
     page.locator(".sortable-nest").wait_for()
     page.wait_for_timeout(200)
     assert page.evaluate("window.__huecos") == 0  # el hueco no entra en la tarjeta: la agrandaría y movería todas
@@ -433,6 +434,47 @@ def test_en_el_centro_de_una_tarjeta_se_mete_como_paso_sin_recolocar(page, serve
     page.wait_for_function("(id) => !!document.querySelector(`.il-children [data-id=\"${id}\"]`)", arg=celdas[3])
     assert next(i for i in api.get("/api/items").json()["items"] if i["id"] == celdas[3])["parent_id"] == celdas[0]
     api.post(f"/api/items/{celdas[3]}/move", json={"target": "inbox"})
+
+
+def test_una_subtarea_entra_en_cualquier_parte_de_otra_tarjeta(page, server, api, celdas):
+    paso = next(i["id"] for i in api.get("/api/items").json()["items"] if i["text"] == "Paso de A")
+    page.goto(f"{server}/tareas")
+    page.click("[data-view=matriz]")
+    card(page, "Celda D").wait_for()
+    grip = page.locator(f'.il-item[data-id="{paso}"] [data-drag-handle]')
+    page.locator(f'.il-item[data-id="{paso}"]').hover()
+    g = grip.bounding_box()
+    c = card(page, "Celda C").bounding_box()
+    page.mouse.move(g["x"] + g["width"] / 2, g["y"] + g["height"] / 2)
+    page.mouse.down()
+    page.mouse.move(g["x"] + 14, g["y"] + 16, steps=3)
+    page.mouse.move(c["x"] + 40, c["y"] + 10, steps=6)  # arriba del todo: sin apuntar a la pastilla
+    page.locator(".il-list > .il-item.sortable-nest").wait_for()
+    with page.expect_response(lambda r: "/move" in r.url):
+        page.mouse.up()
+    page.wait_for_function("(id) => !!document.querySelector(`.il-children [data-id=\"${id}\"]`)", arg=paso)
+    assert next(i for i in api.get("/api/items").json()["items"] if i["id"] == paso)["parent_id"] == celdas[2]
+    api.post(f"/api/items/{paso}/move", json={"parent_id": celdas[0]})
+
+
+def test_se_arrastra_el_bloque_entero_aunque_este_plegado(page, server, api, celdas):
+    for n in range(8):
+        api.post("/api/items", json={"text": f"Otro paso {n}", "type": "tarea", "parent_id": celdas[0]})
+    page.goto(f"{server}/tareas")
+    a = card(page, "Celda A")
+    a.locator(":scope > .il-row .il-kids-fold").click()  # plegada
+    assert page.locator(".il-child", has_text="Paso de A").count() == 0
+    box = a.locator(":scope > .il-row").bounding_box()
+    page.mouse.move(box["x"] + 120, box["y"] + 12)
+    page.mouse.down()
+    page.mouse.move(box["x"] + 140, box["y"] + 40, steps=4)
+    ghost = page.locator(".sortable-ghost")
+    assert ghost.locator(".il-child").count() == 6 and "y 3 más" in ghost.inner_text()
+    assert ghost.evaluate("(g) => getComputedStyle(g).backgroundColor") not in ("rgba(0, 0, 0, 0)", "transparent")
+    assert ghost.bounding_box()["height"] > 180  # no se queda con el alto de la tarjeta plegada
+    page.keyboard.press("Escape")
+    page.mouse.up()
+    a.locator(":scope > .il-row .il-kids-fold").click()
 
 
 def test_una_tarjeta_con_pasos_no_se_mete_en_otra_y_se_recoloca(page, server, api, celdas):
@@ -448,3 +490,43 @@ def test_una_tarjeta_con_pasos_no_se_mete_en_otra_y_se_recoloca(page, server, ap
     assert page.evaluate("window.__huecos") == 1  # ni se quita el hueco ni va y viene: una vez, al sitio
     page.keyboard.press("Escape")
     page.mouse.up()
+
+
+def test_copiar_desde_al_lado_del_check(page, server, api, celdas):
+    page.context.grant_permissions(["clipboard-read", "clipboard-write"], origin=server)
+    page.goto(f"{server}/tareas")
+    card(page, "Celda A").wait_for()
+    a = card(page, "Celda A")
+    a.locator(":scope > .il-row").hover()
+    a.locator(":scope > .il-row [data-act=copy]").click()
+    page.locator(".toast", has_text="Copiado").wait_for()
+    assert page.evaluate("navigator.clipboard.readText()") == "Celda A"
+    # el de un paso copia el paso, y sin tocar la tarjeta
+    paso = page.locator(".il-child", has_text="Paso de A")
+    paso.hover()
+    paso.locator("[data-act=copy]").click()
+    page.wait_for_timeout(100)
+    assert page.evaluate("navigator.clipboard.readText()") == "Paso de A"
+    assert not a.locator(".il-editor").count() and not a.evaluate("e => e.classList.contains('is-done')")
+
+
+def test_el_editor_es_compacto_y_guarda_todo(page, server, api, celdas):
+    page.goto(f"{server}/tareas")
+    item = celdas[2]
+    page.locator(f'.il-item[data-id="{item}"] > .il-row [data-act=edit-text]').dblclick()
+    form = page.locator(f'.il-editor[data-edit="{item}"]')
+    form.wait_for()
+    assert form.bounding_box()["height"] < 190  # antes, 280 largos
+    tops = form.locator(".il-ed").evaluate_all("(l) => new Set(l.map((e) => Math.round(e.getBoundingClientRect().top))).size")
+    assert tops <= 2
+    form.locator("[name=category]").fill("Compacta")
+    form.locator("[name=priority]").select_option(index=1)
+    form.locator("[name=due_date]").fill("2030-05-06")
+    form.locator("[name=due_time]").fill("10:30")
+    form.locator("[name=duration_min]").fill("45")
+    form.locator("[name=details]").fill("Una nota")
+    with page.expect_response(lambda r: f"/api/items/{item}" in r.url and r.request.method == "PATCH"):
+        form.locator("[type=submit]").click()
+    it = next(i for i in api.get("/api/items").json()["items"] if i["id"] == item)
+    assert (it["category"], it["due_date"], it["due_time"], it["duration_min"], it["details"]) == ("Compacta", "2030-05-06", "10:30", 45, "Una nota")
+    assert it["priority"]

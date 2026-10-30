@@ -63,7 +63,6 @@
     return out;
   }
 
-  const ORDER = ['Acciones', 'Notas', 'Tareas', 'Ideas', 'Rutinas', 'Eventos', 'Platos'];
   function search(all, q) {
     if (!q.trim()) return all.filter((c) => c.group === 'Acciones');
     return all.map((c) => ({ c, s: Math.max(fuzzyScore(q, c.label) * 1.2, fuzzyScore(q, c.sub || '') * 0.5) + (c.boost || 0) - (c.penalty || 0) }))

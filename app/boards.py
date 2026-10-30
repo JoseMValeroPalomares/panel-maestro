@@ -139,6 +139,8 @@ def save_board_canvas(board_id: int, payload: BoardCanvasSave):
     if not is_board_v2(payload.data):
         raise HTTPException(status_code=409, detail="Este tablero se actualizó: recarga la página para seguir editándolo")
     with get_db() as conn:
+        if not conn.execute("SELECT 1 FROM boards WHERE id=?", (board_id,)).fetchone():
+            raise HTTPException(status_code=404, detail="Tablero no encontrado")
         conn.execute("INSERT OR REPLACE INTO board_canvas (board_id, data) VALUES (?, ?)", (board_id, payload.data))
         conn.execute("UPDATE boards SET updated_at=unixepoch() WHERE id=?", (board_id,))
         conn.commit()

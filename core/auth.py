@@ -42,6 +42,9 @@ router = APIRouter()
 
 
 def is_public_path(path: str) -> bool:
+    # StaticFiles resuelve los «..»: /static/js/../uploads/x sería público por el prefijo y serviría una imagen privada
+    if ".." in path.split("/"):
+        return False
     return path in PUBLIC_EXACT or path.startswith(PUBLIC_PREFIXES)
 
 

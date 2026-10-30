@@ -4,6 +4,8 @@
 const VERSION = '__VERSION__';
 const STATIC_CACHE = `panel-static-${VERSION}`;
 const DATA_CACHE = 'panel-data-v1';
+const DATA_MAX = 200; // sin tope crecería con cada URL distinta (semanas, días del calendario…)
+let dataPuts = 0;
 const PRECACHE = __PRECACHE__;
 const OFFLINE_URL = '/static/offline.html';
 
@@ -22,11 +24,19 @@ self.addEventListener('activate', (event) => {
 
 const isCacheable = (res) => res && res.ok && !res.redirected && res.type === 'basic';
 
+async function trimDataCache(cache) {
+  const keys = await cache.keys();
+  await Promise.all(keys.slice(0, Math.max(0, keys.length - DATA_MAX)).map((k) => cache.delete(k)));
+}
+
 async function networkFirst(request, cacheName) {
   const cache = await caches.open(cacheName);
   try {
     const res = await fetch(request);
-    if (isCacheable(res)) cache.put(request, res.clone());
+    if (isCacheable(res)) {
+      const stored = cache.put(request, res.clone());
+      if (++dataPuts % 50 === 0) stored.then(() => trimDataCache(cache));
+    }
     return res;
   } catch (err) {
     const cached = await cache.match(request);
@@ -45,9 +55,12 @@ async function staleWhileRevalidate(request) {
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
-  if (request.method !== 'GET' || url.origin !== location.origin) return;
-  // Nunca cachear el login, la sesión ni descargas
-  if (url.pathname.startsWith('/login') || url.pathname.startsWith('/logout') || url.pathname.includes('/export') || url.pathname.includes('/download')) return;
+  if (url.origin !== location.origin) return;
+  // Cerrar sesión borra lo guardado para trabajar sin conexión: son notas, tareas y datos personales
+  if (url.pathname.startsWith('/logout')) { event.waitUntil(caches.delete(DATA_CACHE)); return; }
+  if (request.method !== 'GET') return;
+  // Nunca cachear el login, las búsquedas ni descargas
+  if (url.pathname.startsWith('/login') || url.pathname.startsWith('/api/search') || url.pathname.includes('/export') || url.pathname.includes('/download')) return;
 
   if (request.mode === 'navigate') {
     event.respondWith(networkFirst(request, DATA_CACHE).catch(async () =>

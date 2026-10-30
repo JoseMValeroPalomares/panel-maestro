@@ -285,3 +285,87 @@ def test_solapes_que_vienen_de_antes_se_avisan(client, app):
         conn.execute("UPDATE inbox SET due_time='10:30' WHERE id=?", (b,))
     r = _dia(client, HOY.isoformat(), rid)
     assert [(s["id"], s["clash"]) for s in r["steps"]] == [(a, "Dos"), (b, "Uno")]
+
+
+def _colocar(client, sid, before=None, **extra):
+    return client.post(f"/api/routines/{sid}/place", json={"before_id": before, "day": HOY.isoformat(), **extra})
+
+
+def _horas(client, rid):
+    return [(s["title"], s["at"]) for s in _dia(client, HOY.isoformat(), rid)["steps"]]
+
+
+def test_colocar_un_bloque_le_da_la_hora_de_ese_sitio(client):
+    rid = _rutina(client)
+    a = _paso(client, rid, "Desayuno 20 min", due_time="08:00").json()["id"]
+    b = _paso(client, rid, "Clase 1h", due_time="10:00").json()["id"]
+    olvidado = _paso(client, rid, "Ducha 15 min").json()["id"]
+    # el olvidado, que estaba abajo: al soltarlo entre los dos, empieza cuando acaba el de arriba
+    r = _colocar(client, olvidado, b)
+    assert r.json()["at"] == "08:20" and _horas(client, rid) == [("Desayuno", "08:00"), ("Ducha", "08:20"), ("Clase", "10:00")]
+    # arriba del todo, acaba justo cuando empieza el primero
+    assert _colocar(client, b, a).json()["at"] == "07:00"
+    # al final, detrás del último
+    assert _colocar(client, b).json()["at"] == "08:35"
+    assert _horas(client, rid) == [("Desayuno", "08:00"), ("Ducha", "08:20"), ("Clase", "08:35")]
+
+
+def test_colocar_entre_los_que_no_tienen_hora(client):
+    rid = _rutina(client)
+    a = _paso(client, rid, "Con hora 30 min", due_time="08:00").json()["id"]
+    x = _paso(client, rid, "Uno").json()["id"]
+    y = _paso(client, rid, "Dos").json()["id"]
+    # entre los que no tienen hora solo cambia el orden, también si lo sube al primero de ellos
+    assert _colocar(client, y, x).json()["at"] is None
+    assert _horas(client, rid) == [("Con hora", "08:00"), ("Dos", None), ("Uno", None)]
+    # uno con hora que baja entre ellos se queda sin hora
+    assert _colocar(client, a).json()["at"] is None
+    assert _item(client, a)["due_time"] is None
+    # sin ninguna hora en la línea, tampoco se inventa una
+    assert _colocar(client, x, y).json()["at"] is None and all(at is None for _, at in _horas(client, rid))
+
+
+def test_si_no_cabe_no_se_mueve_nada_sin_permiso(client):
+    rid = _rutina(client)
+    _paso(client, rid, "Desayuno 20 min", due_time="08:00")
+    c = _paso(client, rid, "Clase 1h", due_time="08:20").json()["id"]
+    d = _paso(client, rid, "Café 10 min", due_time="09:30").json()["id"]
+    e = _paso(client, rid, "Gimnasio 1h", due_time="09:45").json()["id"]
+    g = _paso(client, rid, "Ducha larga 20 min", due_time="12:00").json()["id"]
+    n = _paso(client, rid, "Ducha 30 min").json()["id"]
+    antes = _horas(client, rid)
+    r = _colocar(client, n, c).json()
+    # solo lo justo: el empujón se va absorbiendo en los huecos que encuentra por el camino
+    assert r["status"] == "no_cabe" and r["minutos"] == 30 and r["mover"] == ["Clase", "Café", "Gimnasio"]
+    assert _horas(client, rid) == antes
+    assert _colocar(client, n, c, push=True).json() == {"status": "success", "at": "08:20", "movidos": 3}
+    assert _horas(client, rid) == [("Desayuno", "08:00"), ("Ducha", "08:20"), ("Clase", "08:50"), ("Café", "09:50"), ("Gimnasio", "10:00"), ("Ducha larga", "12:00")]
+    assert (_item(client, d)["due_time"], _item(client, e)["due_time"], _item(client, g)["due_time"]) == ("09:50", "10:00", "12:00")
+
+
+def test_colocar_respeta_las_demas_rutinas_y_el_dia(client):
+    otra = client.post("/api/items", json={"text": "Otra", "type": "rutina"}).json()["id"]
+    _paso(client, otra, "Dentista 1h", due_time="09:00")
+    rid = _rutina(client)
+    _paso(client, rid, "Primero 1h", due_time="08:00")
+    b = _paso(client, rid, "Tercero 30 min", due_time="12:00").json()["id"]
+    n = _paso(client, rid, "Segundo 30 min").json()["id"]
+    # justo tras «Primero» está el dentista de la otra rutina: choca, avisa y no cambia nada
+    r = _colocar(client, n, b)
+    assert r.status_code == 409 and "Dentista" in r.json()["detail"] and _item(client, n)["due_time"] is None
+    # un bloque de otro día no cuenta para la línea de ese día
+    lunes, sabado = _dia_que_sea(0), _dia_que_sea(5)
+    client.patch(f"/api/items/{b}", json={"step_days": [5]})
+    r = client.post(f"/api/routines/{n}/place", json={"before_id": b, "day": lunes})
+    assert r.status_code == 422
+    assert client.post(f"/api/routines/{n}/place", json={"before_id": b, "day": sabado}).status_code == 409
+    assert client.post(f"/api/routines/{rid}/place", json={}).status_code == 404  # solo bloques
+
+
+def test_no_se_coloca_pasada_la_medianoche(client):
+    rid = _rutina(client)
+    _paso(client, rid, "Tarde 1h", due_time="23:30")
+    n = _paso(client, rid, "Otro 30 min").json()["id"]
+    assert _colocar(client, n).status_code == 422 and _item(client, n)["due_time"] is None
+    t = _paso(client, rid, "Con hora 30 min", due_time="06:00").json()["id"]
+    assert _colocar(client, t, n).status_code == 422 and _item(client, t)["due_time"] == "06:00"

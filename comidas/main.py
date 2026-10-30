@@ -292,12 +292,13 @@ def _suggest_gramos_recomendados(conn, ingredientes: list[MealIngredientIn], fra
     total_gramos = 0.0
     for ing in ingredientes:
         row = conn.execute(
-            "SELECT nombre, categoria FROM ingredients WHERE id=?", (ing.ingredient_id,)
+            "SELECT nombre, categoria, gramos_por_unidad FROM ingredients WHERE id=?", (ing.ingredient_id,)
         ).fetchone()
-        if not row:
+        gramos = (ing.gramos or (ing.unidades or 0) * (row["gramos_por_unidad"] or 0)) if row else 0
+        if not gramos:
             continue
-        rows.append({"nombre": row["nombre"], "categoria": row["categoria"], "gramos": ing.gramos})
-        total_gramos += ing.gramos
+        rows.append({"nombre": row["nombre"], "categoria": row["categoria"], "gramos": gramos})
+        total_gramos += gramos
 
     if not rows or total_gramos <= 0:
         return float(FRANJA_BASE_PLATE_G.get(franja, 350))
@@ -817,6 +818,8 @@ def get_shopping_list():
 def add_shopping_item(data: ShoppingItemIn):
     with get_db() as conn:
         if data.ingredient_id:
+            if not conn.execute("SELECT 1 FROM ingredients WHERE id=?", (data.ingredient_id,)).fetchone():
+                raise HTTPException(status_code=422, detail="Ese ingrediente no existe")
             _add_ingredient_to_shopping_list(conn, data.ingredient_id, data.cantidad_gramos, "manual")
         else:
             conn.execute(
@@ -992,6 +995,8 @@ def clear_week(semana: Semana):
 @app.post("/api/weekly-plan/assign")
 def assign_weekly_plan(payload: WeeklyPlanAssign):
     with get_db() as conn:
+        if not conn.execute("SELECT 1 FROM meals WHERE id=?", (payload.meal_id,)).fetchone():
+            raise HTTPException(status_code=422, detail="Ese plato no existe")
         # Asignacion manual: se usa la racion estandar de catalogo (sin
         # racion personalizada), hasta que el generador la recalcule.
         conn.execute('''

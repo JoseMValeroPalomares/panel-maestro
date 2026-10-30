@@ -19,10 +19,13 @@ from pydantic import BaseModel, Field
 
 from app.database import get_db
 from app.indexer import sync_notes_to_db
+from app.links import rebuild_all as rebuild_links
+from app.note_tasks import note_has_items, sync_note_items
 from app.versions import snapshot as snapshot_version
 from app.notes_core import (MAX_NOTE_CONTENT, MAX_TITLE, VALID_STATUSES, extract_wiki_links, note_path,
                             normalize_status, split_category_path, sync_flashcards, update_index_for_area)
 from core import config, tabular, undo
+from core.files import atomic_write
 from core.logging_config import get_logger
 
 log = get_logger("bulk")
@@ -52,8 +55,7 @@ def _load(note_id: str):
 
 
 def _write(path: str, post) -> None:
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(frontmatter.dumps(post))
+    atomic_write(path, frontmatter.dumps(post))
 
 
 def _area(category: str | None) -> str:
@@ -121,7 +123,7 @@ def _purge_trash() -> None:
 @router.post("/delete")
 def bulk_delete(data: NotesSelection):
     trash_name = None
-    moved, rows, areas = [], {"notes": [], "graph_edges": [], "graph_nodes": [], "flashcards": []}, set()
+    moved, rows, areas = [], {"notes": [], "graph_edges": [], "graph_nodes": [], "flashcards": [], "inbox": []}, set()
     with get_db() as conn:
         for note_id in dict.fromkeys(data.ids):
             path = note_path(note_id)
@@ -131,6 +133,8 @@ def bulk_delete(data: NotesSelection):
             rows["graph_edges"] += undo.rows_to_dicts(conn.execute("SELECT * FROM graph_edges WHERE source=? OR target=?", (note_id, note_id)))
             rows["graph_nodes"] += undo.rows_to_dicts(conn.execute("SELECT * FROM graph_nodes WHERE id=?", (note_id,)))
             rows["flashcards"] += undo.rows_to_dicts(conn.execute("SELECT * FROM flashcards WHERE note_id=?", (note_id,)))
+            # Sus casillas en la lista de tareas: lo que el .md no guarda (prioridad, fecha, notas) vuelve al restaurar
+            rows["inbox"] += undo.rows_to_dicts(conn.execute("SELECT * FROM inbox WHERE note_id=? AND note_task IS NOT NULL", (note_id,)))
             moved.append(note_id)
         if not moved:
             return {"status": "success", "deleted": 0, "undo_token": None}
@@ -146,6 +150,7 @@ def bulk_delete(data: NotesSelection):
                 if r["id"] == note_id and r.get("status") != "indice":
                     areas.add(_area(r.get("category")))
             shutil.move(path, trash / f"{note_id}.md")
+            sync_note_items(conn, note_id, None)
             conn.execute("DELETE FROM flashcards WHERE note_id=?", (note_id,))
             conn.execute("DELETE FROM graph_edges WHERE source=? OR target=?", (note_id, note_id))
             conn.execute("DELETE FROM graph_nodes WHERE id=?", (note_id,))
@@ -176,9 +181,16 @@ def bulk_undo(token: str):
         undo.insert_rows(conn, "graph_nodes", [r for r in rows["graph_nodes"] if r["id"] in restored])
         undo.insert_rows(conn, "graph_edges", [r for r in rows["graph_edges"] if r["source"] in restored or r["target"] in restored])
         undo.insert_rows(conn, "flashcards", [r for r in rows["flashcards"] if r["note_id"] in restored])
+        # Padres antes que pasos (la clave foránea lo exige). Las copias de antes no traen «inbox»
+        undo.insert_rows(conn, "inbox", sorted((r for r in rows.get("inbox", []) if r["note_id"] in restored), key=lambda r: r["parent_id"] is not None))
         for r in rows["notes"]:
-            if r["id"] in restored and r.get("status") != "indice":
-                areas.add(_area(r.get("category")))
+            if r["id"] in restored:
+                # El archivo vuelve con su fecha de antes: el indexador no lo ve cambiado y sus casillas no volverían solas
+                sync_note_items(conn, r["id"], r["content"] if note_has_items(r) else None)
+                if r.get("status") != "indice":
+                    areas.add(_area(r.get("category")))
+        if rows.get("inbox"):
+            rebuild_links(conn)  # los [[tarea:N]] de otras notas vuelven a apuntar a sus casillas
     if trash.exists() and not any(trash.iterdir()):
         trash.rmdir()
     sync_notes_to_db()

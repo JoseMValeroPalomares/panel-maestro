@@ -10,7 +10,7 @@ desde la Waybar). La configuración por tipo vive en las preferencias (`reminder
 Push en la PWA con el navegador cerrado: no es viable aquí (Web Push exige HTTPS y un
 servicio de push; el Panel se sirve por HTTP en la red local). Ver AUDITORIA.
 """
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter
 

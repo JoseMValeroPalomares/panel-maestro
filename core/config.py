@@ -43,6 +43,10 @@ DOTFILES_HOME = Path(_env("PANEL_DOTFILES_HOME") or Path.home())
 DOTFILES_BASE = _env("PANEL_DOTFILES_BASE")
 # Repo del propio panel que publica la página Copias (app/proyecto.py); los tests lo apuntan a uno temporal
 PROJECT_DIR = Path(_env("PANEL_PROJECT_DIR") or PROJECT_ROOT)
+# Última vez que se sincronizó el calendario (estudio/calendar_sync.py). Restaurar una copia lo borra: una instancia con
+# otros datos (tests, demo, verificación) lo guarda con ellos y nunca toca el del panel real
+CALENDAR_STATE = Path(_env("PANEL_CALENDAR_STATE") or (
+    PROJECT_ROOT / "estudio" / "calendar_sync_v2.json" if DATA_DIR == PROJECT_ROOT / "data" else DATA_DIR / "calendar_sync_v2.json"))
 
 # ── Autenticación ───────────────────────────────────────────────
 PASSWORD_HASH = _env("PANEL_PASSWORD_HASH")

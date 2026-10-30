@@ -248,3 +248,73 @@ def test_movil_panel_deslizable_y_tactil(browser, server, api):
         assert abs(v1["x"] - v0["x"] - 80) < 2 and abs(v1["y"] - v0["y"] + 40) < 2
     finally:
         ctx.close()
+
+
+def _tarea_con_pasos(api, nombre, n=3, **extra):
+    tid = api.post("/api/items", json={"text": nombre, "type": "tarea", **extra}).json()["id"]
+    pasos = [api.post("/api/items", json={"text": f"Paso {i} de {nombre}", "type": "tarea", "parent_id": tid}).json()["id"] for i in range(n)]
+    return tid, pasos
+
+
+def _soltar(page, tid):
+    card = page.locator(f'.il-list > .il-item[data-id="{tid}"] > .il-row .il-text').bounding_box()
+    wrap = page.locator("#boardWrap").bounding_box()
+    drag(page, {"x": card["x"] + 20, "y": card["y"] + 8}, {"x": wrap["x"] + 460, "y": wrap["y"] + 300}, steps=20)
+    page.wait_for_timeout(300)
+    return next(n for n in doc(page)["nodes"] if n.get("inboxId") == tid)
+
+
+def test_una_tarea_llega_al_tablero_con_sus_pasos(page, server, api):
+    tid, pasos = _tarea_con_pasos(api, "Bloque entero")
+    bid = _board(api, {"nodes": []})
+    _open(page, server, bid)
+    n = _soltar(page, tid)
+    filas = page.locator(".node-inbox .node-step")
+    assert filas.count() == 3 and "Paso 0 de Bloque entero" in filas.first.inner_text()
+    # cabe entera: nada se recorta
+    assert page.locator(".node-inbox .node-fo").evaluate("(f) => f.scrollHeight <= f.clientHeight + 1")
+    assert n["h"] > 96
+    # el check de un paso marca el paso de verdad, y la tarjeta se entera
+    page.locator(f'[data-step-check="{pasos[0]}"]').click()
+    expect_done = lambda: next(i for i in api.get("/api/items").json()["items"] if i["id"] == pasos[0])["done"]  # noqa: E731
+    page.wait_for_timeout(300)
+    assert expect_done() and page.locator(".node-steps-foot").inner_text().startswith("1 de 3")
+
+
+def test_quitar_pasos_de_la_tarjeta_no_los_borra(page, server, api):
+    tid, pasos = _tarea_con_pasos(api, "Con pasos de sobra")
+    bid = _board(api, {"nodes": []})
+    _open(page, server, bid)
+    n = _soltar(page, tid)
+    alto = n["h"]
+    fila = page.locator(".node-step", has_text="Paso 1 de")
+    fila.hover()
+    fila.locator("[data-step-hide]").click()
+    page.wait_for_timeout(150)
+    assert page.locator(".node-step").count() == 2
+    assert next(m for m in doc(page)["nodes"] if m["id"] == n["id"])["h"] < alto  # se recoge
+    assert sum(1 for i in api.get("/api/items").json()["items"] if i["parent_id"] == tid) == 3  # siguen en la tarea
+    # deshacer lo devuelve
+    page.locator("#boardWrap").click(position={"x": 30, "y": 400})
+    page.keyboard.press("Control+z")
+    page.wait_for_timeout(150)
+    assert page.locator(".node-step").count() == 3
+    # quitarlos todos deja la tarea sola, y se pueden recuperar
+    page.get_by_role("button", name="Quitar pasos").click()
+    page.wait_for_timeout(150)
+    assert page.locator(".node-step").count() == 0
+    page.get_by_role("button", name="Mostrar 3 ocultos").click()
+    page.wait_for_timeout(150)
+    assert page.locator(".node-step").count() == 3
+    page.wait_for_timeout(900)
+    assert "hiddenSteps" not in next(m for m in saved(api, bid)["nodes"] if m["id"] == n["id"])
+
+
+def test_un_paso_con_tarjeta_propia_no_se_repite(page, server, api):
+    tid, pasos = _tarea_con_pasos(api, "Sin repetir", n=2)
+    bid = _board(api, {"nodes": [
+        {"id": "a", "kind": "inbox", "x": 0, "y": 0, "w": 260, "h": 96, "text": "Sin repetir", "inboxId": tid, "itemType": "tarea"},
+        {"id": "b", "kind": "inbox", "x": 0, "y": 300, "w": 220, "h": 96, "text": "Paso", "inboxId": pasos[0], "itemType": "tarea"}]})
+    _open(page, server, bid)
+    page.wait_for_timeout(300)
+    assert page.locator(".node-step").count() == 1 and "Paso 1 de" in page.locator(".node-step").inner_text()

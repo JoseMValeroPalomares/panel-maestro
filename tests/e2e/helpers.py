@@ -1,4 +1,7 @@
 """Gestos para los tests de navegador: arrastrar con ratón, con el dedo y esperar a la red."""
+import time
+
+from playwright.sync_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeout
 
 
 def mouse_drag(page, source, target, where="top", during=None):
@@ -39,3 +42,20 @@ def touch_drag(page, source, target, where="top", hold_ms=450):
 
 def ids(page, selector):
     return page.eval_on_selector_all(selector, "els => els.map(e => Number(e.dataset.inboxId))")
+
+
+def wait_js(page, expression, arg=None, timeout=30_000):
+    """Sustituye a page.wait_for_function: esa repite la expresión con eval dentro de la página y la CSP del panel (sin
+    'unsafe-eval') lo prohíbe, así que solo pasaba si ya se cumplía a la primera. page.evaluate no está sujeto a la CSP."""
+    deadline = time.monotonic() + timeout / 1000
+    while True:
+        try:
+            value = page.evaluate(expression, arg)
+            if value:
+                return value
+        except PlaywrightError as e:
+            if "context was destroyed" not in str(e):  # una navegación a medias se reintenta; lo demás es un fallo del test
+                raise
+        if time.monotonic() > deadline:
+            raise PlaywrightTimeout(f"No se cumplió en {timeout} ms: {expression}")
+        page.wait_for_timeout(25)

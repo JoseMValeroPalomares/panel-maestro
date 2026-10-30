@@ -1,6 +1,7 @@
 """Baúl: enlaces web y de YouTube, con metadatos y miniatura que se obtienen en segundo plano (app/scraper.py)."""
 import os
 import re
+import sqlite3
 
 from fastapi import APIRouter, BackgroundTasks
 from fastapi.responses import JSONResponse
@@ -64,7 +65,7 @@ def backfill_thumbnails():
 
 
 @router.post("/api/resources")
-async def add_resource(resource: ResourceIn, background_tasks: BackgroundTasks):
+def add_resource(resource: ResourceIn, background_tasks: BackgroundTasks):
     with get_db() as conn:
         try:
             conn.execute('''
@@ -73,7 +74,7 @@ async def add_resource(resource: ResourceIn, background_tasks: BackgroundTasks):
             ''', (resource.url, resource.url, resource.category, int(resource.watch_later),
                   next_resource_order(conn, resource.category)))
             conn.commit()
-        except Exception:
+        except sqlite3.IntegrityError:
             return JSONResponse(status_code=409, content={"error": "URL ya existe"})
     background_tasks.add_task(do_scrape_and_save, resource.url, resource.category)
     return {"status": "pending", "message": "Recurso añadido, cargando metadatos..."}

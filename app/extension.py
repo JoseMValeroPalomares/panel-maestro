@@ -3,7 +3,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field, field_validator
 
 from app.database import get_db
-from app.items import ItemIn, counts, create
+from app.items import ItemIn, _clean_body, counts, create
 from app.notes_core import PRIORITIES, normalize_item_type
 
 router = APIRouter()
@@ -24,6 +24,11 @@ class InboxItem(BaseModel):
     parent_id: int | None = None
     priority: str | None = Field(default=None, max_length=10)
     category: str | None = Field(default=None, max_length=60)
+
+    @field_validator("content")
+    @classmethod
+    def _content(cls, v):
+        return _clean_body(v)
 
     @field_validator("priority")
     @classmethod

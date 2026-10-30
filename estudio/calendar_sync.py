@@ -29,13 +29,13 @@ import asyncio
 import datetime as dt
 import json
 import time
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import aiohttp
 from icalendar import Calendar as ICalendar
 from icalendar import Event as IEvent
 
+from core import config
 from core.logging_config import get_logger
 
 from . import icloud_sync as legacy
@@ -43,18 +43,20 @@ from .esp32_link import LINK
 
 log = get_logger("calendar")
 TZ = ZoneInfo("Europe/Madrid")
-STATE_FILE = Path(__file__).parent / "calendar_sync_v2.json"
+STATE_FILE = config.CALENDAR_STATE
 SYNC_INTERVAL_SEC = 480
 EMPTY_GUARD = 3
 ESP32_TYPES = ("examen", "entrega", "evento")
 
 STATUS: dict[str, dict] = {"icloud": {"state": "idle"}, "esp32": {"state": "idle"}}
 WAKE: asyncio.Event | None = None
+LOOP: asyncio.AbstractEventLoop | None = None
 
 
 def request_sync() -> None:
-    if WAKE is not None:
-        WAKE.set()
+    """Se llama desde un hilo (ruta síncrona) y un Event de asyncio no es seguro entre hilos: el bucle podía no enterarse."""
+    if WAKE is not None and LOOP is not None:
+        LOOP.call_soon_threadsafe(WAKE.set)
 
 
 # ─────────────────────────────────────────────
@@ -245,7 +247,7 @@ def load_state() -> dict:
     """La primera vez no hay «última vez»: todo se trata como nuevo y se une (nada se borra)."""
     if STATE_FILE.exists():
         try:
-            return json.loads(STATE_FILE.read_text())
+            return json.loads(STATE_FILE.read_text(encoding="utf-8"))
         except ValueError:
             pass
     return {"icloud": {}, "esp32": {}}
@@ -253,7 +255,7 @@ def load_state() -> dict:
 
 def save_state(state: dict) -> None:
     tmp = STATE_FILE.with_suffix(".tmp")
-    tmp.write_text(json.dumps(state, indent=1, ensure_ascii=False))
+    tmp.write_text(json.dumps(state, indent=1, ensure_ascii=False), encoding="utf-8")
     tmp.replace(STATE_FILE)
 
 
@@ -276,8 +278,8 @@ class CalendarSyncBridge:
         self._legacy = legacy.IcloudSyncBridge(session, esp32_ws_url)
 
     async def run_forever(self):
-        global WAKE
-        WAKE = asyncio.Event()
+        global WAKE, LOOP
+        WAKE, LOOP = asyncio.Event(), asyncio.get_running_loop()
         await asyncio.sleep(5)  # que el Panel termine de arrancar
         while True:
             try:

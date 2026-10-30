@@ -4,7 +4,6 @@
   'use strict';
   const $ = (id) => document.getElementById(id);
   const esc = (s) => escapeHtml(s);
-  const ICON = { tarea: 'square-check', idea: 'lightbulb', rutina: 'repeat' };
   let data = null;
 
   function check(e) {

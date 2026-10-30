@@ -22,6 +22,26 @@ NOTES_DIR = str(config.NOTES_DIR)
 VALID_STATUSES = {"por-escribir", "en-desarrollo", "consolidado", "indice"}
 
 
+def valid_category(conn, category_id: int | None) -> int | None:
+    """El category_id si esa categoría existe: un .md puede traer uno viejo y la clave foránea no lo admitiría."""
+    if category_id is None or not conn.execute("SELECT 1 FROM categories WHERE id=?", (category_id,)).fetchone():
+        return None
+    return category_id
+
+
+def upsert_note(conn, note: dict) -> None:
+    """Crea o actualiza la fila sin borrarla: un INSERT OR REPLACE la borra antes, y la cascada se lleva sus flashcards
+    con su progreso. Lo que solo vive en la BD (last_reviewed) se conserva."""
+    conn.execute("""
+        INSERT INTO notes (id, title, category, category_id, tags, content, status, encrypted, last_modified)
+        VALUES (:id, :title, :category, :category_id, :tags, :content, :status, :encrypted, :last_modified)
+        ON CONFLICT(id) DO UPDATE SET
+            title=excluded.title, category=excluded.category, category_id=excluded.category_id,
+            tags=excluded.tags, content=excluded.content, status=excluded.status,
+            encrypted=excluded.encrypted, last_modified=excluded.last_modified
+    """, note)
+
+
 def _read_note(filepath: str, note_id: str) -> dict:
     with open(filepath, "r", encoding="utf-8") as f:
         post = frontmatter.load(f)
@@ -67,14 +87,8 @@ def sync_notes_to_db(force: bool = False) -> dict:
                 stats["errores"] += 1
                 log.exception("No se pudo leer la nota %s", filepath)
                 continue
-            conn.execute("""
-                INSERT INTO notes (id, title, category, category_id, tags, content, status, encrypted, last_modified)
-                VALUES (:id, :title, :category, :category_id, :tags, :content, :status, :encrypted, :last_modified)
-                ON CONFLICT(id) DO UPDATE SET
-                    title=excluded.title, category=excluded.category, category_id=excluded.category_id,
-                    tags=excluded.tags, content=excluded.content, status=excluded.status,
-                    encrypted=excluded.encrypted, last_modified=excluded.last_modified
-            """, note)
+            note["category_id"] = valid_category(conn, note["category_id"])
+            upsert_note(conn, note)
             stats["actualizadas" if note_id in cached else "nuevas"] += 1
             # Sus casillas «- [ ]» en la lista única de tareas (app/note_tasks.py)
             sync_note_items(conn, note_id, note["content"] if note_has_items(note) else None)

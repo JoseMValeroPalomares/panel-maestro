@@ -201,7 +201,6 @@ function resetBackgroundOnEsp32() {
 function initThemeUi() {
   const btnOpen = document.getElementById("btnOpenTheme");
   const modal = document.getElementById("themeModal");
-  const btnClose = document.getElementById("btnCloseThemeModal");
   const fileInput = document.getElementById("themeImageInput");
   const btnReset = document.getElementById("btnResetTheme");
   if (!btnOpen || !modal) return;

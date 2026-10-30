@@ -91,6 +91,7 @@
   const eHead = (e, end) => (end === 'start' ? e.startHead || 'none' : e.endHead || (e.head === 'none' ? 'none' : 'arrow'));
   const eDash = (e) => e.dash || (e.dashed ? 'dashed' : 'solid');
   const inboxItem = (n) => (n.kind === 'inbox' && window.Items?.state.loaded ? Items.get(n.inboxId) : null);
+  const CARD_STEP = 26, CARD_FOOT = 26, CARD_MIN = 64;  // alto de un paso y del pie en una tarjeta del Inbox
 
   /* ---------- DOM ---------- */
   let body, wrap, svg, defs, grid, world, layers, overlay, mini, miniWorld, miniView, statusEl, zoomLabel, props;
@@ -346,7 +347,72 @@
   /* ---------- Pintado ---------- */
   const nodeEls = new Map(), edgeEls = new Map(), strokeEls = new Map();
 
+  /* Tarjetas del Inbox: la tarea con sus pasos dentro. Quitar un paso solo lo oculta en esa tarjeta (n.hiddenSteps), no lo borra */
+  function cardSteps(n, it) {
+    const own = new Set(S.doc.nodes.filter((m) => m.kind === 'inbox').map((m) => m.inboxId));  // con tarjeta propia en el tablero no se repiten
+    const loose = Items.children(it.id).filter((k) => !own.has(k.id));
+    const hidden = new Set(n.hiddenSteps || []);
+    return { shown: loose.filter((k) => !hidden.has(k.id)), hidden: loose.filter((k) => hidden.has(k.id)) };
+  }
+  function cardHeight(n, it) {
+    const { shown, hidden } = cardSteps(n, it);
+    if (!shown.length && !hidden.length) return null;
+    const u = unit(n), pad = padOf(n), fs = style(n, 'fontSize');
+    const lines = wrapLines(it.text, n.w - pad * 2 - 24 * u, fs, 600).length;
+    return Math.ceil(pad * 2 + lines * fs * 1.3 + (shown.length * CARD_STEP + CARD_FOOT + 10) * u);
+  }
+  function fitCards() {  // una tarjeta nunca es más baja que lo que lleva dentro (también si la tarea gana pasos)
+    S.doc.nodes.forEach((n) => {
+      const it = inboxItem(n), h = it && cardHeight(n, it);
+      if (h && n.h < h) n.h = h;
+    });
+  }
+  function renderCardSteps(n, it, fo) {
+    const { shown, hidden } = cardSteps(n, it);
+    if (!shown.length && !hidden.length) return false;
+    const box = document.createElementNS(XHTML, 'div');
+    box.className = 'node-steps';
+    box.style.fontSize = r1(style(n, 'fontSize') * 0.86) + 'px';
+    box.style.color = style(n, 'color');
+    shown.forEach((k) => {
+      const row = document.createElementNS(XHTML, 'div');
+      const title = escapeHtml(k.text.split('\n')[0]);
+      row.className = 'node-step' + (k.done ? ' is-done' : '');
+      row.innerHTML = `<button type="button" class="node-step-check" data-step-check="${k.id}" role="checkbox" aria-checked="${k.done}" aria-label="${k.done ? 'Reabrir' : 'Marcar como hecho'}: ${title}"
+          ${k.today === false ? 'disabled title="Hoy no toca"' : ''}>${icon('check', 'icon-sm')}</button>
+        <span class="node-step-text">${title}</span>
+        ${n.locked ? '' : `<button type="button" class="node-step-x" data-step-hide="${k.id}" data-node="${n.id}" aria-label="Quitar «${title}» de esta tarjeta" title="Quitar de esta tarjeta (el paso sigue en la tarea)">${icon('x', 'icon-sm')}</button>`}`;
+      box.appendChild(row);
+    });
+    const total = shown.length + hidden.length, done = [...shown, ...hidden].filter((k) => k.done).length;
+    const foot = document.createElementNS(XHTML, 'div');
+    foot.className = 'node-steps-foot';
+    foot.innerHTML = `<span>${done} de ${total}</span>${n.locked ? '' : hidden.length
+      ? `<button type="button" data-step-show="${n.id}">Mostrar ${hidden.length === 1 ? 'el oculto' : `${hidden.length} ocultos`}</button>`
+      : `<button type="button" data-step-hide-all="${n.id}">Quitar pasos</button>`}`;
+    box.appendChild(foot);
+    fo.appendChild(box);
+    return true;
+  }
+  async function stepAction(b) {
+    const { stepCheck, stepHide, stepShow, stepHideAll, node: nid } = b.dataset;
+    if (stepCheck) {
+      const k = Items.get(Number(stepCheck));
+      try { await Items.setDone(k.id, !k.done); } catch (err) { toast(err?.message || 'No se pudo cambiar el estado', { type: 'error' }); }
+      return;
+    }
+    const n = node(nid || stepShow || stepHideAll), it = n && inboxItem(n);
+    if (!it) return;
+    record();
+    if (stepShow) delete n.hiddenSteps;
+    else if (stepHideAll) n.hiddenSteps = Items.children(it.id).map((k) => k.id);
+    else n.hiddenSteps = [...(n.hiddenSteps || []), Number(stepHide)];
+    n.h = Math.max(CARD_MIN * unit(n), cardHeight(n, it) || 0);  // se recoge o se abre con lo que queda
+    changed();
+  }
+
   function renderAll() {
+    fitCards();
     syncLayer(S.doc.strokes, strokeEls, layers.strokes, renderStroke, sigStroke);
     syncLayer(S.doc.edges, edgeEls, layers.edges, renderEdge, sigEdge);
     syncLayer(S.doc.nodes, nodeEls, layers.nodes, renderNode, sigNode);
@@ -375,7 +441,8 @@
   }
   function sigNode(n) {
     const it = inboxItem(n);
-    const extra = it ? `|${it.text}|${it.done}|${it.type}|${it.parent_id ? Items.get(it.parent_id)?.text : ''}` : '';
+    const steps = it ? cardSteps(n, it) : null;
+    const extra = it ? `|${it.text}|${it.done}|${it.type}|${it.parent_id ? Items.get(it.parent_id)?.text : ''}|${steps.shown.map((k) => `${k.id}${k.text}${k.done}`).join()}|${steps.hidden.length}` : '';
     return JSON.stringify(n) + S.sel.has(n.id) + (S.editing === n.id) + extra;
   }
   function sigEdge(e) {
@@ -417,7 +484,7 @@
     return { fw, fh };
   }
   function renderNode(n, g) {
-    const kind = n.kind, it = inboxItem(n), u = unit(n);
+    const kind = n.kind, it = inboxItem(n);
     g.setAttribute('class', `node node-${kind}${S.sel.has(n.id) ? ' is-selected' : ''}${n.locked ? ' is-locked' : ''}${it?.done ? ' is-done' : ''}`);
     g.innerHTML = '';
     const sa = { ...shapeAttrs(n), class: 'shape' };
@@ -444,6 +511,7 @@
     div.textContent = it ? it.text : (n.text || '');
     if (S.editing === n.id) { div.contentEditable = 'true'; div.spellcheck = true; }
     fo.appendChild(div);
+    if (it && renderCardSteps(n, it, fo)) div.classList.add('has-steps');
     const { fw, fh } = placeParts(n, g);
     if (n.fitText) fitFont(div, fw, fh);
     g.setAttribute('aria-label', (kind === 'inbox' ? 'Tarjeta del Inbox: ' : 'Forma: ') + (div.textContent || 'vacía') + (n.locked ? ' (bloqueada)' : ''));
@@ -839,6 +907,8 @@
     const p = toWorld(e.clientX, e.clientY);
     const check = e.target.closest('[data-check]');
     if (check && S.tool === 'select') { S.pointers.delete(e.pointerId); toggleInboxDone(check.dataset.check); return; }
+    const stepBtn = e.target.closest('[data-step-check], [data-step-hide], [data-step-show], [data-step-hide-all]');
+    if (stepBtn && S.tool === 'select') { S.pointers.delete(e.pointerId); if (!stepBtn.disabled) stepAction(stepBtn); return; }
     const handle = e.target.closest('[data-handle]');
     const anchor = e.target.closest('[data-anchor]');
     const endpoint = e.target.closest('[data-endpoint]');
@@ -2044,9 +2114,12 @@
         record();
         const parent = it.parent_id ? Items.get(it.parent_id) : null;
         const d = scaled('inbox');
+        if (Items.children(it.id).length) d.w = r1(d.w * 1.25);  // con pasos: el bloque entero, y que se lean
         // Queda centrada donde se suelta (sin saltos); el ajuste a la cuadrícula se aplica al moverla después
         const n = { id: uid('n'), kind: 'inbox', x: p.x - d.w / 2, y: p.y - d.h / 2, ...d, text: it.text,
           inboxId: it.id, itemType: it.type, parentLabel: parent ? parent.text : '' };
+        const fit = cardHeight(n, it);
+        if (fit && fit > n.h) { n.y += (n.h - fit) / 2; n.h = fit; }
         const k = keepInView(n);
         n.x += k.dx; n.y += k.dy;
         n.stroke = TYPE_COLORS[it.type] || TYPE_COLORS.tarea;

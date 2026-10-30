@@ -11,7 +11,8 @@ import frontmatter
 from fastapi import HTTPException
 
 from app.database import get_db
-from app.indexer import NOTES_DIR
+from app.indexer import NOTES_DIR, upsert_note, valid_category
+from core.files import atomic_write
 
 VALID_STATUSES = {"por-escribir", "en-desarrollo", "consolidado", "indice"}
 VALID_ITEM_TYPES = {"nota", "tarea"}
@@ -55,6 +56,11 @@ def slugify(name: str) -> str:
     # Nunca debe producir separadores de ruta: el resultado se usa como nombre de archivo.
     slug = re.sub(r"[\\/\x00]+", "-", name.lower().strip()).replace(' ', '-')
     return re.sub(r"\.{2,}", "-", slug).strip(".") or "sin-nombre"
+
+
+def note_slug(name: str) -> str:
+    """Identificador válido para note_path a partir de un título (sin comas, signos de interrogación…)."""
+    return re.sub(r"[^\w\-]+", "-", slugify(name)).strip("-_") or "nota"
 
 
 NOTE_ID_RE = re.compile(r"^[^\W_][\w\-]{0,199}$")
@@ -142,7 +148,7 @@ def render_tree(tree, depth=0):
 
 
 def index_note_id(area: str) -> str:
-    return "indice-" + re.sub(r"[^\w\-]+", "-", slugify(area)).strip("-_")
+    return "indice-" + note_slug(area)
 
 
 def update_index_for_area(area: str):
@@ -155,13 +161,12 @@ def update_index_for_area(area: str):
         ).fetchall()
 
     area_notes = [r for r in rows if split_category_path(r["category"])[0] == area]
-    if not area_notes:
-        return
-
-    auto_block = AUTO_START + "\n" + "\n".join(render_tree(build_category_tree(area_notes))) + "\n" + AUTO_END
-
     note_id = index_note_id(area)
     filepath = note_path(note_id)
+    if not area_notes and not os.path.exists(filepath):
+        return  # sin notas no se crea; si ya existe, se vacía: no puede seguir listando las que se fueron
+
+    auto_block = AUTO_START + "\n" + "\n".join(render_tree(build_category_tree(area_notes))) + "\n" + AUTO_END
 
     if os.path.exists(filepath):
         with open(filepath, "r", encoding="utf-8") as f:
@@ -177,19 +182,15 @@ def update_index_for_area(area: str):
 
     content = post.content or ""
     if AUTO_START in content and AUTO_END in content:
+        # con función: una barra invertida en un título no es un escape de la sustitución
         content = re.sub(re.escape(AUTO_START) + r".*?" + re.escape(AUTO_END),
-                          auto_block, content, flags=re.DOTALL)
+                         lambda _: auto_block, content, flags=re.DOTALL)
     else:
         content = (content.rstrip() + "\n\n" + auto_block) if content.strip() else auto_block
     post.content = content
 
-    with open(filepath, "w", encoding="utf-8") as f:
-        f.write(frontmatter.dumps(post))
+    atomic_write(filepath, frontmatter.dumps(post))
 
     with get_db() as conn:
-        last_modified = os.path.getmtime(filepath)
-        conn.execute('''
-            INSERT OR REPLACE INTO notes (id, title, category, category_id, tags, content, status, last_modified, encrypted, last_reviewed)
-            VALUES (?, ?, ?, ?, '', ?, 'indice', ?, 0, COALESCE((SELECT last_reviewed FROM notes WHERE id=?), 0))
-        ''', (note_id, post["title"], area, post.get("category_id"), content, last_modified, note_id))
-        conn.commit()
+        upsert_note(conn, {"id": note_id, "title": post["title"], "category": area, "category_id": valid_category(conn, post.get("category_id")),
+                           "tags": "", "content": content, "status": "indice", "encrypted": 0, "last_modified": os.path.getmtime(filepath)})

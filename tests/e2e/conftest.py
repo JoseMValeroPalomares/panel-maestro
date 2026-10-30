@@ -7,6 +7,7 @@ Si no hay ninguno, los tests se saltan (no fallan).
 """
 import glob
 import os
+from functools import partial
 import shutil
 import socket
 import subprocess
@@ -16,6 +17,8 @@ import time
 from pathlib import Path
 
 import pytest
+
+from tests.e2e.helpers import wait_js
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -137,6 +140,7 @@ def browser():
 @pytest.fixture()
 def context(browser):
     ctx = browser.new_context(viewport={"width": 1280, "height": 900}, service_workers="block")
+    ctx.on("page", lambda pg: setattr(pg, "wait_for_function", partial(wait_js, pg)))
     yield ctx
     ctx.close()
 

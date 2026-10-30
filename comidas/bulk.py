@@ -16,7 +16,7 @@ from core import tabular, undo
 from core.logging_config import get_logger
 from . import nutrition as nu
 from .database import get_db
-from .main import (DIAS_SEMANA, INGREDIENT_FIELDS, SEMANA_PATTERN, IngredientIn, MealIn, _recipe_index,
+from .main import (INGREDIENT_FIELDS, SEMANA_PATTERN, IngredientIn, MealIn, _recipe_index,
                    MealIngredientIn, _resolve_ingredients, _suggest_gramos_recomendados,
                    _write_meal_ingredients)
 

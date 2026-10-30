@@ -18,6 +18,7 @@ from fastapi import APIRouter, HTTPException
 from app.indexer import sync_notes_to_db
 from app.notes_core import note_path, sync_flashcards
 from core import config
+from core.files import atomic_write
 from core.logging_config import get_logger
 
 log = get_logger("versions")
@@ -53,8 +54,9 @@ def snapshot(note_id: str, force: bool = False) -> str | None:
         last = versions[0]
         if not force and time.time() - int(last.stem) / 1000 < SESSION_GAP_S:
             return None
-        if last.read_text(encoding="utf-8") == raw:
-            return None
+        with open(last, "r", encoding="utf-8", newline="") as f:
+            if f.read() == raw:
+                return None
     d = _dir(note_id)
     d.mkdir(parents=True, exist_ok=True)
     vid = str(int(time.time() * 1000))
@@ -98,10 +100,11 @@ def get_version(note_id: str, vid: str):
 def restore_version(note_id: str, vid: str):
     src = _version_path(note_id, vid)
     current = snapshot(note_id, force=True)  # lo actual también queda en el historial
-    with open(note_path(note_id), "w", encoding="utf-8", newline="") as f:
-        f.write(src.read_text(encoding="utf-8"))
+    with open(src, "r", encoding="utf-8", newline="") as f:
+        raw = f.read()
+    atomic_write(note_path(note_id), raw, newline="")
     sync_notes_to_db()  # también rehace las filas de sus casillas
-    restored = frontmatter.loads(src.read_text(encoding="utf-8"))
+    restored = frontmatter.loads(raw)
     if not restored.get("encrypted"):
         sync_flashcards(note_id, restored.content)
     log.info("Nota %s restaurada a la versión %s", note_id, vid)

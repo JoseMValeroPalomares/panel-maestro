@@ -45,8 +45,8 @@ def verify_image_bytes(data: bytes) -> str:
 
 
 @router.post("/api/upload-image")
-async def upload_image(image: UploadFile = File(...)):
-    data = await image.read(MAX_UPLOAD_BYTES + 1)
+def upload_image(image: UploadFile = File(...)):  # def: Pillow y el disco van en un hilo, no paran el servidor
+    data = image.file.read(MAX_UPLOAD_BYTES + 1)
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="La imagen supera los 10 MB")
     ext = verify_image_bytes(data)

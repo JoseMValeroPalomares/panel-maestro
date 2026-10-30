@@ -16,7 +16,7 @@ from datetime import date, datetime, timedelta
 from fastapi import APIRouter
 
 from app import backup
-from app.calendar import TZ, entries
+from app.calendar import TZ, entries, event_entries
 from app.database import get_db
 from app.items import clean_text, item_type, origin
 
@@ -135,7 +135,7 @@ def api_status():
                       "action": {"label": "Sincronizar ahora", "method": "POST", "url": "/api/calendar/sync"}})
     items.append({"key": "backups", "name": "Copias de seguridad", "icon": "database-backup", "state": bk["health"],
                   "label": STATE_LABEL.get(bk["health"], bk["health"]), "last_ok": bk["last"]["created_at"] if bk.get("last") else None,
-                  "detail": (bk.get("last_error") or {}).get("message") or (f"{bk['count']} copias" if bk.get("count") else None),
+                  "detail": (bk.get("last_error") or {}).get("error") or (f"{bk['count']} copias" if bk.get("count") else None),
                   "action": {"label": "Copia ahora", "method": "POST", "url": "/api/backups/run"}})
     bad = [i for i in items if i["state"] in ("offline", "error", "sin-copias", "antigua")]
     return {"items": items, "overall": "error" if bad else "ok", "problems": len(bad), "at": time.time()}
@@ -160,7 +160,8 @@ def api_palette_index():
             meals = [{"id": r["id"], "nombre": r["nombre"], "franja": r["franja"]} for r in conn.execute("SELECT id, nombre, franja FROM meals ORDER BY nombre")]
     except Exception:  # noqa: BLE001
         pass
-    events = [e for e in entries(d - timedelta(days=7), d + timedelta(days=60)) if e["kind"] == "event"]
+    with get_db() as conn:
+        events = event_entries(conn, d - timedelta(days=7), d + timedelta(days=60))
     return {"notes": notes, "items": items, "meals": meals,
             "events": [{"id": e["id"], "title": e["title"], "start": e["start"], "type": e["type"]} for e in events]}
 

@@ -7,7 +7,7 @@ Cada copia es un .zip con:
   notes/*.md                          las notas (fuente de verdad del Cerebro)
   versions/**                         historial de versiones de las notas
   uploads/**                          imágenes subidas y miniaturas
-  estudio/calendar_sync_state.json    estado de la sincronización con iCloud
+  estudio/calendar_sync_*.json        estado de la sincronización del calendario
   manifest.json                       tipo, fecha, recuentos y sha256 de cada archivo
 
 Tipos y retención: diaria (7), semanal (4), manual (10) y "antes de restaurar"
@@ -20,7 +20,6 @@ limitar a partes concretas (notas, cerebro, comidas, imágenes).
 """
 import hashlib
 import json
-import os
 import re
 import shutil
 import sqlite3
@@ -82,9 +81,11 @@ def _parse_name(name: str) -> tuple[str, float] | None:
     m = NAME_RE.match(name)
     if not m:
         return None
-    kind = m.group(1) or "antigua"
-    ts = datetime.strptime(m.group(2), "%Y%m%d_%H%M%S").timestamp()
-    return kind, ts
+    try:
+        ts = datetime.strptime(m.group(2), "%Y%m%d_%H%M%S").timestamp()
+    except ValueError:  # tiene la forma pero no es una fecha (backup_20269999_000000.zip)
+        return None
+    return m.group(1) or "antigua", ts
 
 
 def backup_path(name: str) -> Path:
@@ -130,6 +131,8 @@ def _sources() -> list[tuple[str, Path]]:
         files += [(f"versions/{p.relative_to(versions).as_posix()}", p) for p in sorted(versions.rglob("*.md"))]
     if ESTUDIO_STATE.is_file():
         files.append(("estudio/calendar_sync_state.json", ESTUDIO_STATE))
+    if config.CALENDAR_STATE.is_file():
+        files.append(("estudio/calendar_sync_v2.json", config.CALENDAR_STATE))
     return files
 
 
@@ -305,6 +308,9 @@ def restore_backup(name: str, parts: list[str] | None = None) -> dict:
                 if "cerebro" in parts and "data/brain.db" in names:
                     _restore_db(zf, "data/brain.db", Path(config.BRAIN_DB), tmp)
                     done["cerebro"] = True
+                    # Lo que la sincronía recuerda ya no cuadra con estos eventos: lo que falte en el Panel lo daría por
+                    # borrado y lo quitaría de iCloud y del ESP32. Sin «última vez», los lados se unen y nada se borra
+                    config.CALENDAR_STATE.unlink(missing_ok=True)
                 if "comidas" in parts and "comidas/comidas.db" in names:
                     _restore_db(zf, "comidas/comidas.db", Path(config.COMIDAS_DB), tmp)
                     done["comidas"] = True

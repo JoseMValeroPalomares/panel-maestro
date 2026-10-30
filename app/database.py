@@ -1,4 +1,3 @@
-import sqlite3
 import os
 
 from core import config

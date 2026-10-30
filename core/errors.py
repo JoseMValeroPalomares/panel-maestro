@@ -30,6 +30,10 @@ def install_error_handlers(app: FastAPI) -> None:
         log.info("Validación fallida en %s %s: %s", request.method, request.url.path, errores)
         return JSONResponse(status_code=422, content={"error": "Datos no válidos", "detail": errores})
 
+    @app.exception_handler(OverflowError)
+    async def number_out_of_range(request: Request, exc: OverflowError):  # un id más grande de lo que cabe en SQLite
+        return JSONResponse(status_code=422, content={"error": "Número fuera de rango"})
+
     @app.exception_handler(Exception)
     async def unhandled_error(request: Request, exc: Exception):
         log.exception("Error no controlado en %s %s", request.method, request.url.path)
@@ -59,6 +63,9 @@ class SecurityHeadersMiddleware:
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
 
+        # ?v=<hash del contenido> (core/templating.asset): esa URL nunca cambia de contenido, no hace falta revalidarla
+        versioned = scope.get("query_string", b"").startswith(b"v=")
+
         async def send_with_headers(message):
             if message["type"] == "http.response.start":
                 headers = list(message.get("headers", []))
@@ -68,6 +75,8 @@ class SecurityHeadersMiddleware:
                         headers.append((k, v))
                 if self.csp and b"content-security-policy" not in present:
                     headers.append((b"content-security-policy", self.csp))
+                if versioned and message["status"] == 200 and b"cache-control" not in present:
+                    headers.append((b"cache-control", b"private, max-age=31536000, immutable"))
                 message["headers"] = headers
             await send(message)
 

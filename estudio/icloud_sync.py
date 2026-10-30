@@ -127,7 +127,7 @@ def _build_ics(uid, date_str, title, etype):
     ev.add("dtstart", day)
     ev.add("dtend", day + datetime.timedelta(days=1))
     ev.add("categories", [TYPE_TO_CATEGORY.get(etype, "EVENTO")])
-    ev.add("dtstamp", datetime.datetime.utcnow())
+    ev.add("dtstamp", datetime.datetime.now(datetime.timezone.utc))
     cal.add_component(ev)
     return cal.to_ical().decode("utf-8")
 

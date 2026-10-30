@@ -12,6 +12,7 @@
        accepts(ctx) { return true | 'Motivo por el que no se puede' },
        nest(itemEl) { return listaDeHijos | null },  // opcional: soltar sobre la franja central
                                                      // de un elemento lo mete al final de esa lista
+       ghost(clon, itemEl) { return true },          // opcional: retocar lo que se arrastra (true = alto libre)
        async onDrop(ctx) { ... }       // persistir; si lanza, se deshace el movimiento
      });
      Sortable.addDropTarget(el, { accepts(ctx), onDrop(ctx) })   // destinos externos (tablero)
@@ -26,7 +27,10 @@
   const TOUCH_SLOP = 8;          // px que puede moverse el dedo durante la pulsación larga
   const EDGE = 56;               // px desde el borde para el desplazamiento automático
   const SETTLE_MS = 90;          // en una rejilla, el hueco espera a que el puntero pare: cruzarla no revuelve las tarjetas
+  const STILL_PX = 4;            // lo que puede temblar el puntero sin dejar de estar parado
   const STICK = 10;              // px de margen antes de cambiar de celda: sin temblores en la frontera
+  const NEST_HEIGHT = 44;        // zona de una tarjeta de rejilla donde soltar para meter dentro: abajo a la derecha, en px
+  const NEST_WIDTH = 0.5;        // y en parte del ancho
   const reduceMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   const lists = [];              // { el, opts }
@@ -79,6 +83,18 @@
     const card = l.el.parentElement?.closest('[data-sortable-item]');
     const host = card && listOf(card.parentElement);
     return host && slotsOf(host).grid ? card : null;
+  }
+
+  // Por una rejilla, cada tarjeta que admite lo arrastrado lo avisa: una tarjeta, con una pastilla donde soltarla (el resto
+  // de la tarjeta sirve para recolocar); un paso, en toda ella
+  function markNestable() {
+    const cls = gridCardOf(drag.from) ? 'sortable-can-take' : 'sortable-can-nest';
+    lists.filter((l) => l.opts.group === drag.from.opts.group && l.opts.nest && l.el.isConnected && slotsOf(l).grid).forEach((l) => {
+      itemsOf(l, drag.item).forEach((it) => {
+        const kl = listOf(l.opts.nest(it));
+        if (kl && acceptsAtEnd(kl, 0, 0)) it.classList.add(cls);
+      });
+    });
   }
 
   function cancelSettle() {
@@ -159,6 +175,7 @@
     badge.className = 'sortable-badge';
     ghost.appendChild(badge);
     document.body.appendChild(ghost);
+    if (list.opts.ghost?.(ghost, item)) ghost.style.height = 'auto';
 
     const placeholder = document.createElement(item.tagName === 'LI' ? 'li' : 'div');
     placeholder.className = 'sortable-placeholder';
@@ -174,6 +191,7 @@
       over: null, index: -1, valid: false, reason: '', point: { x: e.clientX, y: e.clientY }, raf: 0, scroller: null,
       slots, cell: null, settle: null,
     };
+    markNestable();
     document.body.classList.add('sortable-dragging');
     lists.forEach((l) => { if (l.opts.group === list.opts.group) l.el.classList.add('sortable-zone'); });
     targets.forEach((t) => t.el.classList.add('sortable-zone'));
@@ -214,20 +232,27 @@
   const acceptsAtEnd = (l, x, y) => !l.opts.accepts || l.opts.accepts(ctxFor(l, itemsOf(l, drag.item).length, { x, y })) === true;
 
   // Franja central (la mitad) de la fila de un elemento de una lista con `nest`: destino = su lista de hijos. En una rejilla,
-  // solo el centro de la fila y sin mover el hueco (`still`): lo agrandaría y recolocaría todo; lo demás es para recolocar
+  // la pastilla (o toda la tarjeta, para un paso) y sin mover el hueco (`still`): lo agrandaría y recolocaría todo
   function nestTarget(under, x, y) {
-    const it = under.closest?.('[data-sortable-item]');
+    let it = under.closest?.('[data-sortable-item]');
     if (!it || it === drag.item) return null;
+    const card = it.parentElement.closest('[data-sortable-item]');  // sobre un paso, cuenta su tarjeta si es de una rejilla
+    if (card && listOf(card.parentElement) && slotsOf(listOf(card.parentElement)).grid) it = card;
     const l = listOf(it.parentElement);
     if (!l || !l.opts.nest || l.opts.group !== drag.from.opts.group) return null;
     const kids = l.opts.nest(it);
     const kl = kids && listOf(kids);
     if (!kl) return null;
+    if (slotsOf(l).grid) {
+      const step = it.classList.contains('sortable-can-take');
+      if ((!step && !it.classList.contains('sortable-can-nest')) || drag.placeholder.parentElement === kl.el) return null;
+      const r = it.getBoundingClientRect();
+      const inPill = y >= r.bottom - NEST_HEIGHT && x >= r.right - r.width * NEST_WIDTH;
+      return step || inPill ? { kind: 'list', l: kl, nest: it, still: true } : null;
+    }
     const row = (l.opts.nestRow ? it.querySelector(l.opts.nestRow) : it).getBoundingClientRect();
     if (y < row.top + row.height / 4 || y > row.bottom - row.height / 4) return null;
-    if (!slotsOf(l).grid) return { kind: 'list', l: kl, nest: it };
-    if (x < row.left + row.width / 3 || x > row.right - row.width / 3 || !acceptsAtEnd(kl, x, y)) return null;
-    return { kind: 'list', l: kl, nest: it, still: true };
+    return { kind: 'list', l: kl, nest: it };
   }
 
   function findTarget(x, y) {
@@ -246,8 +271,7 @@
       if (!l || l.opts.group !== drag.from.opts.group) continue;
       const card = gridCardOf(l);
       if (!card || drag.placeholder.parentElement === l.el) return { kind: 'list', l };
-      // Los pasos de otra tarjeta: una tarjeta los ignora y sigue recolocándose; un paso la señala, sin mover el hueco
-      if (gridCardOf(drag.from) && acceptsAtEnd(l, x, y)) return { kind: 'list', l, nest: card, still: true };
+      // Los pasos de otra tarjeta no son destino: el hueco la agrandaría. Se sigue hacia la rejilla
     }
     return null;
   }
@@ -342,9 +366,10 @@
     const ref = itemsOf(l, drag.item)[index] || null;
     if (drag.placeholder.parentElement === l.el && drag.placeholder.nextElementSibling === ref) { cancelSettle(); return; }
     if (!grid) { cancelSettle(); place(l, index); return; }
-    if (drag.settle?.l === l && drag.settle.index === index) return;
+    // Solo con el puntero parado: mientras se mueve, la tarjeta a la que va no se aparta
+    if (drag.settle?.l === l && drag.settle.index === index && Math.hypot(x - drag.settle.x, y - drag.settle.y) < STILL_PX) return;
     cancelSettle();
-    drag.settle = { l, index, timer: setTimeout(() => {
+    drag.settle = { l, index, x, y, timer: setTimeout(() => {
       drag.settle = null;
       place(l, index);
     }, SETTLE_MS) };
@@ -404,6 +429,7 @@
     drag.item.classList.remove('sortable-source');
     drag.pointerItem?.classList.remove('sortable-pointer');
     drag.nestItem?.classList.remove('sortable-nest', 'sortable-nest-invalid');
+    document.querySelectorAll('.sortable-can-nest, .sortable-can-take').forEach((el) => el.classList.remove('sortable-can-nest', 'sortable-can-take'));
     drag.ghost.remove();
     drag.placeholder.remove();
     drag = null;

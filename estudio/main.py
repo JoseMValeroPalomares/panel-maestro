@@ -142,7 +142,7 @@ async def fetch_art_bytes(session: aiohttp.ClientSession, art_url: str):
     try:
         if art_url.startswith("file://"):
             path = art_url[len("file://"):]
-            return Path(path).read_bytes()
+            return await asyncio.to_thread(Path(path).read_bytes)
         if art_url.startswith("http://") or art_url.startswith("https://"):
             async with session.get(art_url, timeout=aiohttp.ClientTimeout(total=4)) as resp:
                 if resp.status == 200:
@@ -217,10 +217,11 @@ class SpotifyBridge:
                 if data.get("type") == "cmd":
                     action = data.get("action", "")
                     print(f"[spotify-bridge] Comando recibido: {action}")
-                    playerctl_command(action)
+                    await asyncio.to_thread(playerctl_command, action)
 
     async def _build_payload(self, ws: aiohttp.ClientWebSocketResponse):
-        meta = get_metadata()
+        # playerctl y la carátula, en un hilo: en el bucle pararían todo el panel en cada sondeo (hasta 2 s si cuelga)
+        meta = await asyncio.to_thread(get_metadata)
 
         if meta is None:
             if self.last_sent_status == "stopped":
@@ -238,14 +239,14 @@ class SpotifyBridge:
             self.track_start_monotonic = time.monotonic()
             art_bytes = await fetch_art_bytes(self.session, meta["art_url"])
             if art_bytes:
-                frame, accent = build_image_frame_and_accent(art_bytes)
+                frame, accent = await asyncio.to_thread(build_image_frame_and_accent, art_bytes)
                 self.cached_accent = accent
                 if frame is not None:
                     await ws.send_bytes(frame)
             else:
                 self.cached_accent = None
 
-        pos = get_position_sec()
+        pos = await asyncio.to_thread(get_position_sec)
         if pos is None or (pos == 0 and status == "playing" and
                             time.monotonic() - (self.track_start_monotonic or 0) > 3):
             pos = time.monotonic() - (self.track_start_monotonic or time.monotonic())

@@ -212,14 +212,18 @@ def _days(d0: date, d1: date):
         d += timedelta(days=1)
 
 
+def event_entries(conn, d0: date, d1: date) -> list[dict]:
+    lo, hi = d0.isoformat(), (d1 + timedelta(days=1)).isoformat()
+    # El fin es exclusivo (un evento de todo el día del 24 acaba el «25»): solo entra si acaba después del rango
+    return [event_out(r) for r in conn.execute(
+        "SELECT * FROM events WHERE start < ? AND ((end IS NULL AND start >= ?) OR end > ?) ORDER BY start", (hi, lo, lo))]
+
+
 def entries(d0: date, d1: date) -> list[dict]:
     """Todo lo que cae entre d0 y d1 (ambos incluidos)."""
-    out = []
-    lo, hi = d0.isoformat(), (d1 + timedelta(days=1)).isoformat()
+    lo = d0.isoformat()
     with get_db() as conn:
-        # El fin es exclusivo (un evento de todo el día del 24 acaba el «25»): solo entra si acaba después del rango
-        for r in conn.execute("SELECT * FROM events WHERE start < ? AND ((end IS NULL AND start >= ?) OR end > ?) ORDER BY start", (hi, lo, lo)):
-            out.append(event_out(r))
+        out = event_entries(conn, d0, d1)
         # tareas e ideas con fecha (también las casillas de las notas), de primer nivel o pasos
         for r in conn.execute("SELECT * FROM inbox WHERE item_type != 'rutina' AND due_date >= ? AND due_date <= ?",
                               (lo, d1.isoformat())):
@@ -301,7 +305,7 @@ def api_entries(start: str | None = None, end: str | None = None):
 def api_agenda(days: int = 7, start: str | None = None):
     """Agenda de los próximos días (Waybar, extensión, Hoy): ordenada y sin hechos de días pasados."""
     days = max(1, min(days, 60))
-    d0 = date.fromisoformat(start) if start else date.today()
+    d0 = _range(start, start)[0]
     items = sorted(entries(d0, d0 + timedelta(days=days - 1)), key=lambda e: (e["start"][:10], not e["all_day"], e["start"]))
     # tareas e ideas con fecha pasada sin hacer (la Waybar y su menú las ponen arriba)
     with get_db() as conn:
@@ -353,7 +357,11 @@ class CheckIn(BaseModel):
 @router.post("/routines/{item_id}/check")
 def api_check(item_id: int, data: CheckIn):
     from app.items import set_done
-    set_done(item_id, data.done, data.day or date.today().isoformat())
+    try:
+        d = date.fromisoformat(data.day) if data.day else date.today()
+    except ValueError:
+        raise HTTPException(status_code=422, detail="El día va como AAAA-MM-DD")
+    set_done(item_id, data.done, d.isoformat())
     return {"status": "success"}
 
 
@@ -379,6 +387,50 @@ def api_skip(item_id: int, data: SkipIn):
         if data.skip:
             routines.log(conn, row, "skip", d)
     return {"status": "success"}
+
+
+class PlaceIn(BaseModel):
+    before_id: int | None = None  # el bloque que queda justo debajo en la línea de ese día; None = al final
+    day: str | None = Field(default=None, max_length=10)
+    push: bool = False            # si no cabe, retrasar los siguientes
+
+
+@router.post("/routines/{item_id}/place")
+def api_place(item_id: int, data: PlaceIn):
+    """Colocar un bloque en otro sitio de la línea de un día: toma la hora de ese sitio. Si no cabe, sin `push` no toca
+    nada y responde qué habría que retrasar: los demás bloques no se mueven sin permiso."""
+    from app.items import MoveIn, move
+    try:
+        d = date.fromisoformat(data.day) if data.day else date.today()
+    except ValueError:
+        raise HTTPException(status_code=422, detail="El día va como AAAA-MM-DD")
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM inbox WHERE id=? AND item_type='rutina' AND parent_id IS NOT NULL", (item_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Ese bloque no existe")
+        line = routines.timeline([{"id": s["id"], "title": clean_text(s["content"]).split("\n")[0], "due_time": s["due_time"], "duration_min": s["duration_min"]}
+                                  for s in routines.steps_on(conn, row["parent_id"], d) if s["id"] != item_id])
+        at = next((i for i, s in enumerate(line) if s["id"] == data.before_id), len(line))
+        if data.before_id is not None and at == len(line):
+            raise HTTPException(status_code=422, detail="Ese bloque no está en esa línea")
+        dur = row["duration_min"] or 0
+        t = routines.hour_between({"due_time": row["due_time"], "duration_min": dur}, line[at - 1] if at else None, line[at] if at < len(line) else None)
+        if t is not None and t + max(dur, 1) > 1440:
+            raise HTTPException(status_code=422, detail="Ahí no cabe: pasaría de medianoche")
+        moved = routines.pushed(t, dur, line[at:]) if t is not None else []
+        if moved and not data.push:
+            return {"status": "no_cabe", "minutos": moved[0]["by"], "mover": [s["title"] for s in moved]}
+        hour = routines._hhmm(t) if t is not None else None
+        ids = frozenset(s["id"] for s in moved)
+        if hour:
+            routines.ensure_free(conn, row, due_time=hour, ignore=ids)
+        for s in moved:
+            routines.ensure_free(conn, conn.execute("SELECT * FROM inbox WHERE id=?", (s["id"],)).fetchone(), due_time=s["at"], ignore=ids | {item_id})
+        conn.execute("UPDATE inbox SET due_time=? WHERE id=?", (hour, item_id))
+        for s in moved:
+            conn.execute("UPDATE inbox SET due_time=? WHERE id=?", (s["at"], s["id"]))
+    move(item_id, MoveIn(target="rutinas", parent_id=row["parent_id"], before_id=data.before_id))
+    return {"status": "success", "at": hour, "movidos": len(moved)}
 
 
 @router.get("/routines/day")

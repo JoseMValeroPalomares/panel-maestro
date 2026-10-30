@@ -19,8 +19,6 @@ suma del dia encaje con tu objetivo real de kcal/proteina del perfil.
 Si gramos_racion es NULL (asignacion manual, o comida sin pasar por el
 generador), se usa la racion estandar del catalogo tal cual.
 """
-import sqlite3
-import os
 import time
 
 from core import config

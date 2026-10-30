@@ -13,7 +13,6 @@ Uso: python comidas/list_comidas_db.py
 import sqlite3
 import os
 import csv
-import json
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "data", "comidas.db")
 EXPORT_DIR = os.path.join(os.path.dirname(__file__), "data", "export")

@@ -57,6 +57,36 @@
 .node-text[contenteditable="true"] { pointer-events: auto; cursor: text; user-select: text; -webkit-user-select: text; caret-color: var(--accent); }
 .node-fo:has([contenteditable="true"]) { pointer-events: auto; }
 .node-parent { font-size: 11px; fill: #a6adc8; font-style: italic; }
+/* Tarjeta del Inbox con sus pasos: los tamaños en em, para que escalen con la tarjeta */
+.node-text.has-steps { height: auto; font-weight: 600; }
+.node-steps { display: flex; flex-direction: column; margin-top: 0.5em; font-family: var(--font-sans); line-height: 1.25; }
+.node-step {
+  display: flex; align-items: center; gap: 0.5em; height: 2.16em; padding: 0 0.3em 0 0.2em; border-radius: 0.5em; pointer-events: auto;
+  transition: background var(--dur-fast);
+}
+.node-step:hover { background: rgb(205 214 244 / 0.08); }
+.node-step-check {
+  display: grid; place-items: center; flex-shrink: 0; width: 1.25em; height: 1.25em; padding: 0; border: 1.5px solid #9399b2; border-radius: 50%; background: none;
+  color: transparent; cursor: pointer; pointer-events: auto;
+}
+.node-step-check .icon { width: 0.8em; height: 0.8em; stroke-width: 3; }
+.node-step-check:hover:not(:disabled) { border-color: var(--accent); }
+.node-step-check:disabled { opacity: 0.45; cursor: not-allowed; }
+.node-step.is-done .node-step-check { background: #a6e3a1; border-color: #a6e3a1; color: #1e1e2e; }
+.node-step-text { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.node-step.is-done .node-step-text { text-decoration: line-through; opacity: 0.6; }
+.node-step-x {
+  display: grid; place-items: center; flex-shrink: 0; width: 1.5em; height: 1.5em; padding: 0; border: 0; border-radius: 0.4em; background: none; color: inherit;
+  opacity: 0; cursor: pointer; pointer-events: auto; transition: opacity var(--dur-fast), background var(--dur-fast);
+}
+.node-step-x .icon { width: 1em; height: 1em; }
+.node-step:hover .node-step-x, .node-step-x:focus-visible { opacity: 0.75; }
+.node-step-x:hover { opacity: 1; background: rgb(205 214 244 / 0.14); }
+@media (hover: none) { .node-step-x { opacity: 0.6; } }
+.node-steps-foot { display: flex; align-items: center; justify-content: space-between; gap: 0.5em; margin-top: 0.3em; padding-inline: 0.2em; font-size: 0.86em; opacity: 0.75; }
+.node-steps-foot span { font-variant-numeric: tabular-nums; }
+.node-steps-foot button { padding: 0.2em 0; border: 0; background: none; color: inherit; font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; pointer-events: auto; }
+.node-steps-foot button:hover { color: var(--accent); }
 .node-inbox.is-done .node-text { text-decoration: line-through; opacity: 0.6; }
 .node-check { cursor: pointer; }
 .node-check-hit { fill: transparent; }

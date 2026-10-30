@@ -80,7 +80,7 @@ def scale_ingredient_quantity_in_all_meals(conn, ingredient_name, factor, dry_ru
             conn.execute("UPDATE meal_ingredients SET gramos = ? WHERE id = ?", (new_gramos, r["id"]))
     if not dry_run:
         conn.commit()
-        print(f"✓ Actualizado")
+        print("✓ Actualizado")
     else:
         print("(dry_run=True, no se ha escrito nada)")
 

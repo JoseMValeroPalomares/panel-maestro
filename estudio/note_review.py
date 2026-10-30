@@ -44,7 +44,7 @@ class NoteReviewBridge:
 
     async def _sender_loop(self, ws: aiohttp.ClientWebSocketResponse):
         while not ws.closed:
-            snippet = _pick_random_consolidated_snippet()
+            snippet = await asyncio.to_thread(_pick_random_consolidated_snippet)
             if snippet is not None:
                 self._last_note_id = snippet["id"]
                 await ws.send_str(_build_review_payload(snippet))
@@ -65,12 +65,13 @@ class NoteReviewBridge:
             if kind == "open_note_request":
                 note_id = data.get("note_id", self._last_note_id)
                 if note_id is not None:
-                    self._open_note_in_browser(note_id)
+                    await asyncio.to_thread(self._open_note_in_browser, note_id)
             # Pantalla «Notas» del ESP32: pide la lista y, al abrir una, su texto
             elif kind == "notes_list_request":
-                await ws.send_str(json.dumps({"type": "notes_list", "notes": list_notes_for_esp32()}, ensure_ascii=False))
+                notes = await asyncio.to_thread(list_notes_for_esp32)
+                await ws.send_str(json.dumps({"type": "notes_list", "notes": notes}, ensure_ascii=False))
             elif kind == "note_request":
-                content = note_content_for_esp32(str(data.get("note_id", "")))
+                content = await asyncio.to_thread(note_content_for_esp32, str(data.get("note_id", "")))
                 if content is not None:
                     await ws.send_str(json.dumps(content, ensure_ascii=False))
 

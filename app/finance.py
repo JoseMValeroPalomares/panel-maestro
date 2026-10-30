@@ -22,6 +22,7 @@ Economía (página /economia): cuentas, movimientos, deudas y lista de deseos (t
 
 Borrar algo lo deja 30 días en la papelera (core/undo.py, tipos «finance.*»).
 """
+import math
 import time
 from datetime import date
 
@@ -53,7 +54,16 @@ def money(v) -> float:
             n = float(t)
         except ValueError:
             raise ValueError("El importe no es un número")
+    if not math.isfinite(n):  # «inf» se guardaría y la respuesta JSON de Economía fallaría para siempre
+        raise ValueError("El importe no es un número")
     return round(n, 2)
+
+
+def _money_or_422(v) -> float:
+    try:
+        return money(v)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
 
 def _pos(v) -> float:
@@ -287,15 +297,17 @@ def apply_recurring(conn, today: date | None = None) -> int:
     cur_month = today.strftime("%Y-%m")
     n = 0
     for r in conn.execute("SELECT * FROM fin_recurring WHERE activo=1").fetchall():
-        m = _shift(r["ultimo"], 1) if r["ultimo"] else r["desde"]
+        prev, m = r["ultimo"], _shift(r["ultimo"], 1) if r["ultimo"] else r["desde"]
         while m <= cur_month:
             if m == cur_month and today.day < r["dia"]:
                 break
+            # Se reclama el mes antes de apuntarlo: con dos pestañas a la vez, solo una lo apunta
+            if not conn.execute("UPDATE fin_recurring SET ultimo=? WHERE id=? AND ultimo IS ?", (m, r["id"], prev)).rowcount:
+                break
             conn.execute("INSERT INTO fin_movements (fecha, importe, tipo, categoria, concepto, cuenta_id, notas) VALUES (?, ?, ?, ?, ?, ?, ?)",
                          (f"{m}-{r['dia']:02d}", r["importe"], r["tipo"], r["categoria"] or "Otros", r["concepto"], r["cuenta_id"], "Recurrente"))
-            conn.execute("UPDATE fin_recurring SET ultimo=? WHERE id=?", (m, r["id"]))
             n += 1
-            m = _shift(m, 1)
+            prev, m = m, _shift(m, 1)
     return n
 
 
@@ -328,6 +340,13 @@ def _month_bounds(month: str) -> tuple[str, str]:
     return date(y, m, 1).isoformat(), nxt.isoformat()
 
 
+def _month_range(month: str) -> tuple[str, str]:
+    try:
+        return _month_bounds(month)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="El mes va como AAAA-MM")
+
+
 def _shift(month: str, k: int) -> str:
     y, m = (int(x) for x in month.split("-"))
     i = y * 12 + (m - 1) + k
@@ -336,10 +355,7 @@ def _shift(month: str, k: int) -> str:
 
 def summary(month: str | None = None) -> dict:
     month = month or date.today().strftime("%Y-%m")
-    try:
-        lo, hi = _month_bounds(month)
-    except ValueError:
-        raise HTTPException(status_code=422, detail="El mes va como AAAA-MM")
+    lo, hi = _month_range(month)
     with get_db() as conn:
         apply_recurring(conn)
         cuentas = balances(conn)
@@ -358,7 +374,7 @@ def summary(month: str | None = None) -> dict:
         meses = []
         for k in range(-5, 1):
             mm = _shift(month, k)
-            a, b = _month_bounds(mm)
+            a, b = _month_range(mm)
             g, i = conn.execute("SELECT COALESCE(SUM(CASE WHEN tipo='gasto' THEN importe END), 0), COALESCE(SUM(CASE WHEN tipo='ingreso' THEN importe END), 0) "
                                 "FROM fin_movements WHERE fecha >= ? AND fecha < ?", (a, b)).fetchone()
             meses.append({"mes": mm, "gastos": round(g, 2), "ingresos": round(i, 2)})
@@ -398,16 +414,14 @@ def _account_ok(conn, cid: int | None) -> None:
         raise HTTPException(status_code=422, detail="Esa cuenta no existe")
 
 
-REQUIRED = {"fecha", "importe", "tipo", "nombre", "persona", "direccion", "saldo_inicial"}  # nunca a NULL
-
-
 def _patch(conn, table: str, rid: int, data: BaseModel) -> None:
+    required = {c["name"] for c in conn.execute(f"PRAGMA table_info({table})") if c["notnull"]}  # nunca a NULL
     for k, v in data.model_dump(exclude_unset=True).items():
         if isinstance(v, bool):
             v = int(v)
         if isinstance(v, str):
             v = v.strip() or None
-        if v is None and k in REQUIRED:
+        if v is None and k in required:
             continue
         conn.execute(f"UPDATE {table} SET {k}=? WHERE id=?", (v, rid))
 
@@ -421,7 +435,7 @@ def api_summary(month: str | None = None):
 def api_movements(month: str | None = None, categoria: str | None = None, q: str | None = None, cuenta_id: int | None = None):
     sql, args = "SELECT * FROM fin_movements WHERE 1=1", []
     if month:
-        lo, hi = _month_bounds(month)
+        lo, hi = _month_range(month)
         sql += " AND fecha >= ? AND fecha < ?"
         args += [lo, hi]
     if categoria:
@@ -470,7 +484,7 @@ def api_budget(categoria: str, data: BudgetIn):
     categoria = categoria.strip()[:40]
     if not categoria:
         raise HTTPException(status_code=422, detail="Falta la categoría")
-    importe = money(data.importe) if data.importe not in (None, "") else 0
+    importe = _money_or_422(data.importe) if data.importe not in (None, "") else 0
     if importe < 0:
         raise HTTPException(status_code=422, detail="El presupuesto no puede ser negativo")
     with get_db() as conn:
@@ -488,7 +502,7 @@ def api_export(month: str | None = None):
     sql, args = "SELECT m.*, a.nombre AS cuenta, b.nombre AS cuenta_destino_nombre FROM fin_movements m " \
                 "LEFT JOIN fin_accounts a ON a.id = m.cuenta_id LEFT JOIN fin_accounts b ON b.id = m.cuenta_destino", []
     if month:
-        lo, hi = _month_bounds(month)
+        lo, hi = _month_range(month)
         sql += " WHERE m.fecha >= ? AND m.fecha < ?"
         args = [lo, hi]
     with get_db() as conn:
@@ -604,7 +618,7 @@ def api_buy(rid: int, data: SettleIn):
     with get_db() as conn:
         w = _get(conn, "fin_wishes", rid)
         _account_ok(conn, data.cuenta_id)
-        importe = money(data.importe) if data.importe not in (None, "") else w["precio"]
+        importe = _money_or_422(data.importe) if data.importe not in (None, "") else w["precio"]
         conn.execute("UPDATE fin_wishes SET comprado_at=? WHERE id=?", (time.time(), rid))
         if importe:
             conn.execute("INSERT INTO fin_movements (fecha, importe, tipo, categoria, concepto, cuenta_id) VALUES (?, ?, 'gasto', 'Compras', ?, ?)",

@@ -1,6 +1,6 @@
 /* ==========================================================================
    ui.js — piezas comunes de interfaz (script clásico, sin módulos)
-   Expone: icon, escapeHtml, api, parseTime, toast, openModal, closeModal, uiConfirm,
+   Expone: icon, escapeHtml, api, parseTime, copyText, toast, openModal, closeModal, uiConfirm,
    uiPrompt, openMenu, skeletonRows, emptyState, openCapture, timeAgo, CATEGORY_COLORS
    ========================================================================== */
 (function () {
@@ -97,6 +97,21 @@
 
   /* ---------- Toasts ---------- */
   let toastRegion;
+  // Copiar al portapapeles. Sin https (el móvil por la red local) el navegador no da navigator.clipboard
+  async function copyText(text) {
+    try { await navigator.clipboard.writeText(text); return true; } catch { /* probamos a la antigua */ }
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.readOnly = true;
+    ta.style.cssText = 'position:fixed;opacity:0;pointer-events:none';
+    (document.querySelector('dialog[open]') || document.body).appendChild(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch { /* sin permiso */ }
+    ta.remove();
+    return ok;
+  }
+
   // Hora escrita a mano, siempre en 24 h: «930», «9:30» o «17» → «09:30», «17:00»; vacío = sin hora; null = no se entiende
   function parseTime(v) {
     const t = String(v ?? '').trim();
@@ -695,7 +710,7 @@
   Object.assign(window, {
   dayPicker, readDays, repeatFromDays, everyNote,
     CATEGORY_COLORS,
-    icon, escapeHtml, timeAgo, api, parseTime, toast, openModal, closeModal, uiConfirm, uiAlert, uiPrompt,
+    icon, escapeHtml, timeAgo, api, parseTime, copyText, toast, openModal, closeModal, uiConfirm, uiAlert, uiPrompt,
     openMenu, closeMenu, skeletonRows, emptyState, setTheme, openCapture, refreshInboxBadge, wireAllDialogs, onDataChange, Prefs, uiPick, fuzzyScore,
   });
 

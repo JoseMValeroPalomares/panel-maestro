@@ -42,6 +42,7 @@ def sm2_update(quality: int, repetitions: int, ease_factor: float, interval: flo
 
 @router.get("/api/flashcards/due")
 def get_due_flashcards(limit: int = 20):
+    limit = max(1, min(limit, 500))
     with get_db() as conn:
         rows = conn.execute('''
             SELECT f.*, n.title as note_title FROM flashcards f

@@ -33,10 +33,11 @@ from app.database import get_db
 from app.indexer import sync_notes_to_db
 from app import routines
 from app.links import links_by_item, rebuild_all as rebuild_links
-from app.notes_core import MAX_TITLE, PRIORITIES, note_path, slugify, split_category_path, update_index_for_area
+from app.notes_core import MAX_TITLE, PRIORITIES, note_path, note_slug, split_category_path, update_index_for_area
 from app.note_tasks import INDENT, NoteDoc, TaskMissing, sync_note_items, task_line
 from app.versions import snapshot as snapshot_version
 from core import undo
+from core.files import atomic_write
 from core.logging_config import get_logger
 
 log = get_logger("items")
@@ -92,6 +93,12 @@ def _clean_date(v):
         raise ValueError("La fecha va como AAAA-MM-DD")
 
 
+def _clean_body(v):
+    if v is not None and not v.strip():
+        raise ValueError("Falta el texto")
+    return v
+
+
 class ItemIn(BaseModel):
     text: str = Field(min_length=1, max_length=MAX_TEXT)
     type: str = Field(default="tarea", max_length=10)
@@ -105,6 +112,11 @@ class ItemIn(BaseModel):
     duration_min: int | None = Field(default=None, ge=0, le=1440)  # 0 = sin duración
     repeat: dict | None = None                                    # solo rutinas (app/routines.py)
     reminder_min: int | None = Field(default=None, ge=0, le=10080)
+
+    @field_validator("text")
+    @classmethod
+    def v_text(cls, v):
+        return _clean_body(v)
 
     @field_validator("type")
     @classmethod
@@ -149,6 +161,11 @@ class ItemPatch(BaseModel):
     step_days: list[int] | None = None   # paso de rutina: sus días (0 = lunes); [] = los de su rutina
     routine_step: int | None = Field(default=None, ge=0)  # tarea o idea: rutina o paso al que va asociada; 0 la suelta
 
+    @field_validator("text")
+    @classmethod
+    def v_text(cls, v):
+        return _clean_body(v)
+
     @field_validator("type")
     @classmethod
     def v_type(cls, v):
@@ -169,7 +186,7 @@ class ItemPatch(BaseModel):
     def v_priority(cls, v):
         return _clean_priority(v)
 
-    @field_validator("due_date")
+    @field_validator("due_date", "day")
     @classmethod
     def v_date(cls, v):
         return _clean_date(v)
@@ -580,7 +597,7 @@ def update(item_id: int, data: ItemPatch) -> None:
                     raise HTTPException(status_code=422, detail="Solo se asocia a una rutina o a uno de sus pasos")
             conn.execute("UPDATE inbox SET routine_step=? WHERE id=?", (data.routine_step or None, item_id))
     if data.done is not None:
-        set_done(item_id, data.done, _clean_date(data.day) if data.day else None)
+        set_done(item_id, data.done, data.day or None)
 
 
 def move(item_id: int, data: MoveIn) -> None:
@@ -719,6 +736,8 @@ def bulk(data: BulkIn) -> dict:
     if data.action not in BULK_ACTIONS:
         raise HTTPException(status_code=422, detail="Acción no válida")
     ids = list(dict.fromkeys(data.ids))
+    if data.action == "priority" and data.value and data.value not in PRIORITIES:
+        raise HTTPException(status_code=422, detail="La prioridad es alta, media o baja")
     if data.action == "delete":
         return {"undo": remove(ids), "count": len(ids), "errors": []}
     with get_db() as conn:
@@ -775,13 +794,12 @@ def to_note(item_id: int, data: ToNoteIn) -> str:
         title = (data.title or text.splitlines()[0])[:MAX_TITLE].strip()
         if not title:
             raise HTTPException(status_code=422, detail="Falta el título")
-        note_id = _unique_note_id(slugify(title)[:180])
+        note_id = _unique_note_id(note_slug(title[:180]))
         body = f"# {title}\n\n" + ("" if is_task else f"{text}\n\n" + "".join(f"- {clean_text(k['content'])}\n" for k in kids))
         post = frontmatter.Post(body)
         post["title"], post["category"], post["category_id"] = title, data.category.strip() or "Inbox", None
         post["status"], post["tags"], post["encrypted"] = "por-escribir", [], False
-        with open(note_path(note_id), "w", encoding="utf-8") as f:
-            f.write(frontmatter.dumps(post) + "\n")
+        atomic_write(note_path(note_id), frontmatter.dumps(post) + "\n")
     sync_notes_to_db()
     if is_task:
         move(item_id, MoveIn(target="nota", note_id=note_id))
