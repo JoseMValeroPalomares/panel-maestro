@@ -12,7 +12,8 @@ Tres vías, igual que el puente anterior (estudio/icloud_sync.py), por cada par:
 Duplicados: un evento nuevo de fuera con el mismo título, día y tipo que uno del Panel que ese
 lado aún no conoce se toma por el mismo (se adopta su uid) en vez de crear otro.
 Guardas: si un lado devuelve 0 eventos cuando antes había varios, o el Panel está vacío y
-antes no, el par se salta ese ciclo sin borrar nada. Lo que se borra en el Panel por la
+antes no, el par se salta ese ciclo sin borrar nada (salvo que los dos estén vacíos: entonces
+ya coinciden y solo se olvida la «última vez»). Lo que se borra en el Panel por la
 sincronía va a la papelera (se puede recuperar 30 días).
 
 Formatos que se comparan:
@@ -260,6 +261,8 @@ def save_state(state: dict) -> None:
 
 
 def guard(name: str, local: dict, remote: dict, last: dict) -> str | None:
+    if not local and not remote:
+        return None  # los dos vacíos coinciden: no hay nada que borrar y la «última vez» se olvida (si no, avisaría para siempre)
     if len(remote) == 0 and len(last) > EMPTY_GUARD:
         return f"{name} devuelve 0 eventos y antes había {len(last)}: parece una lectura fallida"
     if len(local) == 0 and len(last) > EMPTY_GUARD:

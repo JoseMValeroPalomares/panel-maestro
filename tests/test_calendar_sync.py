@@ -213,3 +213,27 @@ def test_lugar_en_los_dos_sentidos(mundo):
     obj.data = cs.build_ics(uid, {**cal.view()[uid], "location": "Hospital"})
     ciclo()
     assert panel()[uid]["location"] == "Hospital"
+
+
+def test_vaciar_los_dos_lados_no_es_un_error(mundo):
+    """Lo borrado en el Panel y en el móvil coincide: antes daba «lectura fallida» en cada ciclo, para siempre."""
+    cal, esp, ciclo = mundo
+    for i in range(5):
+        cal.add(f"v{i}", {"title": f"Evento {i}", "start": D(i), "end": None, "all_day": True, "kind": "evento"})
+    ciclo()
+    assert len(panel()) == 5
+
+    with get_db() as conn:
+        conn.execute("DELETE FROM events")
+    ciclo()  # solo el Panel vacío: la guarda sigue protegiendo iCloud
+    assert len(cal.view()) == 5 and cs.STATUS["icloud"]["state"] == "error"
+
+    cal.objs.clear()  # ahora también en el móvil
+    esp["events"] = {}
+    ciclo()
+    assert cs.STATUS["icloud"]["state"] == "ok" and cs.STATUS["esp32"]["state"] == "ok"
+    assert cs.load_state() == {"icloud": {}, "esp32": {}}
+
+    cal.add("v9", {"title": "Nuevo", "start": D(0), "end": None, "all_day": True, "kind": "evento"})
+    ciclo()  # y la sincronía sigue viva
+    assert [e["title"] for e in panel().values()] == ["Nuevo"]
