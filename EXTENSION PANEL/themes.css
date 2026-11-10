@@ -8,7 +8,7 @@
   --text: #cdd6f4; --text-2: #bac2de; --text-3: #a6adc8; --placeholder: #a6adc8;
   --accent: #89b4fa; --accent-hover: #b4befe; --on-accent: #11111b; --link: #89b4fa;
   --success: #a6e3a1; --warning: #fab387; --danger: #f38ba8;
-  --tile-fg: #11111b; --tile-inbox: #fab387; --tile-baul: #f9e2af; --tile-grafo: #89b4fa;
+  --tile-fg: #11111b; --tile-inbox: #fab387; --tile-baul: #f2cdcd; --tile-grafo: #74c7ec;
 }
 
 /* Catppuccin Latte */
@@ -19,7 +19,7 @@
   --text: #4c4f69; --text-2: #5c5f77; --text-3: #5c5f77; --placeholder: #5c5f77;
   --accent: #1e66f5; --accent-hover: #1a56d0; --on-accent: #ffffff; --link: #1d5bd6;
   --success: #2b7a1d; --warning: #b34700; --danger: #d20f39;
-  --tile-fg: #ffffff; --tile-inbox: #fe640b; --tile-baul: #e64553; --tile-grafo: #1e66f5;
+  --tile-fg: #ffffff; --tile-inbox: #f6610b; --tile-baul: #d67474; --tile-grafo: #209fb5;
 }
 
 /* Claro */
@@ -30,7 +30,7 @@
   --text: #1d1d1f; --text-2: #5c5c63; --text-3: #66666d; --placeholder: #66666d;
   --accent: #0071e3; --accent-hover: #0077ed; --on-accent: #ffffff; --link: #0066cc;
   --success: #1c7c34; --warning: #a35200; --danger: #c4271b;
-  --tile-fg: #ffffff; --tile-inbox: #d0480f; --tile-baul: #8e6a3e; --tile-grafo: #0071e3;
+  --tile-fg: #ffffff; --tile-inbox: #d0480f; --tile-baul: #a83f6b; --tile-grafo: #0a6e91;
 }
 
 /* Oscuro */
@@ -41,7 +41,7 @@
   --text: #f5f5f7; --text-2: #b8b8bf; --text-3: #9d9da5; --placeholder: #9d9da5;
   --accent: #0a6fd6; --accent-hover: #0a63c0; --on-accent: #ffffff; --link: #4aa3ff;
   --success: #4cd964; --warning: #ffb340; --danger: #ff6b61;
-  --tile-fg: #ffffff; --tile-inbox: #d0480f; --tile-baul: #8e6a3e; --tile-grafo: #0071e3;
+  --tile-fg: #ffffff; --tile-inbox: #d0480f; --tile-baul: #a83f6b; --tile-grafo: #0a6e91;
 }
 
 /* Nord */
@@ -52,7 +52,7 @@
   --text: #eceff4; --text-2: #e5e9f0; --text-3: #d8dee9; --placeholder: #d8dee9;
   --accent: #88c0d0; --accent-hover: #8fbcbb; --on-accent: #2e3440; --link: #88c0d0;
   --success: #a3be8c; --warning: #ebcb8b; --danger: #ec9aa1;
-  --tile-fg: #2e3440; --tile-inbox: #d08770; --tile-baul: #ebcb8b; --tile-grafo: #88c0d0;
+  --tile-fg: #2e3440; --tile-inbox: #d08770; --tile-baul: #e0a3a8; --tile-grafo: #88c0d0;
 }
 
 /* Dracula */
@@ -63,7 +63,7 @@
   --text: #f8f8f2; --text-2: #e2e2dc; --text-3: #b6b9d0; --placeholder: #b6b9d0;
   --accent: #bd93f9; --accent-hover: #d6b4fc; --on-accent: #21222c; --link: #bd93f9;
   --success: #50fa7b; --warning: #ffb86c; --danger: #ff6e6e;
-  --tile-fg: #21222c; --tile-inbox: #ffb86c; --tile-baul: #f1fa8c; --tile-grafo: #a9b6e8;
+  --tile-fg: #21222c; --tile-inbox: #ffb86c; --tile-baul: #ffb2e6; --tile-grafo: #9fc5ff;
 }
 
 /* Gruvbox */
@@ -74,7 +74,7 @@
   --text: #ebdbb2; --text-2: #d5c4a1; --text-3: #bdae93; --placeholder: #bdae93;
   --accent: #83a598; --accent-hover: #8ec07c; --on-accent: #1d2021; --link: #83a598;
   --success: #b8bb26; --warning: #fe8019; --danger: #fb4934;
-  --tile-fg: #1d2021; --tile-inbox: #fe8019; --tile-baul: #fabd2f; --tile-grafo: #7fa2a3;
+  --tile-fg: #1d2021; --tile-inbox: #fe8019; --tile-baul: #e9967a; --tile-grafo: #76b3c4;
 }
 
 /* Tokyo Night */
@@ -85,7 +85,95 @@
   --text: #c0caf5; --text-2: #a9b1d6; --text-3: #9aa5ce; --placeholder: #9aa5ce;
   --accent: #7aa2f7; --accent-hover: #7dcfff; --on-accent: #16161e; --link: #7aa2f7;
   --success: #9ece6a; --warning: #ff9e64; --danger: #f7768e;
-  --tile-fg: #16161e; --tile-inbox: #ff9e64; --tile-baul: #e0af68; --tile-grafo: #7aa2f7;
+  --tile-fg: #16161e; --tile-inbox: #ff9e64; --tile-baul: #f4a3b5; --tile-grafo: #7dcfff;
+}
+
+/* Catppuccin Macchiato */
+:root[data-theme="macchiato"] {
+  color-scheme: dark;
+  --bg: #24273a; --field: #181926; --control: #35384d;
+  --border: #45495f; --border-strong: #595e76;
+  --text: #cad3f5; --text-2: #b8c0e0; --text-3: #a5adcb; --placeholder: #a5adcb;
+  --accent: #8aadf4; --accent-hover: #b7bdf8; --on-accent: #181926; --link: #8aadf4;
+  --success: #a6da95; --warning: #f5a97f; --danger: #ed8796;
+  --tile-fg: #181926; --tile-inbox: #f5a97f; --tile-baul: #f0c6c6; --tile-grafo: #7dc4e4;
+}
+
+/* Rosé Pine */
+:root[data-theme="rosepine"] {
+  color-scheme: dark;
+  --bg: #1f1d2e; --field: #13111c; --control: #323042;
+  --border: #464456; --border-strong: #5d5b6d;
+  --text: #e0def4; --text-2: #c9c6e3; --text-3: #a29ebd; --placeholder: #a29ebd;
+  --accent: #c4a7e7; --accent-hover: #d6c1f0; --on-accent: #191724; --link: #c4a7e7;
+  --success: #9ccfd8; --warning: #f6c177; --danger: #eb6f92;
+  --tile-fg: #191724; --tile-inbox: #f6b996; --tile-baul: #efcfd2; --tile-grafo: #83caed;
+}
+
+/* Kanagawa */
+:root[data-theme="kanagawa"] {
+  color-scheme: dark;
+  --bg: #1f1f28; --field: #121217; --control: #323137;
+  --border: #454445; --border-strong: #5b5a57;
+  --text: #dcd7ba; --text-2: #c8c093; --text-3: #a19f93; --placeholder: #a19f93;
+  --accent: #7e9cd8; --accent-hover: #7fb4ca; --on-accent: #16161d; --link: #7e9cd8;
+  --success: #98bb6c; --warning: #ffa066; --danger: #e46876;
+  --tile-fg: #16161d; --tile-inbox: #f6b78d; --tile-baul: #efcecb; --tile-grafo: #80c9e6;
+}
+
+/* Everforest */
+:root[data-theme="everforest"] {
+  color-scheme: dark;
+  --bg: #2d353b; --field: #1e2326; --control: #3e4446;
+  --border: #4e5251; --border-strong: #62635f;
+  --text: #d3c6aa; --text-2: #c3b79c; --text-3: #a3ada4; --placeholder: #a3ada4;
+  --accent: #7fbbb3; --accent-hover: #93c9c1; --on-accent: #232a2e; --link: #7fbbb3;
+  --success: #a7c080; --warning: #e69875; --danger: #e67e80;
+  --tile-fg: #232a2e; --tile-inbox: #f5b58b; --tile-baul: #eeccc9; --tile-grafo: #7fc7e4;
+}
+
+/* Alto contraste */
+:root[data-theme="contraste"] {
+  color-scheme: dark;
+  --bg: #0b0b0b; --field: #000000; --control: #232323;
+  --border: #3c3c3c; --border-strong: #595959;
+  --text: #ffffff; --text-2: #ececec; --text-3: #d2d2d2; --placeholder: #d2d2d2;
+  --accent: #6cb8ff; --accent-hover: #9ccfff; --on-accent: #000000; --link: #6cb8ff;
+  --success: #5be39a; --warning: #ffd23f; --danger: #ff7b7b;
+  --tile-fg: #000000; --tile-inbox: #fab387; --tile-baul: #f2cdcd; --tile-grafo: #74c7ec;
+}
+
+/* Rosé Pine Dawn */
+:root[data-theme="dawn"] {
+  color-scheme: light;
+  --bg: #fffaf3; --field: #f4ede8; --control: #eee9e7;
+  --border: #ddd8db; --border-strong: #c9c4cc;
+  --text: #575279; --text-2: #625d84; --text-3: #6a6587; --placeholder: #6a6587;
+  --accent: #286983; --accent-hover: #1f5a70; --on-accent: #ffffff; --link: #286983;
+  --success: #3d7a64; --warning: #8a560c; --danger: #a5566c;
+  --tile-fg: #ffffff; --tile-inbox: #c94915; --tile-baul: #a3406c; --tile-grafo: #0f6c90;
+}
+
+/* Solarized Claro */
+:root[data-theme="solarized"] {
+  color-scheme: light;
+  --bg: #fdf6e3; --field: #eee8d5; --control: #e4e3d3;
+  --border: #ccd0c3; --border-strong: #aeb9af;
+  --text: #073642; --text-2: #4a5f66; --text-3: #55686e; --placeholder: #55686e;
+  --accent: #1f6fa8; --accent-hover: #1a5f90; --on-accent: #ffffff; --link: #1a649a;
+  --success: #5e7000; --warning: #a35a0e; --danger: #c02824;
+  --tile-fg: #ffffff; --tile-inbox: #c84711; --tile-baul: #a23f69; --tile-grafo: #0a6c8e;
+}
+
+/* Papel */
+:root[data-theme="papel"] {
+  color-scheme: light;
+  --bg: #faf6ee; --field: #f1ebdf; --control: #e7e2da;
+  --border: #d4cfc6; --border-strong: #bdb7ae;
+  --text: #3b3226; --text-2: #55493a; --text-3: #64584a; --placeholder: #64584a;
+  --accent: #1f5f6b; --accent-hover: #184e58; --on-accent: #ffffff; --link: #1f5f6b;
+  --success: #3f6f2f; --warning: #8f5300; --danger: #a63d32;
+  --tile-fg: #ffffff; --tile-inbox: #cd480f; --tile-baul: #a63f6a; --tile-grafo: #0b6d8f;
 }
 
 :root[data-theme="system"] {
@@ -95,7 +183,7 @@
   --text: #1d1d1f; --text-2: #5c5c63; --text-3: #66666d; --placeholder: #66666d;
   --accent: #0071e3; --accent-hover: #0077ed; --on-accent: #ffffff; --link: #0066cc;
   --success: #1c7c34; --warning: #a35200; --danger: #c4271b;
-  --tile-fg: #ffffff; --tile-inbox: #d0480f; --tile-baul: #8e6a3e; --tile-grafo: #0071e3;
+  --tile-fg: #ffffff; --tile-inbox: #d0480f; --tile-baul: #a83f6b; --tile-grafo: #0a6e91;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -106,6 +194,6 @@
     --text: #f5f5f7; --text-2: #b8b8bf; --text-3: #9d9da5; --placeholder: #9d9da5;
     --accent: #0a6fd6; --accent-hover: #0a63c0; --on-accent: #ffffff; --link: #4aa3ff;
     --success: #4cd964; --warning: #ffb340; --danger: #ff6b61;
-    --tile-fg: #ffffff; --tile-inbox: #d0480f; --tile-baul: #8e6a3e; --tile-grafo: #0071e3;
+    --tile-fg: #ffffff; --tile-inbox: #d0480f; --tile-baul: #a83f6b; --tile-grafo: #0a6e91;
   }
 }

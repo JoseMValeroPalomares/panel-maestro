@@ -35,7 +35,7 @@
     const marks = data.marks || ['\u0002', '\u0003'];
     $('resultInfo').textContent = data.total ? `${data.total} ${data.total === 1 ? 'nota' : 'notas'}${data.total >= 30 ? ' (las 30 más relevantes)' : ''}` : '';
     if (!data.notes.length && !data.inbox.length) {
-      $('results').innerHTML = emptyState({ iconName: 'search', title: 'Sin resultados', text: 'Prueba con menos palabras o con el principio de una palabra.', compact: true });
+      $('results').innerHTML = stateView({ kind: 'no-results', title: 'Sin resultados', text: 'Prueba con menos palabras o con el principio de una palabra.', compact: true });
       return;
     }
     let html = '';
@@ -85,7 +85,7 @@
         .sort((a, b) => (a.title || '').localeCompare(b.title || '', 'es'));
       $('resultInfo').textContent = `${list.length} ${list.length === 1 ? 'nota' : 'notas'}`;
       $('results').innerHTML = list.length ? `<ul class="list result-list">${list.map(noteRow).join('')}</ul>`
-        : emptyState({ iconName: 'search', title: 'Ninguna nota con esos filtros', compact: true });
+        : stateView({ kind: 'no-results', title: 'Ninguna nota con esos filtros', text: 'Quita el filtro de estado o de área.', compact: true });
       return;
     }
     if (!recientes) recientes = (await api('/api/notes-home', { quiet: true }).catch(() => ({ recientes: [] }))).recientes;

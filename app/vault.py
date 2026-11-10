@@ -2,6 +2,8 @@
 import os
 import re
 import sqlite3
+import threading
+import time
 
 from fastapi import APIRouter, BackgroundTasks
 from fastapi.responses import JSONResponse
@@ -9,7 +11,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.database import get_db
 from app.ordering import next_resource_order
-from app.scraper import cache_thumbnail, fetch_metadata
+from app.scraper import cache_thumbnail, canonical_youtube_url, fetch_metadata, youtube_video_id
 from core import config
 from core.logging_config import get_logger
 
@@ -23,6 +25,7 @@ class ResourceIn(BaseModel):
     url: str = Field(max_length=2048)
     category: str = Field(default="General", max_length=120)
     watch_later: bool = False
+    watched: bool = False  # lo guarda ya como visto (extensión)
 
     @field_validator("url")
     @classmethod
@@ -64,14 +67,91 @@ def backfill_thumbnails():
         log.info("Miniaturas cacheadas: %d de %d", done, len(rows))
 
 
+def backfill_video_metadata():
+    """Vídeos de YouTube guardados sin miniatura (los que creaba la extensión al marcarlos vistos): pide sus metadatos."""
+    with get_db() as conn:
+        rows = conn.execute("SELECT url, category FROM resources WHERE resource_type='youtube' AND url LIKE '%watch?v=%' "
+                            "AND (image IS NULL OR image = '')").fetchall()
+    for row in rows:
+        do_scrape_and_save(row["url"], row["category"])
+    if rows:
+        log.info("Metadatos de vídeos sin miniatura: %d", len(rows))
+
+
+_canales_lock = threading.Lock()
+_YT_CANAL = re.compile(r"youtube\.com/(@|channel/|c/|user/)")
+
+
+def pendientes_de_canal() -> list[dict]:
+    with get_db() as conn:
+        return [dict(r) for r in conn.execute("SELECT id, url FROM resources WHERE resource_type='youtube' AND (channel IS NULL OR TRIM(channel)='')").fetchall()
+                if not _YT_CANAL.search(r["url"])]
+
+
+def backfill_channels(pausa_s: float = 1.5, reintentos: int = 3, dormir=time.sleep) -> int:
+    """Rellena el canal de los vídeos de YouTube que no lo tienen (los antiguos). Despacio (una petición cada `pausa_s`),
+    con reintentos de espera creciente y una sola tarea a la vez. Devuelve cuántos se rellenaron."""
+    if not _canales_lock.acquire(blocking=False):
+        return 0
+    hechos = 0
+    try:
+        for fila in pendientes_de_canal():
+            canal = ""
+            for intento in range(max(1, reintentos)):
+                try:
+                    canal = (fetch_metadata(fila["url"]).get("channel") or "").strip()
+                except Exception:  # red caída, límite de YouTube…
+                    canal = ""
+                if canal:
+                    break
+                dormir(min(30.0, 2.0 ** (intento + 1)))
+            if canal:
+                with get_db() as conn:
+                    conn.execute("UPDATE resources SET channel=? WHERE id=?", (canal, fila["id"]))
+                hechos += 1
+            dormir(pausa_s)
+        if hechos:
+            log.info("Canales de YouTube rellenados: %d", hechos)
+    finally:
+        _canales_lock.release()
+    return hechos
+
+
+@router.post("/api/resources/backfill-channels")
+def start_backfill_channels(background_tasks: BackgroundTasks):
+    """Lanza en segundo plano el relleno de canales (el Baúl lo pide al abrir «Vistos» si hay vídeos sin canal)."""
+    pendientes = len(pendientes_de_canal())
+    if pendientes and not _canales_lock.locked():
+        background_tasks.add_task(backfill_channels)
+    return {"pendientes": pendientes, "en_curso": _canales_lock.locked()}
+
+
+def find_video(conn, video_id: str):
+    """Recurso del Baúl que es ese vídeo de YouTube, guardado con cualquier forma de URL (o None)."""
+    for r in conn.execute("SELECT id, url, watched, watch_later, category FROM resources WHERE url LIKE '%youtu%'"):
+        if youtube_video_id(r["url"]) == video_id:
+            return r
+    return None
+
+
 @router.post("/api/resources")
 def add_resource(resource: ResourceIn, background_tasks: BackgroundTasks):
+    vid = youtube_video_id(resource.url)
+    if vid:  # un vídeo se identifica por su ID, no por la URL: con lista, tiempo, shorts o youtu.be es el mismo
+        resource.url = canonical_youtube_url(vid)
+        with get_db() as conn:
+            previo = find_video(conn, vid)
+            if previo:
+                if resource.watched and not previo["watched"]:  # «visto» sobre un vídeo ya guardado: lo marca
+                    conn.execute("UPDATE resources SET watched=1, watch_later=0 WHERE id=?", (previo["id"],))
+                    return {"status": "updated", "message": "Marcado como visto"}
+                return JSONResponse(status_code=409, content={"error": "URL ya existe"})
     with get_db() as conn:
         try:
             conn.execute('''
-                INSERT INTO resources (url, title, description, category, watch_later, sort_order)
-                VALUES (?, ?, '', ?, ?, ?)
-            ''', (resource.url, resource.url, resource.category, int(resource.watch_later),
+                INSERT INTO resources (url, title, description, category, watch_later, watched, sort_order)
+                VALUES (?, ?, '', ?, ?, ?, ?)
+            ''', (resource.url, resource.url, resource.category, int(resource.watch_later and not resource.watched), int(resource.watched),
                   next_resource_order(conn, resource.category)))
             conn.commit()
         except sqlite3.IntegrityError:

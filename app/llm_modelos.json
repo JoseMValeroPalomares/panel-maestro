@@ -1,0 +1,137 @@
+{
+  "_comentario": "Lista ORDENADA de mejor a peor. Para cambiarla copia este archivo a data/llm_modelos.json (o a la ruta de PANEL_LLM_MODELOS) y edítala: esa copia manda. Las claves nunca van aquí: cada modelo dice en qué variable de entorno está la suya (clave_env). entrena=true: el proveedor puede usar lo que envías para entrenar (solo entra si lo activas en Ajustes → IA). modelo_patrones: si «modelo» desaparece del catálogo del proveedor se usa el primero que contenga alguno de estos textos. max_entrada_tokens: notas más largas saltan al siguiente. Límites gratuitos de mayo-noviembre 2026 (ver docs/IA_DECISIONES.md): cambian a menudo, revísalos de vez en cuando.",
+  "max_intentos_total": 8,
+  "reintentos_por_modelo": 2,
+  "enfriamiento_429_s": 600,
+  "modelos": [
+    {
+      "id": "github-gpt-4.1-mini",
+      "proveedor": "GitHub Models",
+      "base_url": "https://models.github.ai/inference",
+      "modelo": "openai/gpt-4.1-mini",
+      "clave_env": "GITHUB_MODELS_TOKEN",
+      "limite_dia": 150,
+      "timeout_s": 60,
+      "json_mode": true,
+      "max_entrada_tokens": 6500,
+      "max_tokens_total": 7800
+    },
+    {
+      "id": "openrouter-gemma",
+      "proveedor": "OpenRouter",
+      "base_url": "https://openrouter.ai/api/v1",
+      "modelo": "google/gemma-4-31b-it:free",
+      "modelo_patrones": [
+        "gemma-4-31b",
+        "gemma-4",
+        "gemma"
+      ],
+      "sufijo": ":free",
+      "clave_env": "OPENROUTER_API_KEY",
+      "cuota": "openrouter",
+      "limite_dia": 50,
+      "timeout_s": 90,
+      "json_mode": false,
+      "extra": {
+        "provider": {
+          "data_collection": "deny"
+        }
+      }
+    },
+    {
+      "id": "groq-gpt-oss-120b",
+      "proveedor": "Groq",
+      "base_url": "https://api.groq.com/openai/v1",
+      "modelo": "openai/gpt-oss-120b",
+      "clave_env": "GROQ_API_KEY",
+      "limite_dia": 1000,
+      "timeout_s": 45,
+      "json_mode": true,
+      "max_entrada_tokens": 4200,
+      "extra": {
+        "reasoning_effort": "low"
+      },
+      "max_tokens_total": 7600
+    },
+    {
+      "id": "groq-gpt-oss-20b",
+      "proveedor": "Groq",
+      "base_url": "https://api.groq.com/openai/v1",
+      "modelo": "openai/gpt-oss-20b",
+      "modelo_patrones": [
+        "gpt-oss-20b",
+        "qwen"
+      ],
+      "clave_env": "GROQ_API_KEY",
+      "limite_dia": 1000,
+      "timeout_s": 45,
+      "json_mode": false,
+      "extra": {
+        "reasoning_effort": "low"
+      },
+      "max_entrada_tokens": 4200,
+      "max_tokens_total": 7600
+    },
+    {
+      "id": "gemini-2.5-flash",
+      "proveedor": "Google AI Studio",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "modelo": "gemini-2.5-flash",
+      "clave_env": "GEMINI_API_KEY",
+      "limite_dia": 20,
+      "timeout_s": 60,
+      "json_mode": true,
+      "entrena": true,
+      "modelo_patrones": [
+        "flash"
+      ]
+    },
+    {
+      "id": "gemini-gemma-3-27b",
+      "proveedor": "Google AI Studio",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "modelo": "gemma-3-27b-it",
+      "clave_env": "GEMINI_API_KEY",
+      "limite_dia": 14400,
+      "timeout_s": 60,
+      "json_mode": false,
+      "entrena": true,
+      "modelo_patrones": [
+        "gemma"
+      ]
+    },
+    {
+      "id": "mistral-large",
+      "proveedor": "Mistral (La Plateforme, plan Experiment)",
+      "base_url": "https://api.mistral.ai/v1",
+      "modelo": "mistral-large-latest",
+      "modelo_patrones": [
+        "mistral-large",
+        "mistral-medium"
+      ],
+      "clave_env": "MISTRAL_API_KEY",
+      "limite_dia": 500,
+      "timeout_s": 60,
+      "json_mode": true,
+      "entrena": true
+    },
+    {
+      "id": "ollama-local",
+      "proveedor": "Ollama (local)",
+      "base_url": "http://127.0.0.1:11434/v1",
+      "modelo": "llama3.1:8b",
+      "clave_env": null,
+      "limite_dia": 0,
+      "timeout_s": 180,
+      "json_mode": true,
+      "local": true,
+      "base_url_env": "OLLAMA_URL",
+      "modelo_patrones": [
+        "qwen",
+        "gemma",
+        "llama",
+        "mistral"
+      ]
+    }
+  ]
+}

@@ -34,13 +34,17 @@ Al actualizar desde la versión 1.x se conserva la dirección guardada; solo hay
 | Qué | Cómo |
 |---|---|
 | Enviar al Inbox | Botón de la barra o `Alt+Mayús+I`. Con texto seleccionado, ya viene escrito |
-| Guardar en el Baúl | Pestaña «Baúl» del popup o `Alt+Mayús+B` |
+| Guardar en el Baúl | Es la **primera pestaña** y la que se abre siempre (2.7; con texto seleccionado se abre el Inbox). También `Alt+Mayús+B` |
+| Clasificación automática del Baúl (2.7) | El selector «Normal / Más tarde / Visto» está plegado: una insignia dice qué ha detectado y por qué, y «Cambiar» lo despliega. **Canal** (`/@usuario`, `/channel/`, `/c/`, `/user/`) → se guarda como canal de YouTube. **Vídeo que ya está en el Baúl**, o con el % reproducido por encima del umbral de Opciones (50 % por defecto) → «Visto» (si ya estaba, lo marca sin duplicarlo). **Vídeo nuevo** → «Ver más tarde». Si no está seguro (sin conexión, una página de YouTube que no es vídeo ni canal) usa «Ver más tarde», con «?» en la insignia. Las webs que no son de YouTube no se clasifican. La categoría de partida es la última usada |
+| Duplicados (2.7) | Un vídeo se identifica por su **ID**: `watch?v=…&list=…`, `youtu.be/…`, `shorts/…`, `live/…` y `embed/…` son el mismo, y se guarda siempre como `https://www.youtube.com/watch?v=ID` |
 | Envío rápido (sin popup) | Clic derecho sobre texto seleccionado o un enlace → «Enviar … al Inbox ya»: llega como tarea y un aviso del sistema lo confirma (o avisa de que quedó en la cola) |
 | Desde la página | Clic derecho: «Enviar … al Inbox…» (abre el popup), «Enviar esta página al Inbox», «Guardar el enlace / esta página en el Baúl» |
 | Prioridad y categoría | Prioridad en un clic (flechas para moverse); las últimas categorías usadas, y después las del Panel, salen como chips bajo el campo |
 | Paso de otra tarea o idea (2.5) | En el Inbox del popup, «Paso de»: elige una tarea o idea existente (del mismo tipo) y lo que escribas se crea como su paso |
 | Prefijos (2.5) | Igual que en el Panel y el escritorio: `t:` tarea, `i:` idea, `r:` rutina («r: gimnasio lunes y jueves a las 19»), `e:` evento en lenguaje natural («e: dentista mañana 17:00»; si la fecha no se entiende, va al Inbox con «Revisar fecha») |
 | Agenda (2.5) | Pestaña «Agenda» o `Alt+Mayús+A`: los próximos 7 días (eventos, tareas con fecha y rutinas); el círculo completa una tarea o la rutina de ese día, la flecha la pasa a mañana (conserva la hora). Arriba, «Nuevo evento» en lenguaje natural con vista previa antes de crearlo. Sin conexión muestra la última agenda guardada y los eventos nuevos van a la cola |
+| Baúl: estado y canal (2.6.1) | «Guardar como»: Normal, Más tarde o Visto. En un vídeo de YouTube avisa si su canal está en el Baúl y, si no, lo añade con un botón. «Paso de…» está plegado en el Inbox |
+| YouTube (2.6) | Si ves un vídeo de un canal guardado en el Baúl, se marca como visto al reproducir la mitad (ajustable en Opciones; si no estaba en el Baúl, se añade ya como visto). En la página de ese canal, los vídeos vistos salen atenuados con «✓ Visto». Los demás canales no se envían al Panel |
 | Enviar | `Ctrl+Intro` |
 
 **Tema**: en las opciones, los mismos 9 temas que el Panel (Catppuccin Mocha por defecto). Se aplica al popup y a las
@@ -54,6 +58,7 @@ o token no válido. Se actualiza cada minuto y la cola se reintenta a la vez.
 - `manifest.json` — Manifest V2 (API `browser.*` de Firefox). Mismo id que la versión anterior.
 - `lib/panel.js` — configuración, peticiones con `Authorization: Bearer`, cola sin conexión (común).
 - `background.js` — menús contextuales (con el envío rápido y su notificación), atajos, insignia y reintentos.
+- `youtube.js`, `youtube.css` — content script de youtube.com: marca vistos y pinta las miniaturas (las peticiones las hace `background.js`).
 - `autologin.js` — content script de `/login`: rellena la contraseña y entra (solo en la dirección configurada).
 - `popup.*`, `options.*`, `ui.css` — interfaz (variables por función: `--bg`, `--accent`, `--control`…).
 - `themes.css`, `lib/themes.js` — temas, **generados** con `python -m scripts.themes` desde `core/themes.py` (las mismas

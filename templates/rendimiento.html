@@ -1,0 +1,50 @@
+{% extends "_layout.html" %}
+{% block head %}<link rel="stylesheet" href="{{ asset('/static/css/hoy.css') }}"><link rel="stylesheet" href="{{ asset('/static/css/rendimiento.css') }}">{% endblock %}
+{% block body_class %}page-rendimiento{% endblock %}
+{% block title_icon %}{{ icon('activity') }}{% endblock %}
+{% block actions %}
+<div class="cal-nav rd-nav">
+  <button type="button" class="btn btn-ghost btn-icon" data-day="-1" aria-label="Día anterior">{{ icon('chevron-left') }}</button>
+  <button type="button" class="btn btn-sm" data-day="0" id="rdDayLabel">Hoy</button>
+  <button type="button" class="btn btn-ghost btn-icon" data-day="1" id="rdNext" aria-label="Día siguiente">{{ icon('chevron-right') }}</button>
+</div>
+<button type="button" class="btn btn-ghost btn-icon" id="rdSettings" aria-label="Ajustes de Rendimiento" title="Ajustes de Rendimiento">{{ icon('sliders-horizontal') }}</button>
+<button type="button" class="btn btn-primary btn-sm" id="rdLog" aria-label="Registrar el día">{{ icon('pencil', 'icon-sm') }}<span id="rdLogLabel" class="hide-mobile">Registrar</span></button>
+{% endblock %}
+{% block content %}
+<div class="rd">
+  <p class="hoy-sub small muted" id="rdSub" aria-live="polite"></p>
+  <div class="segmented rd-tabs" role="tablist" aria-label="Vistas">
+    <button type="button" role="tab" id="rdTab-hoy" aria-controls="rdPanel-hoy" data-tab="hoy" aria-selected="true">Hoy</button>
+    <button type="button" role="tab" id="rdTab-semana" aria-controls="rdPanel-semana" data-tab="semana" aria-selected="false" tabindex="-1"><span class="hide-mobile">Semana / mes</span><span class="rd-mobile" aria-hidden="true">Semana</span><span class="sr-only rd-mobile-sr">Semana / mes</span></button>
+    <button type="button" role="tab" id="rdTab-examenes" aria-controls="rdPanel-examenes" data-tab="examenes" aria-selected="false" tabindex="-1">Exámenes</button>
+    <button type="button" role="tab" id="rdTab-correlaciones" aria-controls="rdPanel-correlaciones" data-tab="correlaciones" aria-selected="false" tabindex="-1"><span class="hide-mobile">Correlaciones</span><span class="rd-mobile" aria-hidden="true">Correl.</span><span class="sr-only rd-mobile-sr">Correlaciones</span></button>
+    <button type="button" role="tab" id="rdTab-auditoria" aria-controls="rdPanel-auditoria" data-tab="auditoria" aria-selected="false" tabindex="-1"><span class="hide-mobile">Auditoría</span><span class="rd-mobile" aria-hidden="true">IA</span><span class="sr-only rd-mobile-sr">Auditoría</span></button>
+  </div>
+
+  <section role="tabpanel" id="rdPanel-hoy" aria-labelledby="rdTab-hoy" class="rd-panel">
+    <div id="rdToday"><span class="skeleton skeleton-card"></span></div>
+  </section>
+  <section role="tabpanel" id="rdPanel-semana" aria-labelledby="rdTab-semana" class="rd-panel" hidden>
+    <div class="rd-range">
+      <div class="segmented" role="group" aria-label="Periodo">
+        <button type="button" data-range="7" aria-pressed="true">7 días</button>
+        <button type="button" data-range="30" aria-pressed="false">30 días</button>
+      </div>
+      <span class="small muted" id="rdRangeLabel"></span>
+    </div>
+    <div id="rdWeek"></div>
+  </section>
+  <section role="tabpanel" id="rdPanel-examenes" aria-labelledby="rdTab-examenes" class="rd-panel" hidden>
+    <div id="rdExams"></div>
+  </section>
+  <section role="tabpanel" id="rdPanel-correlaciones" aria-labelledby="rdTab-correlaciones" class="rd-panel" hidden>
+    <div id="rdCorr"></div>
+  </section>
+  <section role="tabpanel" id="rdPanel-auditoria" aria-labelledby="rdTab-auditoria" class="rd-panel" hidden>
+    <div id="rdAudit"></div>
+  </section>
+</div>
+<div class="rd-tip" id="rdTip" role="tooltip" hidden></div>
+{% endblock %}
+{% block scripts %}<script src="{{ asset('/static/js/rendimiento.js') }}"></script>{% endblock %}

@@ -11,7 +11,7 @@ import pytest
 from core.themes import THEMES
 
 SHOTS = os.environ.get("BOARD_SHOTS")
-PAGES = ["/", "/hoy", "/inbox", "/tareas", "/calendario", "/vault", "/graph", "/buscar", "/repaso", "/revision", "/gestion", "/backups", "/papelera", "/comidas/", "/estudio/"]
+PAGES = ["/", "/hoy", "/inbox", "/tareas", "/calendario", "/vault", "/graph", "/buscar", "/repaso", "/revision", "/rendimiento", "/gestion", "/backups", "/papelera", "/comidas/", "/estudio/"]
 
 CONTRAST = """() => {
   // rgb()/rgba() en 0–255; color(srgb …) (lo que da color-mix) en 0–1

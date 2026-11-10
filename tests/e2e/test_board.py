@@ -227,7 +227,11 @@ def test_movil_panel_deslizable_y_tactil(browser, server, api):
     page = ctx.new_page()
     try:
         _open(page, server, bid)
-        assert page.evaluate("document.getElementById('inboxLayout').classList.contains('sidebar-collapsed')")  # tablero a la vista
+        # en el móvil el Inbox empieza en la lista; tocar fuera la aparta y deja el tablero a la vista
+        assert not page.evaluate("document.getElementById('inboxLayout').classList.contains('sidebar-collapsed')")
+        page.mouse.click(10, 100)
+        page.wait_for_timeout(400)
+        assert page.evaluate("document.getElementById('inboxLayout').classList.contains('sidebar-collapsed')")
         page.click("#btnSidebar")
         page.wait_for_timeout(400)
         box = page.locator("#inboxSidebar").bounding_box()

@@ -80,11 +80,12 @@ def validate_public_url(url: str) -> str:
     return url
 
 
-def safe_get(url: str, max_bytes: int = MAX_BODY_BYTES, strict: bool = False) -> tuple[httpx.Response, bytes]:
+def safe_get(url: str, max_bytes: int = MAX_BODY_BYTES, strict: bool = False, headers: dict | None = None,
+             cookies: dict | None = None) -> tuple[httpx.Response, bytes]:
     """GET con validación SSRF en cada salto y tope de tamaño de respuesta.
     Con strict=True, superar el tope es un error (imágenes); si no, se trunca (HTML)."""
     current = url
-    with httpx.Client(timeout=TIMEOUT, headers=HEADERS, follow_redirects=False) as client:
+    with httpx.Client(timeout=TIMEOUT, headers=headers or HEADERS, cookies=cookies, follow_redirects=False) as client:
         for _ in range(MAX_REDIRECTS + 1):
             validate_public_url(current)
             with client.stream("GET", current) as r:
@@ -141,39 +142,52 @@ def _extract_channel_handle(url: str) -> str | None:
     return None
 
 
-def _search_channel_logo_image(channel_name: str) -> str:
-    """
-    Busca "<nombre del canal> youtube channel logo" en imágenes y
-    devuelve la primera URL encontrada. No es tan fiable como sacar el
-    avatar real del canal (para nombres poco conocidos puede traer
-    ruido), pero es mucho más robusto que pelearse con el muro de
-    consentimiento de YouTube o con el HTML interno de un buscador.
-    """
-    query = f"{channel_name} youtube channel logo"
-    try:
-        with DDGS() as ddgs:
-            results = list(ddgs.images(query, max_results=1))
-            if results:
-                return _http_url_or_empty(results[0].get("image", ""))
-    except Exception:
-        pass
-    return ""
+# La página de un canal trae su avatar real y su nombre en las etiquetas Open Graph. Con la cookie SOCS=CAI (solo las
+# necesarias) YouTube no enseña el muro de consentimiento de la UE; con un navegador «normal» devuelve la página
+# completa. Antes se buscaba «<canal> youtube channel logo» en un buscador de imágenes, que traía cualquier cosa.
+YT_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+    "Accept-Language": "es-ES,es;q=0.9,en;q=0.6",
+}
+YT_COOKIES = {"SOCS": "CAI"}
 
+
+def _og_tags(html: str) -> dict:
+    """og:title, og:image… de un HTML. Con una expresión regular sobre todo el texto: YouTube las pone tras un
+    «</head>» que aparece antes dentro de un script, y parsear 2 MB para cuatro etiquetas no compensa."""
+    import html as htmllib
+    out = {}
+    for prop, content in re.findall(r'<meta\s+property="og:([\w:]+)"\s+content="([^"]*)"', html):
+        out.setdefault(prop, htmllib.unescape(content).strip())
+    return out
+
+
+def youtube_channel_info(url: str) -> dict:
+    """{"title", "image"} reales de un canal, o {} si no se pudo (canal borrado, sin red…)."""
+    try:
+        _r, body = safe_get(url, headers=YT_HEADERS, cookies=YT_COOKIES)
+    except Exception as e:
+        log.info("No se pudo leer el canal %s: %s", url, e)
+        return {}
+    og = _og_tags(body.decode("utf-8", errors="replace"))
+    image = _http_url_or_empty(og.get("image", ""))
+    # el avatar viene a 900 px: con 240 basta y pesa una fracción
+    image = re.sub(r"=s\d+(-)", r"=s240\1", image) if "googleusercontent.com" in image else image
+    return {"title": og.get("title", ""), "image": image} if (image or og.get("title")) else {}
 
 
 def _youtube_channel_metadata(url: str) -> dict:
     handle = _extract_channel_handle(url)
-    title = handle if handle else _hostname(url)
-    avatar = _search_channel_logo_image(title)
+    info = youtube_channel_info(url)
+    title = info.get("title") or handle or _hostname(url)
     return {
         "title": title,
         "description": "Canal de YouTube",
-        "image": avatar,
+        "image": info.get("image", ""),  # sin imagen, la interfaz dibuja el icono de YouTube (nunca una foto inventada)
         "resource_type": "youtube",
         "channel": title,
     }
 
-    
 
 def _youtube_metadata(url: str) -> dict:
     """
@@ -209,6 +223,31 @@ def _youtube_metadata(url: str) -> dict:
 
     # Fallback: no es un vídeo reconocible ni un canal con handle claro
     return _web_metadata(url, force_type="youtube")
+
+
+_YT_HOST = re.compile(r"^(?:www\.|m\.|music\.)?(?:youtube\.com|youtube-nocookie\.com)$|^youtu\.be$", re.IGNORECASE)
+
+
+def youtube_video_id(url: str) -> str | None:
+    """ID de 11 caracteres de un vídeo de YouTube, sea cual sea la forma de la URL (watch?v=…&list=…, youtu.be/…, shorts/,
+    live/, embed/, music.youtube.com…). None si no es una URL de vídeo de YouTube (un canal, una lista sin vídeo, otra web…)."""
+    from urllib.parse import parse_qs, urlparse
+    try:
+        u = urlparse(url.strip())
+    except ValueError:
+        return None
+    if not _YT_HOST.match(u.hostname or ""):
+        return None
+    if (u.hostname or "").lower() == "youtu.be":
+        cand = u.path.lstrip("/").split("/")[0]
+    else:
+        m = re.match(r"^/(?:shorts|live|embed|v)/([\w-]{11})(?:/|$)", u.path)
+        cand = m.group(1) if m else (parse_qs(u.query).get("v") or [""])[0] if u.path.rstrip("/") == "/watch" else ""
+    return cand if re.fullmatch(r"[\w-]{11}", cand or "") else None
+
+
+def canonical_youtube_url(video_id: str) -> str:
+    return f"https://www.youtube.com/watch?v={video_id}"
 
 
 def _extract_youtube_id(url: str) -> str | None:
@@ -335,6 +374,28 @@ def fetch_metadata(url: str) -> dict:
 
 THUMB_MAX_BYTES = 12 * 1024 * 1024
 THUMB_WIDTH = 480
+
+
+def search_images(query: str, n: int = 8) -> list[dict]:
+    """Candidatas de una búsqueda de imágenes (DuckDuckGo): [{"image", "thumbnail", "width", "height", "title"}].
+    Solo fotos http(s) razonables: ni iconos diminutos, ni tiras alargadas, ni SVG/GIF."""
+    try:
+        with DDGS() as ddgs:
+            raw = list(ddgs.images(query, region="es-es", safesearch="moderate", max_results=max(n * 3, 15)))
+    except Exception as e:
+        log.info("Búsqueda de imágenes fallida (%s): %s", query, e)
+        return []
+    out = []
+    for r in raw:
+        img = _http_url_or_empty(r.get("image", ""))
+        w, h = int(r.get("width") or 0), int(r.get("height") or 0)
+        if not img or re.search(r"\.(svg|gif)(\?|$)", img, re.I) or w < 400 or h < 300 or not (0.7 <= w / h <= 2.2):
+            continue
+        out.append({"image": img, "thumbnail": _http_url_or_empty(r.get("thumbnail", "")), "width": w, "height": h,
+                    "title": (r.get("title") or "")[:200]})
+        if len(out) >= n:
+            break
+    return out
 
 
 def _sized_image_url(url: str) -> str:

@@ -8,9 +8,11 @@
     <span id="stats" class="small muted tabular graph-stats"></span>
   </div>
   <div class="page-actions">
-    <button type="button" id="btnEdit" onclick="toggleEditMode()" class="btn btn-ghost" aria-pressed="false">{{ icon('pencil') }}<span class="hide-mobile">Editar</span></button>
-    <button type="button" onclick="resetLayout()" class="btn btn-ghost hide-mobile" title="Recolocar con la física">{{ icon('sparkles') }}Auto</button>
-    <button type="button" id="btnSave" onclick="saveLayout()" class="btn btn-primary">{{ icon('save') }}<span class="hide-mobile">Guardar posiciones</span><span class="sr-only show-mobile">Guardar posiciones</span></button>
+    <button type="button" id="btnEdit" data-call="toggleEditMode" class="btn btn-ghost" aria-pressed="false">{{ icon('pencil') }}<span class="hide-mobile">Editar</span></button>
+    <button type="button" id="btnAutoUndo" data-call="undoAutoLayout" class="btn btn-ghost" hidden title="Deshacer recolocado: vuelve a las posiciones anteriores" aria-label="Deshacer recolocado">{{ icon('undo-2') }}</button>
+    <button type="button" id="btnAuto" data-call="openAutoLayout" class="btn btn-tinted" title="Recoloca todos los nodos en anillos por categoría">{{ icon('sparkles') }}<span class="hide-mobile">Generar automático</span><span class="sr-only show-mobile">Generar grafo automático</span></button>
+    <button type="button" data-call="resetLayout" class="btn btn-ghost btn-icon hide-mobile" title="Recolocar con la física" aria-label="Recolocar con la física">{{ icon('refresh-cw') }}</button>
+    <button type="button" id="btnSave" data-call="saveLayout" class="btn btn-primary">{{ icon('save') }}<span class="hide-mobile">Guardar posiciones</span><span class="sr-only show-mobile">Guardar posiciones</span></button>
   </div>
 </header>
 
@@ -24,10 +26,10 @@
   </div>
   <span class="toolbar-sep hide-mobile"></span>
   <div class="segmented" role="group" aria-label="Colorear por">
-    <button type="button" id="viewBtnStatus" aria-pressed="true" onclick="setColorMode('status')">Estado</button>
-    <button type="button" id="viewBtnStale" aria-pressed="false" onclick="setColorMode('stale')">{{ icon('flame', 'icon-sm') }}Repaso</button>
+    <button type="button" id="viewBtnStatus" aria-pressed="true" data-call="setColorMode" data-args='["status"]'>Estado</button>
+    <button type="button" id="viewBtnStale" aria-pressed="false" data-call="setColorMode" data-args='["stale"]'>{{ icon('flame', 'icon-sm') }}Repaso</button>
   </div>
-  <button type="button" class="chip" id="chipOrphans" aria-pressed="false" onclick="toggleOrphanHighlight()">{{ icon('circle-dot', 'icon-sm') }}Notas sin enlaces</button>
+  <button type="button" class="chip" id="chipOrphans" aria-pressed="false" data-call="toggleOrphanHighlight">{{ icon('circle-dot', 'icon-sm') }}Notas sin enlaces</button>
   <div id="tagChips" class="chips chips-scroll" role="group" aria-label="Etiquetas"></div>
 </div>
 
@@ -48,14 +50,15 @@
       <span class="status" id="panel-status"><span class="status-dot"></span><span id="panel-status-label"></span></span>
       <span id="panel-lock" class="subtle" hidden title="Nota cifrada">{{ icon('lock', 'icon-sm') }}</span>
       <span class="grow"></span>
-      <button type="button" onclick="closePanel()" class="btn btn-ghost btn-icon btn-sm" aria-label="Cerrar">{{ icon('x', 'icon-sm') }}</button>
+      <button type="button" data-call="closePanel" class="btn btn-ghost btn-icon btn-sm" aria-label="Cerrar">{{ icon('x', 'icon-sm') }}</button>
     </div>
     <h2 id="panel-title" class="panel-title"></h2>
     <p id="panel-cat" class="small muted"></p>
     <div id="panel-tags" class="chips"></div>
     <p id="panel-fc" class="small" hidden></p>
     <a id="panel-link" href="#" class="btn btn-primary btn-block">{{ icon('book-open', 'icon-sm') }}Abrir nota</a>
-    <button type="button" id="panel-connect-btn" onclick="startConnectFrom()" class="btn btn-tinted btn-block" hidden>{{ icon('link', 'icon-sm') }}Conectar con otra nota</button>
+    <button type="button" id="panel-pin-btn" data-call="togglePin" class="btn btn-block" aria-pressed="false">{{ icon('pin', 'icon-sm') }}<span id="panel-pin-label">Fijar posición</span></button>
+    <button type="button" id="panel-connect-btn" data-call="startConnectFrom" class="btn btn-tinted btn-block" hidden>{{ icon('link', 'icon-sm') }}Conectar con otra nota</button>
   </aside>
 
   <div id="loadingOverlay" class="graph-loading">

@@ -12,7 +12,7 @@ from fastapi.templating import Jinja2Templates
 from markupsafe import Markup, escape
 
 from core import config
-from core.themes import CHOICES as THEME_CHOICES, preview as theme_preview
+from core.themes import CHOICE_GROUPS as THEME_GROUPS, CHOICES as THEME_CHOICES, preview as theme_preview
 
 # Menú agrupado por intención: (clave del grupo, título, [(clave, etiqueta, ruta, icono), …])
 NAV_GROUPS = [
@@ -22,19 +22,20 @@ NAV_GROUPS = [
         ("rutinas", "Rutinas", "/rutinas", "repeat"),
         ("tareas", "Tareas", "/tareas", "list-todo"),
         ("inbox", "Inbox", "/inbox", "inbox"),
-        ("revision", "Revisión", "/revision", "history"),
+        ("revision", "Revisión", "/revision", "clipboard-check"),
     ]),
     ("conocimiento", "Conocimiento", [
         ("notas", "Notas", "/", "notebook-pen"),
         ("grafo", "Grafo", "/graph", "waypoints"),
         ("baul", "Baúl", "/vault", "library"),
-        ("repaso", "Repaso", "/repaso", "calendar-days"),
+        ("repaso", "Repaso", "/repaso", "layers"),
         ("buscar", "Buscar", "/buscar", "search"),
     ]),
     ("vida", "Vida", [
         ("comidas", "Comidas", "/comidas/", "utensils-crossed"),
-        ("economia", "Economía", "/economia", "wallet"),
         ("estudio", "Estudio", "/estudio/", "graduation-cap"),
+        ("economia", "Economía", "/economia", "wallet"),
+        ("rendimiento", "Rendimiento", "/rendimiento", "activity"),
     ]),
     ("sistema", "Sistema", [
         ("gestion", "Gestión", "/gestion", "table-2"),
@@ -42,8 +43,9 @@ NAV_GROUPS = [
         ("papelera", "Papelera", "/papelera", "trash-2"),
     ]),
 ]
-# Destinos de la barra inferior en móvil (el quinto es siempre "Más")
-TABBAR = ["hoy", "notas", "inbox", "comidas"]
+# Destinos por defecto de la barra inferior en móvil, en su orden (el quinto es siempre "Más"). Se pueden elegir
+# otros, hasta 4, en Ajustes (Prefs «tabbar», static/js/tabbar-init.js).
+TABBAR = ["hoy", "calendario", "tareas", "notas"]  # en el orden del menú, como los que se eligen
 
 templates = Jinja2Templates(directory=str(config.PROJECT_ROOT / "templates"))
 
@@ -78,16 +80,30 @@ def asset(url: str) -> str:
     return f"{url}?v={cached[1]}"
 
 
-def icon(name: str, cls: str = "") -> Markup:
+def icon(name: str, cls: str = "", label: str | None = None) -> Markup:
+    """Icono del sprite. Sin `label` es decorativo (lo nombra el control); con él, informa por sí solo."""
+    a11y = f'role="img" aria-label="{escape(label)}"' if label else 'aria-hidden="true"'
     return Markup(
-        f'<svg class="icon {escape(cls)}" aria-hidden="true"><use href="{asset("/static/icons.svg")}#i-{escape(name)}"></use></svg>'
+        f'<svg class="icon {escape(cls)}" {a11y}><use href="{asset("/static/icons.svg")}#i-{escape(name)}"></use></svg>'
+    )
+
+
+def brand_mark(cls: str = "") -> Markup:
+    """Logo del Panel con los colores del tema activo: tres azulejos (Notas, Inbox, Tareas) y el nodo (Hoy)."""
+    return Markup(
+        f'<svg class="brand-mark {escape(cls)}" viewBox="0 0 24 24" aria-hidden="true">'
+        '<rect x="3" y="3" width="7.5" height="7.5" rx="2" style="fill: var(--tile-notas)"/>'
+        '<rect x="13.5" y="3" width="7.5" height="7.5" rx="2" style="fill: var(--tile-inbox)"/>'
+        '<rect x="3" y="13.5" width="7.5" height="7.5" rx="2" style="fill: var(--tile-tareas)"/>'
+        '<circle cx="17.25" cy="17.25" r="3.75" style="fill: var(--tile-hoy)"/>'
+        '<path d="m10.5 10.5 4.1 4.1" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/></svg>'
     )
 
 
 templates.env.globals.update(
-    icon=icon, asset=asset, theme_choices=THEME_CHOICES, theme_preview=theme_preview,
+    icon=icon, asset=asset, brand_mark=brand_mark, theme_choices=THEME_CHOICES, theme_groups=THEME_GROUPS, theme_preview=theme_preview,
     nav_groups=NAV_GROUPS,
-    tabbar=lambda: [n for n in _all_nav() if n[0] in TABBAR],
+    tabbar_default=TABBAR,
     nav_all=_all_nav,
 )
 

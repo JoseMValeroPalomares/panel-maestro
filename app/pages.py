@@ -52,6 +52,11 @@ def read_finance_page(request: Request):
     return render(request, "economia.html", "economia", "Economía")
 
 
+@router.get("/rendimiento")
+def read_performance_page(request: Request):
+    return render(request, "rendimiento.html", "rendimiento", "Rendimiento")
+
+
 @router.get("/calendario")
 def read_calendar_page(request: Request):
     return render(request, "calendario.html", "calendario", "Calendario")

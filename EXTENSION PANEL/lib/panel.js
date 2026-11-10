@@ -63,7 +63,7 @@
 
   /* ---------- Envíos (con cola si no hay conexión) ---------- */
   // /api/items: la misma API que usa el Panel para crear; /api/capture: prefijos y eventos en lenguaje natural
-  const ENDPOINTS = { inbox: '/api/items', vault: '/api/resources', capture: '/api/capture' };
+  const ENDPOINTS = { inbox: '/api/items', vault: '/api/resources', capture: '/api/capture', ytvisto: '/api/ext/youtube/visto' };
 
   // Lo que dejó en la cola una versión anterior (2.1 o menos) va con el formato de /api/inbox
   const upgrade = (kind, body) => (kind === 'inbox' && body && body.text === undefined && body.content !== undefined

@@ -360,6 +360,9 @@ def test_capturas(browser, server, api, w, h):
         page.wait_for_function("window.__board && __board.state.boardId === %d" % bid)
         page.wait_for_timeout(400)
         assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")  # sin desbordamiento horizontal
+        if mobile:  # el Inbox móvil empieza en la lista: se aparta para trabajar en el tablero
+            page.evaluate("document.getElementById('inboxLayout').classList.contains('sidebar-collapsed') || document.getElementById('btnSidebar').click()")
+            page.wait_for_timeout(400)
         page.evaluate("__board.state.sel = new Set(['d', 'e2']); __board.renderAll()")
         page.wait_for_timeout(100)
         if not page.locator("#boardProps").is_visible():  # tablero estrecho: el panel es una hoja que se abre a petición

@@ -18,6 +18,7 @@ tu propio equipo, funciona sin nube ni cuentas externas y lo usas desde el naveg
 | **Baúl** | Enlaces y vídeos guardados, con su miniatura y por categorías. |
 | **Comidas** | Ingredientes y platos con macros, generador del menú semanal y lista de la compra. |
 | **Economía** | Cuentas, gastos, presupuestos, deudas, gastos fijos y lista de deseos. |
+| **Rendimiento** | Registro del día en dos minutos, semáforos, reglas, exámenes y auditoría con IA gratuita ([docs/rendimiento.md](docs/rendimiento.md)). |
 | **Copias** | Copias de seguridad automáticas cada noche, que se restauran desde la propia web. |
 
 ## Capturas
@@ -111,7 +112,7 @@ estropea el disco, se pierde con él. Para mover el panel a otro equipo, instál
 - **Captura con prefijos**, en cualquier caja de captura: `t: llamar al banco` (tarea), `i: app de recetas` (idea),
   `r: gimnasio lunes y jueves a las 19` (rutina), `e: dentista mañana 17:00` (evento), `g: 4,50 café` (gasto).
 - **`Ctrl+K`** abre la paleta para saltar a cualquier sitio y **`?`** enseña los atajos de la página en la que estás.
-- Los **temas de color** se cambian en los ajustes del panel: Catppuccin, Nord, Dracula, Gruvbox, Tokyo Night y más.
+- Los **temas de color** se cambian en los ajustes del panel: Catppuccin, Nord, Dracula, Gruvbox, Tokyo Night, Rosé Pine, Kanagawa, Everforest, Solarized, Papel, Alto contraste y más.
 
 ## Extras opcionales
 
@@ -124,6 +125,7 @@ El panel funciona completo sin nada de esto.
 | **Reloj ESP32** | Pantalla de escritorio con reloj, música, calendario, pomodoro y repaso | [esp32_deskclock/README.md](esp32_deskclock/README.md) y `ESP32_HOST` en `.env` |
 | **Escritorio Linux** | Captura con un atajo y agenda en la Waybar | [docs/escritorio.md](docs/escritorio.md) |
 | **Dotfiles** | Subir tu configuración a GitHub desde Copias | [docs/dotfiles.md](docs/dotfiles.md) |
+| **IA de Rendimiento** | Auditoría diaria y semanal con modelos gratuitos y respaldo automático | Una clave en `.env` ([docs/rendimiento.md](docs/rendimiento.md)) |
 
 Después de cambiar `.env`, reinicia el panel. Todas las opciones están explicadas en [.env.example](.env.example).
 

@@ -6,7 +6,8 @@
 
   async function load() {
     try { entries = (await api('/api/trash', { quiet: true })).entries; } catch {
-      $('trashList').innerHTML = `<li>${emptyState({ iconName: 'wifi-off', title: 'No se pudo cargar la papelera', compact: true })}</li>`;
+      $('trashList').innerHTML = '<li></li>';
+      showState($('trashList').firstElementChild, loadFailed('No se pudo cargar la papelera', true), load);
       return;
     }
     paint();

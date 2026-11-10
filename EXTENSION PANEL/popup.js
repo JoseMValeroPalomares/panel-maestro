@@ -10,7 +10,7 @@ const iconSvg = (name) => `<svg class="icon"><use href="icons.svg#i-${name}"/></
 let page = { url: '', title: '' };
 let itemType = 'tarea';
 let items = [];          // tareas e ideas del Panel (para elegir el padre de un paso)
-const TABS = ['inbox', 'vault', 'cal'];
+const TABS = ['vault', 'inbox', 'cal'];   // la primera es el Baúl
 const PREFIX_RE = /^\s*[tireg]\s*:/i;
 
 /* ---------- Mensajes ---------- */
@@ -68,11 +68,101 @@ function fillParents() {
   sel.replaceChildren(Object.assign(document.createElement('option'), { value: '', textContent: 'Ninguno: elemento nuevo' }),
     ...list.map((i) => Object.assign(document.createElement('option'), { value: String(i.id), textContent: (i.text.split('\n')[0] || '').slice(0, 70) + (i.origin === 'nota' && i.note_title ? ` · ${i.note_title}` : '') })));
   sel.value = list.some((i) => String(i.id) === keep) ? keep : '';
+  syncParent();
 }
+function syncParent() {
+  const sel = $('parent'), more = $('moreParent');
+  const txt = sel.value ? sel.selectedOptions[0].textContent : '';
+  $('parentSummary').textContent = txt ? `Paso de: ${txt}` : 'Añadir como paso de otra tarea o idea';
+  more.toggleAttribute('data-set', !!sel.value);
+}
+$('parent').addEventListener('change', syncParent);
 document.querySelectorAll('button[data-type]').forEach((b) => b.addEventListener('click', () => {
   setType(b.dataset.type);
   browser.storage.local.set({ lastType: b.dataset.type });
 }));
+
+/* ---------- Baúl: clasificación AUTOMÁTICA (lib/classify.js); el selector queda plegado y se cambia con un clic ---------- */
+let vaultState = '';
+let stateTouched = false;       // si la has cambiado tú, la detección no la pisa
+let detectToken = 0;
+function setVaultState(v) {
+  vaultState = v;
+  document.querySelectorAll('#vaultState button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.state === v)));
+}
+$('vaultState').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  stateTouched = true;
+  setVaultState(b.dataset.state);
+  $('detectedBadge').textContent = { '': 'Normal', later: 'Ver más tarde', seen: 'Visto' }[b.dataset.state];
+  $('detectedReason').textContent = 'Elegido por ti';
+  $('detected').dataset.kind = b.dataset.state === 'later' ? 'later' : b.dataset.state === 'seen' ? 'seen' : 'normal';
+});
+$('detectedChange').addEventListener('click', () => {
+  const open = $('vaultState').hidden;
+  $('vaultState').hidden = !open;
+  $('detectedChange').setAttribute('aria-expanded', String(open));
+  $('detectedChange').textContent = open ? 'Ocultar' : 'Cambiar';
+});
+
+// Progreso del vídeo que se está viendo en la pestaña (mismo criterio que youtube.js: tiempo reproducido frente al umbral)
+async function videoProgress() {
+  try {
+    const [r] = await browser.tabs.executeScript({ code: `/*panel-progress*/(() => { const v = document.querySelector('video.html5-main-video, video'); return v && isFinite(v.duration) ? { played: v.currentTime, duration: v.duration } : null; })()` });
+    return r && typeof r.played === 'number' ? r : null;
+  } catch { return null; }
+}
+async function detectVault() {
+  const token = ++detectToken;
+  const url = $('vaultUrl').value.trim();
+  let exists = null, prog = null;
+  const id = Classify.youtubeId(url);
+  if (id) {
+    try { exists = (await Panel.request('/api/ext/youtube/video?id=' + id)).exists; } catch { exists = null; }
+    if (url === page.url) prog = await videoProgress();
+  }
+  if (token !== detectToken || stateTouched) return;
+  const { ytPct = 50 } = await browser.storage.local.get('ytPct');
+  const d = Classify.detect({ url, exists, played: prog?.played ?? null, duration: prog?.duration ?? null, threshold: Math.min(100, Math.max(10, Number(ytPct) || 50)) });
+  setVaultState(d.save);
+  $('detected').dataset.kind = d.state;
+  $('detected').dataset.certain = String(d.certain);
+  $('detectedBadge').textContent = d.label;
+  $('detectedReason').textContent = d.certain ? d.reason : `${d.reason}. Puedes cambiarlo.`;
+}
+
+/* ---------- YouTube: ¿el canal de este vídeo está en el Baúl? ---------- */
+let ytChannel = '';
+async function checkYoutube() {
+  if (!/^https?:\/\/(www\.)?youtube\.com\/watch\?/i.test(page.url)) return;
+  let handle = '';
+  try {
+    [handle] = await browser.tabs.executeScript({ code: `(() => { const a = document.querySelector('ytd-watch-metadata ytd-video-owner-renderer a[href*="/@"], ytd-watch-metadata ytd-video-owner-renderer a[href*="/channel/"], #owner a[href*="/@"], #owner a[href*="/channel/"]'); return a ? decodeURIComponent(a.getAttribute('href')).split('?')[0] : ''; })()` });
+  } catch { return; }
+  if (!handle) return;
+  ytChannel = handle;
+  try {
+    const r = await Panel.request('/api/ext/youtube/canal?channel=' + encodeURIComponent(handle));
+    $('ytCard').hidden = false;
+    $('ytCard').dataset.state = r.tracked ? 'on' : 'off';
+    $('ytText').textContent = r.tracked ? 'Canal en el Baúl: sus vídeos se marcan solos como vistos.' : `El canal ${handle.replace(/^\//, '')} no está en el Baúl.`;
+    $('ytAdd').hidden = r.tracked;
+  } catch { /* sin conexión: sin aviso */ }
+}
+$('ytAdd').addEventListener('click', async () => {
+  $('ytAdd').disabled = true;
+  try {
+    await Panel.send('vault', { url: 'https://www.youtube.com' + ytChannel, category: $('vaultCategory').value.trim() || 'General', watch_later: false });
+    $('ytCard').dataset.state = 'on';
+    $('ytText').textContent = 'Canal añadido al Baúl: sus vídeos se marcarán solos como vistos.';
+    $('ytAdd').hidden = true;
+  } catch (err) {
+    if (err.kind === 'duplicate') { $('ytAdd').hidden = true; $('ytText').textContent = 'Ese canal ya estaba en el Baúl.'; }
+    else showResult('error', err.message);
+  }
+  $('ytAdd').disabled = false;
+});
 
 /* ---------- Prioridad (radio en un clic; flechas para moverse) ---------- */
 const prioButtons = () => [...document.querySelectorAll('#priority [role=radio]')];
@@ -207,8 +297,11 @@ async function init() {
   renderChips('inbox');
   renderChips('vault');
 
-  selectTab(pending?.tab || (selection ? 'inbox' : TABS.includes(store.lastTab) ? store.lastTab : 'inbox'));
+  // Se abre siempre en el Baúl (salvo que lo pida el menú contextual o haya texto seleccionado: eso es del Inbox)
+  selectTab(pending?.tab || (selection ? 'inbox' : 'vault'));
+  detectVault();
   loadStatus();
+  checkYoutube();
 }
 
 function updateKind() {
@@ -216,7 +309,8 @@ function updateKind() {
   $('kind').textContent = Panel.isWebUrl(u) ? Panel.detectType(u).label : '';
   $('kind').hidden = !Panel.isWebUrl(u);
 }
-$('vaultUrl').addEventListener('input', updateKind);
+$('vaultUrl').addEventListener('input', () => { updateKind(); clearTimeout(detectTimer); detectTimer = setTimeout(detectVault, 400); });
+let detectTimer = null;
 $('includeLink').addEventListener('change', (e) => browser.storage.local.set({ includeLink: e.target.checked }));
 
 /* ---------- Enviar ---------- */
@@ -234,7 +328,7 @@ async function submit(kind) {
     const url = $('vaultUrl').value.trim();
     if (!Panel.isWebUrl(url)) { showResult('error', 'El enlace debe empezar por http:// o https://'); $('vaultUrl').focus(); return; }
     const category = $('vaultCategory').value.trim() || 'General';
-    body = { url, category, watch_later: $('watchLater').checked };
+    body = { url, category, watch_later: vaultState === 'later', watched: vaultState === 'seen' };
     browser.storage.local.set({ lastVaultCat: $('vaultCategory').value.trim() });
   }
   btn.disabled = true;
@@ -242,7 +336,7 @@ async function submit(kind) {
     const r = await Panel.send(kind, body);
     if (kind !== 'capture') rememberCategory(kind, kind === 'inbox' ? body.category : $('vaultCategory').value.trim());
     if (r.sent) {
-      showResult('ok', kind === 'capture' ? (r.data?.message || 'Guardado') : tab === 'inbox' ? (body.parent_id ? 'Añadido como paso' : `Enviado al Inbox como ${itemType === 'tarea' ? 'tarea' : 'idea'}`) : 'Guardado en el Baúl');
+      showResult('ok', kind === 'capture' ? (r.data?.message || 'Guardado') : tab === 'inbox' ? (body.parent_id ? 'Añadido como paso' : `Enviado al Inbox como ${itemType === 'tarea' ? 'tarea' : 'idea'}`) : `Guardado en el Baúl${vaultState === 'seen' ? ' como visto' : vaultState === 'later' ? ' para más tarde' : Classify.isChannel(body.url) ? ' como canal de YouTube' : ''}`);
       setTimeout(() => window.close(), 900);
     } else {
       showResult('warn', `Sin conexión: guardado en la cola (${r.queued}). Se enviará solo cuando vuelva la conexión.`);

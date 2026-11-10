@@ -2,7 +2,8 @@
 // Tema guardado (por defecto Catppuccin Mocha); se aplica antes de pintar para que no parpadee
 try {
   var th = localStorage.getItem('theme');
-  document.documentElement.setAttribute('data-theme', /^(system|mocha|latte|light|dark|nord|dracula|gruvbox|tokyo)$/.test(th || '') ? th : 'mocha');
+  // Cualquier nombre con forma válida: un tema que no exista cae en Mocha (es el de :root en themes.css)
+  document.documentElement.setAttribute('data-theme', /^[a-z0-9-]{2,24}$/.test(th || '') ? th : 'mocha');
 } catch (e) { document.documentElement.setAttribute('data-theme', 'mocha'); }
 // Navegación lateral plegada a iconos: la preferencia guardada manda; sin ella, plegada por debajo de 1024 px
 try {

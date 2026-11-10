@@ -17,7 +17,7 @@
 .sheet-grabber { width: 40px; height: 5px; border-radius: 3px; background: var(--fill-strong); margin: 0 auto; flex-shrink: 0; }
 .col-head { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-3); min-height: 32px; }
 .col-head h2 { font-size: var(--fs-17); }
-.col-icon[data-kind="plantilla"] { background: var(--tile-estudio); }
+.col-icon[data-kind="plantilla"] { background: var(--c-routine); }
 .col-toggle { margin-left: auto; color: var(--text-3); }
 .col-toggle .icon { transition: rotate var(--dur) var(--ease-out); }
 .is-folded .col-toggle .icon { rotate: -90deg; }

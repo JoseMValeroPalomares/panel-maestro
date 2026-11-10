@@ -88,9 +88,44 @@ def proyecto_env(tmp_path_factory):
     return {"repo": repo, "remote": remote}
 
 
+def _proveedor_ia_falso(tmp: Path) -> dict:
+    """Proveedor de IA simulado (API tipo OpenAI) en un puerto libre: devuelve la nota con unas erratas corregidas.
+    Así el botón «Corregir con IA» se prueba de principio a fin sin red ni claves reales."""
+    import json
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers["content-length"])))
+            partes = body["messages"][-1]["content"].split("=== NOTA ===\n", 1)
+            nota = partes[1] if len(partes) == 2 else "ok"      # la prueba de Ajustes no lleva nota
+            for a, b in (("tension", "tensión"), ("Tension", "Tensión"), ("capitulo", "capítulo"), ("Simbolo", "Símbolo")):
+                nota = nota.replace(a, b)
+            data = json.dumps({"choices": [{"message": {"content": nota}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 50, "completion_tokens": 50}}).encode()
+            self.send_response(200)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+    port = _free_port()
+    srv = HTTPServer(("127.0.0.1", port), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    f = tmp / "modelos-e2e.json"
+    f.write_text(json.dumps({"max_intentos_total": 4, "reintentos_por_modelo": 1, "modelos": [
+        {"id": "e2e-falso", "proveedor": "Proveedor simulado", "base_url": f"http://127.0.0.1:{port}/v1", "modelo": "modelo-falso", "clave_env": "E2E_IA_KEY", "timeout_s": 10}]}))
+    return {"PANEL_LLM_MODELS": str(f), "E2E_IA_KEY": "x", "_srv": srv}
+
+
 @pytest.fixture(scope="session")
 def server(dotfiles_env, proyecto_env):
     tmp = Path(tempfile.mkdtemp(prefix="panel-e2e-"))
+    ia = _proveedor_ia_falso(tmp)
+    srv_ia = ia.pop("_srv")
     (tmp / "data" / "notes").mkdir(parents=True)
     (tmp / "data" / "notes" / "plan-e2e.md").write_text(
         "---\ncategory: E2E\nstatus: por-escribir\ntitle: Plan E2E\n---\n\n# Plan\n\n- [ ] Tarea de nota uno\n- [ ] Tarea de nota dos\n",
@@ -106,7 +141,7 @@ def server(dotfiles_env, proyecto_env):
            "PANEL_LOG_LEVEL": "WARNING",
            # ESP32 «apagado»: una dirección de documentación (TEST-NET-1) que nunca responde, como la placa sin
            # corriente; la del .env depende de la red (si otro equipo ocupa esa IP, contesta y el test cambia)
-           "ESP32_HOST": "192.0.2.1"}
+           "ESP32_HOST": "192.0.2.1", **ia}
     proc = subprocess.Popen([sys.executable, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", str(port)],
                             cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     base = f"http://127.0.0.1:{port}"
@@ -122,6 +157,7 @@ def server(dotfiles_env, proyecto_env):
     yield base
     proc.terminate()
     proc.wait(timeout=10)
+    srv_ia.shutdown()
     shutil.rmtree(tmp, ignore_errors=True)
 
 

@@ -146,7 +146,7 @@
 .macro-tile { display: flex; flex-direction: column; align-items: center; padding: var(--sp-3) var(--sp-1); border-radius: var(--r-md); background: var(--bg-elev-2); text-align: center; }
 .macro-tile b { font-size: var(--fs-17); }
 .macro-tile span { font-size: var(--fs-12); color: var(--text-2); font-weight: 500; }
-.macro-tile small { font-size: 11px; color: var(--text-3); }
+.macro-tile small { font-size: 12px; color: var(--text-3); }
 .recipe-h { font-size: var(--fs-15); margin: var(--sp-5) 0 var(--sp-2); }
 .ing-list .row-trail { color: var(--text-2); white-space: nowrap; }
 .warn-dot { display: inline-flex; vertical-align: -2px; color: var(--warning); }
@@ -326,3 +326,22 @@
 .week-tip { display: flex; gap: var(--sp-2); align-items: flex-start; margin: var(--sp-3) 0 0; padding: var(--sp-2) var(--sp-3);
   border-radius: var(--r-sm); background: color-mix(in srgb, var(--warning) 10%, transparent); color: var(--text-2); line-height: 1.45; }
 .week-tip .icon { flex-shrink: 0; margin-top: 2px; color: var(--warning-text, var(--warning)); }
+
+/* Semana vacía: qué hacer primero, encima de la rejilla */
+.week-empty { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-3) var(--sp-4); margin-bottom: var(--sp-3);
+  border-radius: var(--r-md); background: color-mix(in srgb, var(--tile-comidas) 12%, var(--bg-elev)); color: var(--text-2); font-size: var(--fs-13); }
+.week-empty > .icon { color: color-mix(in srgb, var(--tile-comidas) 60%, var(--text)); flex-shrink: 0; }
+.week-empty p { margin: 0; flex: 1; }
+.week-empty b { color: var(--text); }
+@media (max-width: 767px) { .week-empty { flex-wrap: wrap; } .week-empty .btn { margin-left: auto; } }
+
+/* Foto del plato: vista previa y selector de candidatas (comidas.js: openPhotoPicker) */
+.photo-row { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.photo-preview { width: 64px; height: 64px; border-radius: var(--r-md); background: var(--fill); display: grid; place-items: center; overflow: hidden; color: var(--text-3); flex-shrink: 0; }
+.photo-preview img { width: 100%; height: 100%; object-fit: cover; }
+.photo-url { display: block; margin-top: var(--sp-2); }
+.photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: var(--sp-2); min-height: 120px; }
+.photo-option { aspect-ratio: 4 / 3; border-radius: var(--r-md); overflow: hidden; background: var(--fill); border: 2px solid transparent; padding: 0; }
+.photo-option:hover, .photo-option:focus-visible { border-color: var(--accent); }
+.photo-option img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.photo-skel { aspect-ratio: 4 / 3; border-radius: var(--r-md); height: auto; }

@@ -15,7 +15,7 @@ ICONS = STATIC / "icons"
 # pintar cualquier pantalla sin red). Las páginas y la API se cachean al visitarlas.
 PRECACHE = [
     "/static/css/ds.css", "/static/js/ui.js", "/static/js/sortable.js", "/static/js/theme-init.js", "/static/js/auth-guard.js",
-    "/static/icons.svg", "/static/offline.html",
+    "/static/icons.svg", "/static/ilustraciones.svg", "/static/offline.html",
     "/static/fonts/inter-latin-wght-normal.woff2", "/static/fonts/inter-latin-ext-wght-normal.woff2",
     "/static/icons/icon.svg", "/static/icons/icon-192.png",
     "/static/css/cerebro.css", "/static/js/cerebro.js", "/static/css/inbox.css", "/static/js/inbox.js", "/static/css/board.css", "/static/js/board.js", "/static/js/inbox-layout.js",
@@ -79,6 +79,30 @@ MANIFEST = {
         {"name": "Comidas", "url": "/comidas/", "icons": [{"src": "/static/icons/icon-192.png", "sizes": "192x192"}]},
     ],
 }
+
+
+# Simulaciones de las notas: el código lo escribe el usuario y necesita JS en línea, que la CSP del panel ya no
+# permite. Corre en este documento aparte, dentro de un iframe con sandbox="allow-scripts" (origen opaco: no ve
+# cookies, almacenamiento ni el DOM del panel), con su propia CSP. El código llega por postMessage (cerebro.js).
+SIM_HTML = """<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>Simulación</title></head><body><script>
+addEventListener('message', function run(e) {
+  if (e.source !== parent || !e.data || e.data.type !== 'sim-run' || typeof e.data.code !== 'string') return;
+  removeEventListener('message', run);
+  document.open(); document.write(e.data.code); document.close();
+});
+parent.postMessage({ type: 'sim-ready' }, '*');
+</script></body></html>"""
+SIM_CSP = "; ".join([
+    "default-src 'none'", "script-src 'unsafe-inline'", "style-src 'unsafe-inline'", "img-src data: blob:",
+    "font-src data:", "connect-src 'none'", "form-action 'none'", "base-uri 'none'", "frame-ancestors 'self'",
+    "sandbox allow-scripts",
+])
+
+
+@router.get("/sim")
+def simulation_frame():
+    return Response(SIM_HTML, media_type="text/html; charset=utf-8",
+                    headers={"Content-Security-Policy": SIM_CSP, "Cache-Control": "no-cache"})
 
 
 @router.get("/manifest.webmanifest")

@@ -31,8 +31,8 @@
     { label: 'Ir a Tareas', icon: 'list-todo', keys: 'G T', run: go('/tareas'), words: 'ideas rutinas' },
     { label: 'Ir a Comidas', icon: 'utensils-crossed', keys: 'G M', run: go('/comidas/'), words: 'menú plan compra' },
     { label: 'Ir a Estudio', icon: 'graduation-cap', keys: 'G E', run: go('/estudio/'), words: 'esp32 pomodoro' },
-    { label: 'Revisión semanal', icon: 'history', keys: 'G R', run: go('/revision'), words: 'registro cambios completadas' },
-    { label: 'Repasar flashcards', icon: 'book-open', run: go('/repaso'), words: 'repaso' },
+    { label: 'Revisión semanal', icon: 'clipboard-check', keys: 'G R', run: go('/revision'), words: 'registro cambios completadas' },
+    { label: 'Repasar flashcards', icon: 'layers', run: go('/repaso'), words: 'repaso' },
     { label: 'Buscar en las notas', icon: 'search', keys: '/', run: go('/buscar'), words: 'texto completo' },
     { label: 'Papelera', icon: 'trash-2', run: go('/papelera'), words: 'borrado restaurar' },
     { label: 'Copias de seguridad', icon: 'database-backup', run: go('/backups'), words: 'backup' },
@@ -65,8 +65,11 @@
 
   function search(all, q) {
     if (!q.trim()) return all.filter((c) => c.group === 'Acciones');
-    return all.map((c) => ({ c, s: Math.max(fuzzyScore(q, c.label) * 1.2, fuzzyScore(q, c.sub || '') * 0.5) + (c.boost || 0) - (c.penalty || 0) }))
+    const found = all.map((c) => ({ c, s: Math.max(fuzzyScore(q, c.label) * 1.2, fuzzyScore(q, c.sub || '') * 0.5) + (c.boost || 0) - (c.penalty || 0) }))
       .filter((r) => r.s > (r.c.boost || 0) - (r.c.penalty || 0)).sort((a, b) => b.s - a.s).slice(0, 60).map((r) => r.c);
+    // Siempre, al final: buscar esas palabras dentro del texto de las notas (búsqueda avanzada, /buscar)
+    return [...found, { group: 'Texto completo', label: `Buscar «${q.trim()}» dentro de las notas`, icon: 'file-search',
+      run: go(`/buscar?q=${encodeURIComponent(q.trim())}`) }];
   }
 
   let dlg = null;
@@ -75,7 +78,7 @@
     dlg = document.createElement('dialog');
     dlg.className = 'modal palette';
     dlg.setAttribute('aria-label', 'Paleta de comandos');
-    dlg.innerHTML = `<div class="palette-search">${icon('command')}
+    dlg.innerHTML = `<div class="palette-search">${icon('search')}
         <label class="sr-only" for="paletteInput">Buscar notas, tareas, eventos, platos o acciones</label>
         <input id="paletteInput" class="palette-input" type="search" autocomplete="off" spellcheck="false" placeholder="Busca una nota, tarea, evento, plato o acción…"
           role="combobox" aria-expanded="true" aria-controls="paletteList" aria-autocomplete="list">

@@ -5,6 +5,15 @@ from app.migrations import MIGRATIONS
 from core.migrations import apply_pending, revert
 from tests.conftest import TEST_API_TOKEN
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _sin_red(monkeypatch):
+    """Los vídeos creados al marcarlos vistos piden sus metadatos en segundo plano: en los tests, sin red."""
+    monkeypatch.setattr("app.extension.do_scrape_and_save", lambda url, cat: None)
+
+
 AUTH = {"Authorization": f"Bearer {TEST_API_TOKEN}", "Origin": "moz-extension://1234-abcd"}
 
 
@@ -56,3 +65,46 @@ def test_migracion_6_arriba_y_abajo_sin_perder(tmp_path):
     assert tuple(conn.execute("SELECT id, priority, category FROM inbox_meta_backup").fetchone()) == (1, "alta", "C")
     apply_pending(conn, MIGRATIONS)
     assert "priority" in [r[1] for r in conn.execute("PRAGMA table_info(inbox)")]
+
+
+def test_youtube_visto_solo_de_canales_del_baul(anon):
+    vid = "dQw4w9WgXcQ"
+    # canal que no está en el Baúl: no se guarda nada
+    r = anon.post("/api/ext/youtube/visto", headers=AUTH, json={"video_id": vid, "channel": "@desconocido"})
+    assert r.json() == {"tracked": False}
+    assert anon.get("/api/ext/youtube/canal", headers=AUTH, params={"channel": "@desconocido"}).json()["tracked"] is False
+    assert anon.post("/api/ext/youtube/visto", headers=AUTH, json={"video_id": "corto", "channel": "@x"}).status_code == 422
+    # con el canal en el Baúl
+    assert anon.post("/api/resources", headers=AUTH, json={"url": "https://www.youtube.com/@CanalPrueba", "category": "Mates"}).status_code == 200
+    r = anon.post("/api/ext/youtube/visto", headers=AUTH, json={"video_id": vid, "channel": "@canalprueba", "title": "Un vídeo"})
+    assert r.json() == {"tracked": True, "created": True}
+    assert anon.post("/api/ext/youtube/visto", headers=AUTH, json={"video_id": vid, "channel": "@CanalPrueba"}).json()["created"] is False
+    res = [x for x in anon.get("/api/resources", headers=AUTH).json()["resources"] if vid in x["url"]]
+    assert len(res) == 1 and res[0]["watched"] == 1 and res[0]["category"] == "Mates" and res[0]["title"] == "Un vídeo"
+    c = anon.get("/api/ext/youtube/canal", headers=AUTH, params={"channel": "@CanalPrueba"}).json()
+    assert c == {"tracked": True, "watched": [vid]}
+
+
+def test_youtube_visto_marca_el_video_que_ya_estaba_en_el_baul(anon):
+    vid = "abcdefghijk"
+    anon.post("/api/resources", headers=AUTH, json={"url": "https://www.youtube.com/@Otro", "category": "Ocio"})
+    anon.post("/api/resources", headers=AUTH, json={"url": f"https://www.youtube.com/watch?v={vid}", "category": "Ocio", "watch_later": True})
+    assert anon.post("/api/ext/youtube/visto", headers=AUTH, json={"video_id": vid, "channel": "https://www.youtube.com/@Otro"}).json() == {"tracked": True, "created": False}
+    res = [x for x in anon.get("/api/resources", headers=AUTH).json()["resources"] if vid in x["url"]]
+    assert len(res) == 1 and res[0]["watched"] == 1 and res[0]["watch_later"] == 0
+
+
+def test_baul_guarda_ya_como_visto(anon):
+    r = anon.post("/api/resources", headers=AUTH, json={"url": "https://www.youtube.com/watch?v=vistoYaaaaa", "watched": True, "watch_later": True})
+    assert r.status_code == 200
+    res = next(x for x in anon.get("/api/resources", headers=AUTH).json()["resources"] if "vistoYaaaaa" in x["url"])
+    assert res["watched"] == 1 and res["watch_later"] == 0
+
+
+def test_youtube_visto_pide_los_metadatos_al_crear(anon, monkeypatch):
+    llamadas = []
+    monkeypatch.setattr("app.extension.do_scrape_and_save", lambda url, cat: llamadas.append((url, cat)))
+    anon.post("/api/resources", headers=AUTH, json={"url": "https://www.youtube.com/@ConMiniatura", "category": "Cine"})
+    anon.post("/api/ext/youtube/visto", headers=AUTH, json={"video_id": "miniatura01", "channel": "@conminiatura"}).json()
+    anon.post("/api/ext/youtube/visto", headers=AUTH, json={"video_id": "miniatura01", "channel": "@conminiatura"})
+    assert llamadas == [("https://www.youtube.com/watch?v=miniatura01", "Cine")]  # solo al crearlo

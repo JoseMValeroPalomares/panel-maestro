@@ -35,6 +35,9 @@ async function load() {
   $('autoLogin').checked = autoLogin;
   $('loginPassword').value = loginPassword;
   syncAutoLogin();
+  const { ytAuto = true, ytPct = 50 } = await browser.storage.local.get(['ytAuto', 'ytPct']);
+  $('ytAuto').checked = ytAuto;
+  $('ytPct').value = ytPct;
   (cfg.baseUrl ? $('token') : $('baseUrl')).focus();
 }
 
@@ -66,6 +69,14 @@ function syncAutoLogin() {
   if ($('autoLogin').checked) delete set.dataset.off; else set.dataset.off = '';
 }
 $('autoLogin').addEventListener('change', syncAutoLogin);
+
+// YouTube: se guarda al cambiar (sin pasar por «Guardar»)
+$('ytAuto').addEventListener('change', () => browser.storage.local.set({ ytAuto: $('ytAuto').checked }));
+$('ytPct').addEventListener('change', () => {
+  const v = Math.min(100, Math.max(10, Number($('ytPct').value) || 50));
+  $('ytPct').value = v;
+  browser.storage.local.set({ ytPct: v });
+});
 
 /* ---------- Tema (los mismos del Panel; lib/themes.js) ---------- */
 function renderThemes() {

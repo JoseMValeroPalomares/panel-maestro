@@ -47,7 +47,9 @@ def tokens(t: dict) -> list[str]:
         f"--warning: {t['warning']}; --warning-soft: {rgba(t['warning'], 0.16 if dark else 0.13)};",
         f"--success: {t['success']}; --success-soft: {rgba(t['success'], 0.16 if dark else 0.13)}; --info: {t['accent']};",
         f"--st-draft: {t['draft']}; --st-wip: {t['warning']}; --st-done: {t['success']}; --st-index: {t['index']};",
-        f"--tile-fg: {t['tile_fg']}; " + " ".join(f"--tile-{k}: {v};" for k, v in zip(TILES, t["tiles"])),
+        f"--tile-fg: {t['tile_fg']}; " + " ".join(f"--tile-{k}: {t['tiles'][k]};" for k in TILES),
+        # Colores con significado propio (no de sección): evento, idea y rutina en el calendario y las listas
+        f"--c-event: {t['tiles']['calendario']}; --c-idea: {t['tiles']['hoy']}; --c-routine: {t['tiles']['repaso']};",
         " ".join(f"--cat-{i}: {c};" for i, c in enumerate(t["cats"])),
         # Lienzo del tablero: la superficie del tema si es oscuro; en los claros, Mocha (las formas son para fondo oscuro)
         f"--board-bg: {t['elev'] if dark else '#1e1e2e'}; --board-grid: {rgba(t['sep'], 0.75) if dark else '#45475a'};",
@@ -102,8 +104,7 @@ def ext_tokens(t: dict) -> list[str]:
 
 
 def tile(t: dict, name: str) -> str:
-    from core.themes import TILES
-    return t["tiles"][TILES.index(name)]
+    return t["tiles"][name]
 
 
 def ext_build() -> str:

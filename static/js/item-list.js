@@ -23,7 +23,8 @@
     calendario: { title: 'Próximos eventos', icon: 'calendar', empty: { pending: 'Nada en los próximos 7 días', done: '', all: 'Nada en los próximos 7 días' } },
   };
   const DROP_HINT = { inbox: 'Suelta aquí para dejarla en el Inbox', nota: 'Suelta aquí', ideas: 'Suelta aquí para pasarla a idea', rutinas: 'Suelta aquí para convertirla en rutina' };
-  const TYPE_GROUPS = { tarea: ['inbox', 'nota'], idea: ['ideas'], rutina: ['rutinas'] };
+  // Tipo → grupos que se ven. «inbox» = por procesar: solo lo que espera en el Inbox, de cualquier tipo
+  const TYPE_GROUPS = { inbox: ['inbox'], tarea: ['inbox', 'nota'], idea: ['ideas'], rutina: ['rutinas'] };
   const WEEKDAYS = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
 
   /* Próximos eventos (GET /api/calendar/agenda): se ven con la misma tarjeta, sin arrastre */
@@ -63,7 +64,7 @@
   // Notas de un elemento en modo lectura: Markdown saneado (marked + DOMPurify si están cargados)
   function renderMd(text) {
     if (!window.marked || !window.DOMPurify) return `<p>${linkify(esc(text)).replace(/\n/g, '<br>')}</p>`;
-    const html = DOMPurify.sanitize(marked.parse(text, { breaks: true, gfm: true }), { USE_PROFILES: { html: true }, FORBID_ATTR: ['style'] });
+    const html = DOMPurify.sanitize(marked.parse(text, { breaks: true, gfm: true }), { USE_PROFILES: { html: true }, FORBID_ATTR: ['style'], ALLOW_DATA_ATTR: false });
     return html.replace(/<a /g, '<a target="_blank" rel="noopener noreferrer" ');
   }
 
@@ -169,15 +170,15 @@
       root.after(this.bar);
       this.bar.addEventListener('click', (e) => this.onBulk(e));
       root.innerHTML = `<div class="il-skeleton">${'<span class="skeleton skeleton-card"></span>'.repeat(3)}</div>`;
-      Items.ready().catch(() => {
-        root.innerHTML = emptyState({ iconName: 'wifi-off', title: 'No se pudo cargar la lista', text: 'Revisa la conexión y recarga.', compact: true });
-      });
+      const failed = () => showState(root, loadFailed('No se pudo cargar la lista', true),
+        () => Items.ready().then(() => this.render()).catch(failed));
+      Items.ready().catch(failed);
       if (Items.state.loaded) this.render();
     }
 
     setFilters(f) { Object.assign(this.filters, f); this.render(); }
 
-    filtering() { return !!(this.filters.q || this.filters.category || this.filters.type !== 'all'); }
+    filtering() { return !!(this.filters.q || this.filters.category || !['all', 'inbox'].includes(this.filters.type)); }
 
     /* ---------- Qué se ve ---------- */
     matches(it) {
@@ -185,7 +186,7 @@
       // Una rutina se repite: hecha hoy sigue en «Pendientes» (marcada)
       if (f.status === 'pending' && it.done && it.type !== 'rutina') return false;
       if (f.status === 'done' && !it.done) return false;
-      if (f.type !== 'all' && it.type !== f.type) return false;
+      if (f.type !== 'all' && f.type !== 'inbox' && it.type !== f.type) return false;
       if (f.category) {
         const cat = it.origin === 'nota' ? it.note_category : it.category;
         if (!cat || (norm(cat) !== norm(f.category) && !norm(cat).startsWith(norm(f.category) + ' - '))) return false;
@@ -315,6 +316,7 @@
           <span class="grow"></span>
           ${g === 'rutinas' ? `<a class="btn btn-ghost btn-sm" href="/rutinas" title="Tus rutinas como la línea del día">${icon('calendar-clock', 'icon-sm')}<span class="hide-mobile">Ver el día</span></a>` : ''}
           ${g === 'rutinas' ? `<button type="button" class="btn btn-ghost btn-sm" data-act="routine-templates" title="Crear una rutina desde una plantilla">${icon('layout-template', 'icon-sm')}<span class="hide-mobile">Plantillas</span></button>` : ''}
+          ${items.length ? `<button type="button" class="btn btn-ghost btn-icon btn-sm" data-act="select-group" data-group="${g}" aria-label="Seleccionar todo en ${esc(meta.title)}" title="Seleccionar todo el grupo para copiar o editar a la vez">${icon('list-checks', 'icon-sm')}</button>` : ''}
           ${g !== 'nota' ? `<button type="button" class="btn btn-ghost btn-icon btn-sm" data-act="add-to" data-type="${Items.typeFor(g)}" aria-label="Nueva ${Items.typeFor(g)}" title="Nueva ${Items.typeFor(g)}">${icon('plus', 'icon-sm')}</button>` : ''}
         </header>
         <div class="il-group-body" ${open ? '' : 'hidden'}>${body}</div>
@@ -477,7 +479,7 @@
               <button type="button" class="btn btn-ghost btn-sm" data-act="edit-details">${icon('pencil', 'icon-sm')}Editar notas</button></div>` : ''}`}
           </div>
           ${!child && !editing && it.type === 'rutina' && kids.length && it.today && !it.done ? `<button type="button" class="btn btn-tinted btn-icon btn-sm il-run" data-act="run-routine" aria-label="Empezar «${esc(label)}» paso a paso" title="Empezar paso a paso">${icon('play', 'icon-sm')}</button>` : ''}
-          ${!child && !editing ? `<button type="button" class="btn btn-ghost btn-icon btn-sm il-addstep" data-act="add-step" aria-label="Añadir un paso a «${esc(label)}»" title="Añadir un paso (E)">${icon('circle-plus', 'icon-sm')}</button>` : ''}
+          ${!child && !editing ? `<button type="button" class="btn btn-ghost btn-icon btn-sm il-addstep" data-act="add-step" aria-label="Añadir un paso a «${esc(label)}»" title="Añadir un paso (E)">${icon('list-plus', 'icon-sm')}</button>` : ''}
           ${kids.length ? this.foldBtn(fkey, label, open).replace('il-fold', 'il-fold il-kids-fold') : ''}
           <button type="button" class="btn btn-ghost btn-icon btn-sm il-more" data-act="menu" aria-label="Acciones de «${esc(label)}»" aria-haspopup="menu" aria-expanded="false">${icon('ellipsis', 'icon-sm')}</button>
         </div>
@@ -700,7 +702,7 @@
       openMenu(anchor, [
         { label: it.done ? 'Volver a pendiente' : (it.type === 'idea' ? 'Marcar como procesada' : 'Marcar como hecha'), icon: it.done ? 'rotate-ccw' : 'check', onClick: () => Items.setDone(it.id, !it.done) },
         { label: 'Editar', icon: 'pencil', onClick: () => this.startEdit(it) },
-        !it.parent_id && { label: 'Añadir un paso (E)', icon: 'circle-plus', onClick: () => this.startAdd(`item:${it.id}`) },
+        !it.parent_id && { label: 'Añadir un paso (E)', icon: 'list-plus', onClick: () => this.startAdd(`item:${it.id}`) },
         it.type === 'rutina' && !it.parent_id && kids && { label: 'Hacer paso a paso', icon: 'play', onClick: () => Routines.run(it.id) },
         it.type === 'rutina' && !it.parent_id && { label: 'Guardar como plantilla…', icon: 'layout-template', onClick: () => Routines.saveTemplate(it.id) },
         it.type !== 'rutina' && { label: 'Ver en el calendario', icon: 'calendar', onClick: () => { location.href = `/calendario${it.due_date ? `?dia=${it.due_date}` : ''}`; } },
@@ -731,7 +733,7 @@
     priorityMenu(ids, anchor, current) {
       const set = (p) => (ids.length === 1 ? Items.update(ids[0], { priority: p }) : Items.bulk(ids, 'priority', { value: p }));
       openMenu(anchor, [
-        ...Object.entries(Items.PRIO).map(([k, v]) => ({ label: (current === k ? '✓ ' : '') + v, icon: 'flag', onClick: () => set(k) })),
+        ...Object.entries(Items.PRIO).map(([k, v]) => ({ label: v, icon: 'flag', checked: current === k, onClick: () => set(k) })),
         { separator: true }, { label: 'Sin prioridad', icon: 'x', onClick: () => set('') },
       ]);
     }
@@ -752,6 +754,13 @@
       this.render();
     }
 
+    // Selecciona todo lo que se ve (un grupo, o todo): las tarjetas que cumplen el selector
+    selectWhere(selector) {
+      this.root.querySelectorAll(selector).forEach((li) => this.selected.add(Number(li.dataset.id)));
+      this.selectMode = true;
+      this.render();
+    }
+
     clearSelection() {
       this.selected.clear();
       this.selectMode = false;
@@ -763,7 +772,9 @@
       this.bar.hidden = !this.selectMode && !n;
       if (this.bar.hidden) return;
       this.bar.innerHTML = `<span class="il-bulk-count tabular" aria-live="polite">${n ? `${n} seleccionad${n === 1 ? 'o' : 'os'}` : 'Toca para seleccionar'}</span>
+        <button type="button" class="btn btn-ghost btn-sm" data-bulk="all" title="Seleccionar todo lo que se ve">${icon('list-checks', 'icon-sm')}<span class="hide-mobile">Todo</span><span class="sr-only show-mobile">Seleccionar todo</span></button>
         <span class="grow"></span>
+        <button type="button" class="btn btn-sm btn-tinted" data-bulk="copy" ${n ? '' : 'disabled'}>${icon('copy', 'icon-sm')}<span class="hide-mobile">Copiar</span><span class="sr-only show-mobile">Copiar</span></button>
         <button type="button" class="btn btn-sm" data-bulk="done" ${n ? '' : 'disabled'}>${icon('check', 'icon-sm')}<span class="hide-mobile">Completar</span><span class="sr-only show-mobile">Completar</span></button>
         <button type="button" class="btn btn-sm" data-bulk="move" ${n ? '' : 'disabled'} aria-haspopup="menu">${icon('arrow-left-right', 'icon-sm')}<span class="hide-mobile">Mover</span><span class="sr-only show-mobile">Mover</span></button>
         <button type="button" class="btn btn-sm" data-bulk="category" ${n ? '' : 'disabled'}>${icon('tag', 'icon-sm')}<span class="hide-mobile">Categoría</span><span class="sr-only show-mobile">Categoría</span></button>
@@ -778,7 +789,9 @@
       const ids = [...this.selected];
       const act = b.dataset.bulk;
       if (act === 'close') return this.clearSelection();
+      if (act === 'all') { this.selectWhere('.il-item'); return; }
       if (!ids.length) return;
+      if (act === 'copy') { ItemCopy.open(ids, [...this.root.querySelectorAll('.il-item')].map((li) => Number(li.dataset.id))); return; }
       if (act === 'done') { await Items.bulk(ids, ids.every((i) => Items.get(i)?.done) ? 'reopen' : 'done'); this.clearSelection(); }
       if (act === 'delete') { await Items.remove(ids); this.clearSelection(); }
       if (act === 'category') {
@@ -846,6 +859,7 @@
       if (fold) { this.toggleFold(fold.dataset.ilFold); return; }
       const actEl = e.target.closest('[data-act]');
       const act = actEl?.dataset.act;
+      if (act === 'select-group') { this.selectWhere(`.il-group[data-group="${actEl.dataset.group}"] .il-item`); return; }
       if (act === 'add-to') { openQuickAdd(actEl.dataset.type); return; }
       if (act === 'add-note') { this.startAdd(`note:${actEl.dataset.note}`); return; }
       if (act === 'routine-templates') { Routines.openTemplates(); return; }

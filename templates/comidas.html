@@ -23,23 +23,27 @@
 <section id="tab-plan" class="tab-panel" role="tabpanel" aria-label="Plan semanal">
   <div class="plan-toolbar">
     <div class="week-nav">
-      <button type="button" class="btn btn-ghost btn-icon" onclick="changeWeek(-7)" aria-label="Semana anterior">{{ icon('chevron-left') }}</button>
+      <button type="button" class="btn btn-ghost btn-icon" data-call="changeWeek" data-args='[-7]' aria-label="Semana anterior">{{ icon('chevron-left') }}</button>
       <h2 id="weekLabel" class="week-label tabular"></h2>
-      <button type="button" class="btn btn-ghost btn-icon" onclick="changeWeek(7)" aria-label="Semana siguiente">{{ icon('chevron-right') }}</button>
-      <button type="button" class="btn btn-sm" id="btnThisWeek" onclick="goThisWeek()">Hoy</button>
+      <button type="button" class="btn btn-ghost btn-icon" data-call="changeWeek" data-args='[7]' aria-label="Semana siguiente">{{ icon('chevron-right') }}</button>
+      <button type="button" class="btn btn-sm" id="btnThisWeek" data-call="goThisWeek">Hoy</button>
     </div>
     <span class="grow"></span>
     <div class="segmented" role="group" aria-label="Comidas al día">
       <button type="button" data-mode="4" aria-pressed="true">Todas</button>
       <button type="button" data-mode="2" aria-pressed="false">Comida y cena</button>
     </div>
-    <button type="button" class="btn btn-tinted" id="btnGenerate" onclick="generateWeek()">{{ icon('wand-sparkles') }}<span>Generar semana</span></button>
-    <button type="button" class="btn btn-ghost btn-icon" onclick="openPlanMenu(this)" aria-label="Más acciones del plan" aria-haspopup="menu">{{ icon('ellipsis') }}</button>
+    <button type="button" class="btn btn-tinted" id="btnGenerate" data-call="generateWeek">{{ icon('wand-sparkles') }}<span>Generar semana</span></button>
+    <button type="button" class="btn btn-ghost btn-icon" data-call="openPlanMenu" data-args='["$el"]' aria-label="Más acciones del plan" aria-haspopup="menu">{{ icon('ellipsis') }}</button>
   </div>
 
   <div class="plan-layout">
     <div class="plan-main">
       <div class="day-strip" id="dayStrip" role="tablist" aria-label="Días de la semana"></div>
+      <div class="week-empty" id="weekEmpty" hidden>
+        {{ icon('wand-sparkles') }}<p><b>Semana sin planificar.</b> «Generar semana» propone platos que cuadran con tus objetivos; también puedes añadirlos a mano en cada comida.</p>
+        <button type="button" class="btn btn-primary btn-sm" data-call="generateWeek">Generar semana</button>
+      </div>
       <div class="planner-wrap hide-below-desktop"><div class="planner-grid" id="plannerGrid"></div></div>
     </div>
     <aside class="panel day-panel" id="dayPanel" aria-live="polite"></aside>
@@ -54,7 +58,7 @@
 <section id="tab-platos" class="tab-panel" role="tabpanel" aria-label="Platos" hidden>
   <div class="list-toolbar">
     <div class="search grow">{{ icon('search') }}<input type="search" id="mealSearch" class="input" placeholder="Buscar platos" aria-label="Buscar platos"></div>
-    <button type="button" class="btn btn-primary" onclick="openMealForm()">{{ icon('plus') }}<span>Nuevo plato</span></button>
+    <button type="button" class="btn btn-primary" data-call="openMealForm">{{ icon('plus') }}<span>Nuevo plato</span></button>
   </div>
   <div class="chips chips-scroll" id="franjaChips" role="group" aria-label="Franja">
     <button type="button" class="chip" data-franja="" aria-pressed="true">Todas</button>
@@ -70,9 +74,9 @@
 <section id="tab-compra" class="tab-panel" role="tabpanel" aria-label="Lista de la compra" hidden>
   <div class="list-toolbar">
     <div class="grow"><h2 class="section-title" style="margin:0">Lista de la compra</h2><p class="small muted" id="shopCountLabel"></p></div>
-    <button type="button" class="btn btn-tinted" onclick="generateWeekShoppingList()">{{ icon('calendar-days') }}<span>Desde el plan</span></button>
-    <button type="button" class="btn btn-primary" onclick="openAddShopping()">{{ icon('plus') }}<span>Añadir</span></button>
-    <button type="button" class="btn btn-ghost btn-icon" onclick="openShopMenu(this)" aria-label="Más acciones de la lista" aria-haspopup="menu">{{ icon('ellipsis') }}</button>
+    <button type="button" class="btn btn-tinted" data-call="generateWeekShoppingList">{{ icon('calendar-days') }}<span>Desde el plan</span></button>
+    <button type="button" class="btn btn-primary" data-call="openAddShopping">{{ icon('plus') }}<span>Añadir</span></button>
+    <button type="button" class="btn btn-ghost btn-icon" data-call="openShopMenu" data-args='["$el"]' aria-label="Más acciones de la lista" aria-haspopup="menu">{{ icon('ellipsis') }}</button>
   </div>
   <div id="shopLists" class="shop-lists"></div>
 </section>
@@ -81,7 +85,7 @@
 <section id="tab-ingredientes" class="tab-panel" role="tabpanel" aria-label="Ingredientes" hidden>
   <div class="list-toolbar">
     <div class="search grow">{{ icon('search') }}<input type="search" id="ingSearch" class="input" placeholder="Buscar ingredientes" aria-label="Buscar ingredientes"></div>
-    <button type="button" class="btn btn-primary" onclick="openIngredientForm()">{{ icon('plus') }}<span>Nuevo ingrediente</span></button>
+    <button type="button" class="btn btn-primary" data-call="openIngredientForm">{{ icon('plus') }}<span>Nuevo ingrediente</span></button>
   </div>
   <div class="chips chips-scroll" id="ingCatChips" role="group" aria-label="Categoría"></div>
   <div id="ingValidation"></div>
@@ -128,7 +132,7 @@
         <p class="field-hint span-2">Los hidratos cubren el resto de las calorías.</p>
       </div>
       <div class="modal-footer goals-footer">
-        <button type="button" class="btn" onclick="loadProfile()">Descartar cambios</button>
+        <button type="button" class="btn" data-call="loadProfile">Descartar cambios</button>
         <button type="submit" class="btn btn-primary">Guardar objetivos</button>
       </div>
     </form>
@@ -199,20 +203,29 @@
         <select id="mealFranja" class="select"><option value="desayuno">Desayuno</option><option value="comida" selected>Comida</option><option value="merienda">Merienda</option><option value="cena">Cena</option></select></label>
       <label class="field"><span class="field-label">Tiempo (min)</span><input type="number" id="mealTiempo" class="input" min="0" max="10000" value="30" inputmode="numeric"></label>
       <label class="field"><span class="field-label">Ración estándar (g)</span>
-        <div class="row"><input type="number" id="mealGramos" class="input" min="0" max="10000" value="0" inputmode="numeric"><button type="button" class="btn btn-sm" onclick="suggestGramos()">Sugerir</button></div>
+        <div class="row"><input type="number" id="mealGramos" class="input" min="0" max="10000" value="0" inputmode="numeric"><button type="button" class="btn btn-sm" data-call="suggestGramos">Sugerir</button></div>
         <span class="field-hint" id="mealGramosHint">0 = se sugiere al guardar</span></label>
       <label class="field row-field"><input type="checkbox" id="mealUnica" class="switch"><span>La receta entera es una ración</span></label>
       <label class="field span-2"><span class="field-label">Etiquetas</span><input type="text" id="mealTags" class="input" maxlength="500" placeholder="pescado, verdura, rápido"></label>
-      <label class="field span-2"><span class="field-label">Foto (URL, opcional)</span><input type="url" id="mealImage" class="input" maxlength="2048" placeholder="https://…" inputmode="url"></label>
+      <div class="field span-2 photo-field">
+        <span class="field-label">Foto</span>
+        <div class="photo-row">
+          <span class="photo-preview" id="mealPhotoPreview" aria-hidden="true"></span>
+          <button type="button" class="btn btn-tinted btn-sm" data-call="openPhotoPicker">{{ icon('image', 'icon-sm') }}Buscar foto</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="mealPhotoClear" data-call="clearMealPhoto" hidden>{{ icon('x', 'icon-sm') }}Quitar</button>
+        </div>
+        <label class="photo-url"><span class="sr-only">Dirección de la foto</span>
+          <input type="url" id="mealImage" class="input input-sm" maxlength="2048" placeholder="o pega la dirección de una foto: https://…" inputmode="url" autocomplete="off"></label>
+      </div>
     </div>
     <div class="form-section">
-      <div class="row"><h3 class="grow">Ingredientes</h3><button type="button" class="btn btn-tinted btn-sm" onclick="addIngredientRow()">{{ icon('plus', 'icon-sm') }}Añadir</button></div>
+      <div class="row"><h3 class="grow">Ingredientes</h3><button type="button" class="btn btn-tinted btn-sm" data-call="addIngredientRow">{{ icon('plus', 'icon-sm') }}Añadir</button></div>
       <div id="ingredientRows" class="ing-rows"></div>
       <datalist id="ingredientOptions"></datalist>
       <div class="macro-preview" id="macroPreview"></div>
     </div>
     <div class="form-section">
-      <div class="row"><h3 class="grow">Pasos</h3><button type="button" class="btn btn-tinted btn-sm" onclick="addStepRow()">{{ icon('plus', 'icon-sm') }}Añadir paso</button></div>
+      <div class="row"><h3 class="grow">Pasos</h3><button type="button" class="btn btn-tinted btn-sm" data-call="addStepRow">{{ icon('plus', 'icon-sm') }}Añadir paso</button></div>
       <ol id="stepRows" class="step-rows"></ol>
     </div>
   </form>
@@ -233,6 +246,20 @@
     <div class="assign-quick" id="assignQuick" role="group" aria-label="Atajos"></div>
     <div class="chips chips-scroll" id="assignFranja" role="group" aria-label="Franja"></div>
     <ul class="list assign-list" id="assignList"></ul>
+  </div>
+</dialog>
+<!-- Elegir foto de un plato: candidatas de una búsqueda en la web (al guardar, la elegida pasa a la caché local) -->
+<dialog class="modal modal-lg" id="photoPicker" aria-labelledby="photoPickerTitle">
+  <div class="modal-header"><h2 id="photoPickerTitle">Elegir foto</h2>
+    <button type="button" class="btn btn-ghost btn-icon modal-close" data-close aria-label="Cerrar">{{ icon('x') }}</button></div>
+  <div class="modal-body stack">
+    <form class="row photo-search" id="photoSearchForm" role="search">
+      <label class="search grow">{{ icon('search') }}<span class="sr-only">Buscar fotos</span>
+        <input id="photoQuery" class="input" type="search" maxlength="120" autocomplete="off" placeholder="Nombre del plato…"></label>
+      <button type="submit" class="btn btn-tinted">Buscar</button>
+    </form>
+    <div class="photo-grid" id="photoGrid" aria-live="polite"></div>
+    <p class="tiny muted">Fotos encontradas en la web. Al guardar el plato, la elegida se guarda en el panel y ya no depende de internet.</p>
   </div>
 </dialog>
 

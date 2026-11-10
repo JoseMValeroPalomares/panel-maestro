@@ -8,17 +8,19 @@
   <button type="button" data-view="lista" aria-pressed="true" aria-keyshortcuts="r">{{ icon('list', 'icon-sm') }}Lista</button>
   <button type="button" data-view="matriz" aria-pressed="false" aria-keyshortcuts="r">{{ icon('layout-grid', 'icon-sm') }}Cuadrícula</button>
 </div>
-<div class="segmented status-seg" role="group" aria-label="Estado">
-  <button type="button" data-status="pending" aria-pressed="true">Pendientes <span class="tabular" data-status-count="pendientes"></span></button>
-  <button type="button" data-status="done" aria-pressed="false">Hechas <span class="tabular" data-status-count="hechas"></span></button>
-  <button type="button" data-status="all" aria-pressed="false">Todas</button>
-</div>
 {% endblock %}
 {% block content %}
 <div class="tareas stack">
   <section class="capture-panel" aria-label="Nueva tarea o idea">{{ capture_form('tareasCapture', rows=1, compact=True) }}</section>
 
-  <div class="task-filters" role="search">
+  {# Una sola barra de filtros. En el móvil quedan a la vista el estado y la búsqueda; tipo y categoría, en «Filtros» #}
+  <div class="task-filters" role="search" aria-label="Filtros de tareas">
+    <div class="segmented status-seg" role="group" aria-label="Estado">
+      <button type="button" data-status="pending" aria-pressed="true">Pendientes <span class="tabular" data-status-count="pendientes"></span></button>
+      <button type="button" data-status="done" aria-pressed="false">Hechas <span class="tabular" data-status-count="hechas"></span></button>
+      <button type="button" data-status="all" aria-pressed="false">Todas</button>
+    </div>
+    <div class="filters-more" id="filtersMore">
     <div class="chips" role="group" aria-label="Tipo">
       <button type="button" class="chip" data-type-filter="all" aria-pressed="true">Todo</button>
       <button type="button" class="chip" data-type-filter="tarea" aria-pressed="false">{{ icon('square-check', 'icon-sm') }}Tareas</button>
@@ -27,11 +29,13 @@
     </div>
     <label class="sr-only" for="catFilter">Categoría</label>
     <select id="catFilter" class="select input-sm cat-filter"><option value="">Todas las categorías</option></select>
+    </div>
     <label class="search grow">
       {{ icon('search') }}<span class="sr-only">Buscar</span>
       <input id="taskSearch" class="input" type="search" placeholder="Buscar en tareas, ideas y notas…" autocomplete="off">
     </label>
-    <button type="button" class="btn btn-ghost btn-sm" id="btnSelect" aria-pressed="false">{{ icon('list-checks', 'icon-sm') }}Seleccionar</button>
+    <button type="button" class="btn btn-sm filters-toggle" id="filtersToggle" aria-expanded="false" aria-controls="filtersMore">{{ icon('list-filter', 'icon-sm') }}Filtros<span class="badge badge-accent" id="filtersCount" hidden></span></button>
+    <button type="button" class="btn btn-ghost btn-sm" id="btnSelect" aria-pressed="false" aria-label="Seleccionar varias">{{ icon('list-checks', 'icon-sm') }}<span class="hide-mobile">Seleccionar</span></button>
   </div>
 
   <div id="itemList" class="il-host" aria-live="polite"></div>
@@ -43,4 +47,4 @@
 {{ note_dialog() }}
 {% endblock %}
 {% block scripts %}<script src="{{ asset('/static/vendor/marked/marked.min.js') }}"></script><script src="{{ asset('/static/vendor/dompurify/purify.min.js') }}"></script>
-<script src="{{ asset('/static/js/item-list.js') }}"></script><script src="{{ asset('/static/js/tareas-grid.js') }}"></script><script src="{{ asset('/static/js/tareas.js') }}"></script>{% endblock %}
+<script src="{{ asset('/static/js/item-list.js') }}"></script><script src="{{ asset('/static/js/item-copy.js') }}"></script><script src="{{ asset('/static/js/tareas-grid.js') }}"></script><script src="{{ asset('/static/js/tareas.js') }}"></script>{% endblock %}

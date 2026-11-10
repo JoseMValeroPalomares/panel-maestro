@@ -6,7 +6,7 @@
 {% block heading %}<span id="hoyTitle">Hoy</span>{% endblock %}
 {% block actions %}
 <a class="btn btn-ghost btn-sm" href="/calendario">{{ icon('calendar', 'icon-sm') }}<span class="hide-mobile">Calendario</span></a>
-<button type="button" class="btn btn-ghost btn-sm" onclick="Palette.open()" title="Paleta de comandos (Ctrl+K)">{{ icon('command', 'icon-sm') }}<span class="hide-mobile">Ctrl K</span></button>
+<button type="button" class="btn btn-ghost btn-sm" data-call="Palette.open" aria-label="Buscar" data-tip="Buscar notas, tareas, eventos o acciones (Ctrl K)">{{ icon('search', 'icon-sm') }}<span class="hide-mobile">Buscar</span></button>
 {% endblock %}
 {% block content %}
 <div class="hoy">
@@ -24,9 +24,12 @@
       <div class="panel-body" id="hoyComida"></div></section>
     <section class="panel hoy-card" aria-labelledby="hDinero" id="hoyDineroCard" hidden><div class="panel-header"><h2 id="hDinero">{{ icon('wallet', 'icon-sm') }}Dinero</h2><span class="grow"></span><a class="tiny" href="/economia">Economía</a></div>
       <div class="panel-body" id="hoyDinero"></div></section>
-    <section class="panel hoy-card" aria-labelledby="hRepaso"><div class="panel-header"><h2 id="hRepaso">{{ icon('book-open', 'icon-sm') }}Repaso</h2></div>
+    <section class="panel hoy-card" aria-labelledby="hRend"><div class="panel-header"><h2 id="hRend">{{ icon('activity', 'icon-sm') }}Rendimiento</h2><span class="grow"></span><a class="tiny" href="/rendimiento">Panel</a></div>
+      <div class="panel-body" id="hoyRend"></div></section>
+    <section class="panel hoy-card" aria-labelledby="hRepaso"><div class="panel-header"><h2 id="hRepaso">{{ icon('layers', 'icon-sm') }}Repaso</h2></div>
       <div class="panel-body" id="hoyRepaso"></div></section>
   </div>
+  <p class="hoy-quiet small muted" id="hoyQuiet" aria-live="polite" hidden></p>
 </div>
 {% endblock %}
 {% block scripts %}<script src="{{ asset('/static/js/hoy.js') }}"></script>{% endblock %}

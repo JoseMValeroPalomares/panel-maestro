@@ -80,6 +80,16 @@
     <div class="theme-grid" id="themeGrid" role="radiogroup" aria-labelledby="themeTitle"></div>
   </section>
 
+  <section class="card" aria-labelledby="ytTitle">
+    <h2 id="ytTitle">YouTube</h2>
+    <label class="switch-row"><span>Marcar como visto los vídeos de los canales del Baúl</span><input type="checkbox" class="switch" id="ytAuto" role="switch" aria-describedby="ytHint"></label>
+    <div class="field">
+      <label class="label" for="ytPct">Se marca al reproducir el (%)</label>
+      <input class="input" id="ytPct" type="number" min="10" max="100" step="5" inputmode="numeric" aria-describedby="ytHint">
+      <p class="hint" id="ytHint">Cuenta el tiempo realmente reproducido (con un máximo de 10 minutos). En la página de esos canales, los vídeos ya vistos salen atenuados con «✓ Visto». Los canales que no están en el Baúl no se envían al Panel.</p>
+    </div>
+  </section>
+
   <section class="card" aria-labelledby="howTitle">
     <h2 id="howTitle">Cómo se usa</h2>
     <ul>

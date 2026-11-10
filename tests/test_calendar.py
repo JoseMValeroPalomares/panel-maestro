@@ -70,8 +70,8 @@ def test_rutina_racha_y_mapa(client):
     # no cuenta en el total de pendientes del Inbox
     counts = client.get("/api/items/counts").json()
     assert counts["rutinas"]["pendientes"] >= 1
-    # historial de la revisión semanal
-    rev = client.get("/api/review/week").json()
+    # historial de la revisión semanal: la semana de ayer (los lunes, ayer cae en la semana anterior)
+    rev = client.get("/api/review/week", params={"start": D(-1)}).json()
     assert any(x["item_id"] == rid for x in rev["rutinas"])
 
 

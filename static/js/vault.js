@@ -9,12 +9,6 @@ let searchQuery = '';
 let mainTab = 'library';
 let reloadTimer = null;
 
-const CAT_COLORS = window.CATEGORY_COLORS;
-function categoryColor(cat) {
-    let hash = 0;
-    for (let i = 0; i < cat.length; i++) hash = (hash * 31 + cat.charCodeAt(i)) >>> 0;
-    return CAT_COLORS[hash % CAT_COLORS.length];
-}
 const isPending = (r) => !r.title || r.title === r.url;
 const localImage = (r) => (r.image && r.image.startsWith('/static/')) ? r.image : '';
 
@@ -24,13 +18,26 @@ async function loadResources() {
         const data = await api('/api/resources', { quiet: true });
         allResources = data.resources;
     } catch {
-        document.getElementById('vaultContent').innerHTML = emptyState({ iconName: 'wifi-off', title: 'No se pudo cargar el Baúl', text: 'Revisa la conexión y recarga.' });
+        showState(document.getElementById('vaultContent'), loadFailed('No se pudo cargar el Baúl'), loadResources);
         return;
     }
     renderCategories();
     applyFiltersAndRender();
     updateBadges();
     checkPendingResources();
+    maybeBackfillChannels();
+}
+
+/* Vídeos antiguos sin canal: el servidor los rellena en segundo plano (poco a poco); mientras tanto, «Canal desconocido» */
+const channelBackfill = { started: false, polls: 0 };
+async function maybeBackfillChannels() {
+    if (mainTab !== 'watched') return;
+    if (!allResources.some((r) => r.watched && r.resource_type === 'youtube' && !isChannel(r.url) && !(r.channel || '').trim())) return;
+    if (!channelBackfill.started) {
+        channelBackfill.started = true;
+        try { await api('/api/resources/backfill-channels', { method: 'POST', quiet: true }); } catch { /* se reintentará al recargar */ }
+    }
+    if (channelBackfill.polls++ < 12) setTimeout(loadResources, 5000);
 }
 
 function renderCategories() {
@@ -71,6 +78,7 @@ function switchMainTab(btn, tab) {
     mainTab = tab;
     document.querySelectorAll('.main-tab').forEach(b => b.setAttribute('aria-selected', String(b === btn)));
     applyFiltersAndRender();
+    maybeBackfillChannels();
 }
 
 /* ---------- Filtros y render ---------- */
@@ -109,7 +117,9 @@ function render(items) {
     const yt = items.filter(r => r.resource_type === 'youtube');
     const web = items.filter(r => r.resource_type !== 'youtube');
     let html = '';
-    if (yt.length) {
+    if (yt.length && mainTab === 'watched') {
+        html += `<section class="vault-section"><h2 class="section-title">${icon('youtube')}Vídeos vistos <span class="section-sub">${yt.length}</span></h2>${watchedGroups(yt)}</section>`;
+    } else if (yt.length) {
         html += `<section class="vault-section"><h2 class="section-title">${icon('youtube')}Vídeos <span class="section-sub">${yt.length}</span></h2>`;
         groupByCategory(yt).forEach(g => {
             html += catHeader(g.cat, g.items.length) + `<div class="yt-grid" data-cat="${escapeHtml(g.cat)}" data-kind="youtube">${g.items.map(ytCard).join('')}</div>`;
@@ -126,6 +136,43 @@ function render(items) {
     el.innerHTML = html;
     el.querySelectorAll('[data-kind]').forEach(makeSortable);
 }
+
+/* ---------- Vistos: por categoría y, dentro, por canal; grupos plegables con el estado guardado (Prefs) ---------- */
+const UNKNOWN_CHANNEL = 'Canal desconocido';
+const FOLD_KEY = 'baul-plegados';
+const folded = () => new Set(Prefs.get(FOLD_KEY, []));
+const slug = (k) => 'g-' + [...k].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
+
+function watchedGroups(items) {
+    const closed = folded();
+    const toggle = (key, inner, level) => {
+        const open = !closed.has(key);
+        return `<button type="button" class="group-toggle" data-fold="${escapeHtml(key)}" aria-expanded="${open}" aria-controls="${slug(key)}">${icon('chevron-down', 'icon-sm chev')}${inner}</button>`;
+    };
+    return groupByCategory(items).map((g) => {
+        const byChannel = {};
+        g.items.forEach((r) => (byChannel[(r.channel || '').trim() || UNKNOWN_CHANNEL] ||= []).push(r));
+        const channels = Object.keys(byChannel).sort((a, b) => (a === UNKNOWN_CHANNEL) - (b === UNKNOWN_CHANNEL) || a.localeCompare(b, 'es'));
+        const ckey = 'c:' + g.cat;
+        return `<div class="vgroup"><h3 class="cat-header">${toggle(ckey, `<span class="dot" style="background:${categoryColor(g.cat)}"></span>${escapeHtml(g.cat)}<span class="count">${g.items.length}</span>`)}</h3>
+          <div class="vgroup-body" id="${slug(ckey)}" ${closed.has(ckey) ? 'hidden' : ''}>${channels.map((ch) => {
+            const key = `k:${g.cat}|${ch}`;
+            return `<div class="channel-group"><h4 class="channel-header">${toggle(key, `<span class="channel-name${ch === UNKNOWN_CHANNEL ? ' is-unknown' : ''}">${escapeHtml(ch)}</span><span class="count">${byChannel[ch].length}</span>`)}</h4>
+              <div class="yt-grid" id="${slug(key)}" data-cat="${escapeHtml(g.cat)}" data-kind="youtube" data-channel="${escapeHtml(ch)}" ${closed.has(key) ? 'hidden' : ''}>${byChannel[ch].map(ytCard).join('')}</div></div>`;
+          }).join('')}</div></div>`;
+    }).join('');
+}
+document.getElementById('vaultContent').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-fold]');
+    if (!b) return;
+    const set = folded(), key = b.dataset.fold;
+    const open = b.getAttribute('aria-expanded') !== 'true';
+    if (open) set.delete(key); else set.add(key);
+    Prefs.set(FOLD_KEY, [...set]);
+    b.setAttribute('aria-expanded', String(open));
+    document.getElementById(b.getAttribute('aria-controls')).hidden = !open;
+});
+document.addEventListener('prefs:changed', () => { if (mainTab === 'watched') applyFiltersAndRender(); });
 
 /* Orden manual (componente común sortable.js): dentro de su sección (vídeos o web);
    soltar en otra categoría de la misma sección le cambia la categoría. */
@@ -148,14 +195,17 @@ function catHeader(cat, count) {
 }
 
 function actionsHtml(r) {
-    return `<button type="button" class="btn btn-ghost btn-icon btn-sm star${r.watch_later ? ' on' : ''}" data-act="later" aria-pressed="${!!r.watch_later}" aria-label="${r.watch_later ? 'Quitar de para más tarde' : 'Guardar para más tarde'}" title="Para más tarde">${icon('star', 'icon-sm')}</button>
+    return `<button type="button" class="btn btn-ghost btn-icon btn-sm later-btn${r.watch_later ? ' on' : ''}" data-act="later" aria-pressed="${!!r.watch_later}" aria-label="${r.watch_later ? 'Quitar de para más tarde' : 'Guardar para más tarde'}" title="Para más tarde">${icon(r.watch_later ? 'bookmark-check' : 'bookmark-plus', 'icon-sm')}</button>
         <button type="button" class="btn btn-ghost btn-icon btn-sm" data-act="menu" aria-label="Más acciones" aria-haspopup="menu">${icon('ellipsis', 'icon-sm')}</button>`;
 }
 
+// Un canal (no un vídeo): su imagen es el avatar, cuadrado; se pinta redondo sobre un fondo difuminado de sí mismo
+const isChannel = (url) => /youtube\.com\/(@|channel\/|c\/|user\/)/.test(url || '');
 function ytCard(r) {
     const img = localImage(r);
     const pending = isPending(r);
     const thumb = pending ? '<span class="skeleton yt-thumb-img"></span>'
+        : img && isChannel(r.url) ? `<span class="yt-thumb-img yt-avatar-bg" style="--av: url('${escapeHtml(img)}')"><img class="yt-avatar" src="${escapeHtml(img)}" alt="" loading="lazy" decoding="async"></span>`
         : img ? `<img class="yt-thumb-img" src="${escapeHtml(img)}" alt="" loading="lazy" decoding="async">`
         : `<span class="yt-thumb-img yt-fallback">${icon('youtube', 'icon-xl')}</span>`;
     return `<article class="yt-card${pending ? ' pending' : ''}" data-id="${r.id}">
@@ -165,7 +215,7 @@ function ytCard(r) {
       </a>
       <div class="yt-info">
         <a class="yt-title" href="${escapeHtml(r.url)}" target="_blank" rel="noopener noreferrer" tabindex="-1">${pending ? '<span class="skeleton skeleton-line"></span>' : escapeHtml(r.title)}</a>
-        <p class="yt-channel">${escapeHtml(r.channel || r.description || '')}</p>
+        <p class="yt-channel">${escapeHtml(isChannel(r.url) && (!r.channel || r.channel === r.title) ? 'Canal de YouTube' : (r.channel || r.description || ''))}</p>
       </div>
       <div class="yt-actions">${mainTab === 'watchlater' ? `<button type="button" class="btn btn-tinted btn-sm" data-act="watched">${icon('check', 'icon-sm')}Visto</button>` : ''}<span class="grow"></span>${actionsHtml(r)}</div>
     </article>`;
@@ -197,7 +247,7 @@ document.getElementById('vaultContent').addEventListener('click', (e) => {
         { label: 'Abrir', icon: 'external-link', onClick: () => window.open(r.url, '_blank', 'noopener') },
         { label: 'Editar', icon: 'pencil', onClick: () => openEditModal(id) },
         r.resource_type === 'youtube' && { label: r.watched ? 'Marcar como no visto' : 'Marcar como visto', icon: 'check', onClick: () => markWatched(id) },
-        { label: 'Copiar enlace', icon: 'copy', onClick: () => navigator.clipboard?.writeText(r.url).then(() => toast('Enlace copiado')) },
+        { label: 'Copiar enlace', icon: 'copy', onClick: () => copyText(r.url).then((ok) => toast(ok ? 'Enlace copiado' : 'No se pudo copiar', { type: ok ? 'success' : 'error' })) },
         { separator: true },
         { label: 'Eliminar', icon: 'trash-2', danger: true, onClick: () => deleteResource(id) },
     ].filter(Boolean));

@@ -50,7 +50,7 @@
   async function load() {
     paintDays();
     try { data = await api(`/api/routines/day?date=${iso(day)}`, { quiet: true }); } catch {
-      $('rtPage').innerHTML = emptyState({ iconName: 'wifi-off', title: 'No se pudieron cargar las rutinas', compact: true });
+      showState($('rtPage'), loadFailed('No se pudieron cargar las rutinas', true), load);
       return;
     }
     render();

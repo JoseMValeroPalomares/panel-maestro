@@ -380,6 +380,117 @@ def step_times_down(conn: sqlite3.Connection) -> None:
         conn.execute("DROP TABLE step_times_backup")
 
 
+# 17 ─ Auditoría de rendimiento ─────────────────────────────────────────────────
+# Un registro por día (la noche anterior + el día), sus bloques de estudio, el objetivo de horas de cada
+# asignatura (los exámenes salen del calendario), los umbrales de las reglas y las auditorías de la IA.
+# Tablas nuevas: deshacer es borrarlas.
+
+def rendimiento_up(conn: sqlite3.Connection) -> None:
+    conn.execute("""CREATE TABLE IF NOT EXISTS rend_dias (
+        fecha TEXT PRIMARY KEY,
+        acostarse TEXT, despertar TEXT, calidad_sueno INTEGER, primer_cafe TEXT, pantallas_off TEXT,
+        activacion TEXT, luz_solar INTEGER,
+        dopamina INTEGER, dopamina_hora TEXT,
+        siesta TEXT, comida_tarde TEXT,
+        entreno INTEGER, entreno_fin TEXT, entreno_min INTEGER, entreno_intensidad INTEGER,
+        energia INTEGER, niebla INTEGER, dolor_cabeza INTEGER, humor INTEGER,
+        nota TEXT, creado REAL NOT NULL DEFAULT (unixepoch()), actualizado REAL NOT NULL DEFAULT (unixepoch()))""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS rend_bloques (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT NOT NULL REFERENCES rend_dias(fecha) ON DELETE CASCADE,
+        asignatura TEXT NOT NULL, minutos INTEGER NOT NULL, recall INTEGER NOT NULL DEFAULT 0,
+        codificacion TEXT NOT NULL, pausas TEXT NOT NULL, caida TEXT, estado TEXT NOT NULL, orden INTEGER NOT NULL DEFAULT 0)""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_rend_bloques_fecha ON rend_bloques(fecha)")
+    conn.execute("CREATE TABLE IF NOT EXISTS rend_asignaturas (sigla TEXT PRIMARY KEY, objetivo_h REAL)")
+    conn.execute("CREATE TABLE IF NOT EXISTS rend_ajustes (clave TEXT PRIMARY KEY, valor TEXT NOT NULL)")
+    conn.execute("""CREATE TABLE IF NOT EXISTS rend_auditorias (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, tipo TEXT NOT NULL, periodo TEXT NOT NULL,
+        proveedor TEXT, modelo TEXT, texto TEXT NOT NULL, creado REAL NOT NULL DEFAULT (unixepoch()))""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_rend_auditorias ON rend_auditorias(tipo, periodo)")
+
+
+def rendimiento_down(conn: sqlite3.Connection) -> None:
+    for t in ("rend_auditorias", "rend_ajustes", "rend_asignaturas", "rend_bloques", "rend_dias"):
+        conn.execute(f"DROP TABLE IF EXISTS {t}")
+
+
+# 18 ─ Rendimiento: alertas guardadas y estado del router de IA ──────────────────
+# Cada alerta que salta queda con su fecha (y la tarea que creó); el router guarda las peticiones de cada día
+# por cuota, los modelos en enfriamiento tras un 429 y un registro corto de llamadas (sin contenido).
+# La auditoría guarda el hash de lo que se envió, para no repetirla si nada cambió.
+
+def rend_ia_up(conn: sqlite3.Connection) -> None:
+    conn.execute("""CREATE TABLE IF NOT EXISTS rend_alertas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT NOT NULL, regla TEXT NOT NULL, nivel TEXT NOT NULL,
+        titulo TEXT NOT NULL, texto TEXT NOT NULL, item_id INTEGER, creado REAL NOT NULL DEFAULT (unixepoch()),
+        UNIQUE (fecha, regla))""")
+    conn.execute("CREATE TABLE IF NOT EXISTS llm_uso (cuota TEXT NOT NULL, dia TEXT NOT NULL, peticiones INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (cuota, dia))")
+    conn.execute("CREATE TABLE IF NOT EXISTS llm_enfriamiento (modelo TEXT PRIMARY KEY, hasta REAL NOT NULL, motivo TEXT)")
+    conn.execute("""CREATE TABLE IF NOT EXISTS llm_registro (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, at REAL NOT NULL, modelo TEXT NOT NULL, ok INTEGER NOT NULL,
+        latencia_ms INTEGER, error TEXT)""")
+    if not has_column(conn, "rend_auditorias", "entrada_hash"):
+        conn.execute("ALTER TABLE rend_auditorias ADD COLUMN entrada_hash TEXT")
+
+
+def rend_ia_down(conn: sqlite3.Connection) -> None:
+    for t in ("llm_registro", "llm_enfriamiento", "llm_uso", "rend_alertas"):
+        conn.execute(f"DROP TABLE IF EXISTS {t}")
+    if has_column(conn, "rend_auditorias", "entrada_hash"):
+        conn.execute("ALTER TABLE rend_auditorias DROP COLUMN entrada_hash")
+
+
+def yt_vistos_up(conn: sqlite3.Connection) -> None:
+    conn.execute("""CREATE TABLE IF NOT EXISTS yt_vistos (
+        video_id TEXT PRIMARY KEY, channel TEXT NOT NULL, title TEXT, seen_at REAL NOT NULL DEFAULT (unixepoch()))""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_yt_vistos_channel ON yt_vistos(channel)")
+
+
+def yt_vistos_down(conn: sqlite3.Connection) -> None:
+    conn.execute("DROP TABLE IF EXISTS yt_vistos")
+
+
+# 20 ─ IA de las notas: política, catálogo de modelos y registro de correcciones ───
+# El registro del router gana tokens, coste y para qué se usó (sin contenido). `ia_correcciones` guarda qué modelo
+# corrigió cada nota y qué pasó con la propuesta; la versión previa a aplicarla está en data/versions (deshacer).
+
+def ia_notas_up(conn: sqlite3.Connection) -> None:
+    for col, tipo in (("tokens_in", "INTEGER NOT NULL DEFAULT 0"), ("tokens_out", "INTEGER NOT NULL DEFAULT 0"),
+                      ("coste", "REAL NOT NULL DEFAULT 0"), ("uso", "TEXT")):
+        if not has_column(conn, "llm_registro", col):
+            conn.execute(f"ALTER TABLE llm_registro ADD COLUMN {col} {tipo}")
+    conn.execute("CREATE TABLE IF NOT EXISTS ia_ajustes (clave TEXT PRIMARY KEY, valor TEXT NOT NULL)")
+    conn.execute("CREATE TABLE IF NOT EXISTS ia_catalogo (url TEXT PRIMARY KEY, modelos TEXT NOT NULL, at REAL NOT NULL)")
+    conn.execute("""CREATE TABLE IF NOT EXISTS ia_correcciones (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, note_id TEXT NOT NULL, modelo_id TEXT, proveedor TEXT, modelo TEXT,
+        estado TEXT NOT NULL, partes INTEGER NOT NULL DEFAULT 0, aceptadas INTEGER NOT NULL DEFAULT 0,
+        tokens_in INTEGER NOT NULL DEFAULT 0, tokens_out INTEGER NOT NULL DEFAULT 0, coste REAL NOT NULL DEFAULT 0,
+        version TEXT, creado REAL NOT NULL DEFAULT (unixepoch()))""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ia_correcciones_nota ON ia_correcciones(note_id, creado)")
+
+
+def ia_notas_down(conn: sqlite3.Connection) -> None:
+    for t in ("ia_correcciones", "ia_catalogo", "ia_ajustes"):
+        conn.execute(f"DROP TABLE IF EXISTS {t}")
+    for col in ("uso", "coste", "tokens_out", "tokens_in"):
+        if has_column(conn, "llm_registro", col):
+            conn.execute(f"ALTER TABLE llm_registro DROP COLUMN {col}")
+
+
+# 21 ─ Grafo: nodos fijados y copia de las posiciones previas al último recolocado automático ─────
+
+def graph_auto_up(conn: sqlite3.Connection) -> None:
+    conn.execute("CREATE TABLE IF NOT EXISTS graph_nodes (id TEXT PRIMARY KEY, x REAL, y REAL)")  # en una BD en blanco aún no existe
+    if not has_column(conn, "graph_nodes", "fijado"):
+        conn.execute("ALTER TABLE graph_nodes ADD COLUMN fijado INTEGER NOT NULL DEFAULT 0")
+    conn.execute("CREATE TABLE IF NOT EXISTS graph_prev (id INTEGER PRIMARY KEY CHECK (id = 1), datos TEXT NOT NULL, at REAL NOT NULL)")
+
+
+def graph_auto_down(conn: sqlite3.Connection) -> None:
+    conn.execute("DROP TABLE IF EXISTS graph_prev")
+    if has_column(conn, "graph_nodes", "fijado"):
+        conn.execute("ALTER TABLE graph_nodes DROP COLUMN fijado")
+
+
 MIGRATIONS = [
     Migration(1, "inbox: un nivel de subelementos y tipo del padre", _inbox_one_level_up, _inbox_one_level_down),
     Migration(2, "baúl: orden manual (resources.sort_order)", resources_order_up, resources_order_down),
@@ -397,4 +508,9 @@ MIGRATIONS = [
     Migration(14, "tablero de una tarea (boards.item_id)", board_item_up, board_item_down),
     Migration(15, "economía: presupuestos por categoría y movimientos recurrentes", finance_plans_up, finance_plans_down),
     Migration(16, "rutinas: cada paso con su propia hora", step_times_up, step_times_down),
+    Migration(17, "rendimiento: registro diario, bloques de estudio, asignaturas, ajustes y auditorías", rendimiento_up, rendimiento_down),
+    Migration(18, "rendimiento: alertas guardadas, uso y enfriamiento del router de IA", rend_ia_up, rend_ia_down),
+    Migration(19, "extensión: vídeos de YouTube vistos de los canales del Baúl (yt_vistos)", yt_vistos_up, yt_vistos_down),
+    Migration(20, "IA de las notas: política, catálogo de modelos y correcciones (ia_*)", ia_notas_up, ia_notas_down),
+    Migration(21, "grafo: nodos fijados y copia previa al recolocado automático", graph_auto_up, graph_auto_down),
 ]

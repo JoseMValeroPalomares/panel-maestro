@@ -16,15 +16,14 @@ let tagFilter = null;
 let colorMode = 'status'; // 'status' | 'stale'
 let orphanHighlight = false;
 let collapsedCats = new Set();
+const movedNodes = new Set();   // nodos arrastrados a mano desde la última vez que se guardó: pasan a «fijados»
 
 const STATUS_LABELS = { 'por-escribir': 'Por escribir', 'en-desarrollo': 'En desarrollo', 'consolidado': 'Consolidado', 'indice': 'Índice' };
 // Colores de categoría del tema activo (--cat-0…9): vis-network necesita el valor, no la variable
 const catPalette = () => { const cs = getComputedStyle(document.documentElement); return Array.from({ length: 10 }, (_, i) => cs.getPropertyValue(`--cat-${i}`).trim()); };
+// El lienzo necesita el color resuelto (no var(--…)): el mismo índice que en Notas y Baúl (ui.js:categoryIndex)
 function categoryColor(cat) {
-  let hash = 0;
-  for (let i = 0; i < cat.length; i++) hash = (hash * 31 + cat.charCodeAt(i)) | 0;
-  const pal = catPalette();
-  return pal[Math.abs(hash) % pal.length];
+  return catPalette()[categoryIndex(cat)];
 }
 
 /* Paleta del lienzo a partir de los tokens CSS */
@@ -49,8 +48,9 @@ const alpha = (hex, a) => {
 async function initGraph() {
   try {
     rawData = await api('/api/graph', { quiet: true });
+    document.getElementById('btnAutoUndo').hidden = !rawData.hay_deshacer;
   } catch {
-    document.getElementById('loadingOverlay').innerHTML = emptyState({ iconName: 'wifi-off', title: 'No se pudo cargar el grafo', text: 'Revisa la conexión y recarga.' });
+    showState(document.getElementById('loadingOverlay'), loadFailed('No se pudo cargar el grafo'), () => location.reload());
     return;
   }
   if (!rawData.nodes.some(n => n.type === 'note')) {
@@ -132,6 +132,7 @@ function renderGraph() {
       },
       font: { ...font, size: 14 },
       borderWidth: isOrphan ? 3 : borderWidth, borderWidthSelected: 4,
+      shapeProperties: n.fijado ? { borderDashes: [3, 3] } : { borderDashes: false },
     };
     if (n.x != null && n.y != null) Object.assign(node, { x: n.x, y: n.y, physics: false }); else node.physics = true;
     return node;
@@ -184,6 +185,7 @@ function renderGraph() {
   network.on('hoverNode', showTooltip);
   network.on('blurNode', hideTooltip);
   network.on('dragStart', hideTooltip);
+  network.on('dragEnd', (p) => (p.nodes || []).forEach((id) => movedNodes.add(id)));
   network.on('click', onNetworkClick);
   network.on('oncontext', onRightClick);
 }
@@ -335,6 +337,7 @@ function openPanel(node) {
   fc.textContent = `${node.due_flashcards} flashcard(s) pendiente(s) de repaso`;
   document.getElementById('panel-link').href = `/?note=${encodeURIComponent(node.id)}`;
   document.getElementById('panel-connect-btn').hidden = !editMode;
+  updatePinButton(node);
   document.getElementById('node-panel').hidden = false;
 }
 function closePanel() { document.getElementById('node-panel').hidden = true; panelNodeId = null; }
@@ -356,7 +359,7 @@ function refreshEditBanner() {
   if (!editMode) return;
   banner.innerHTML = linkSource
     ? `<strong>Nota de origen elegida.</strong><span>Toca la nota de destino para conectarlas.</span>
-       <button type="button" class="btn btn-sm btn-ghost" onclick="cancelConnect()">Cancelar</button>`
+       <button type="button" class="btn btn-sm btn-ghost" data-call="cancelConnect">Cancelar</button>`
     : `<strong>Modo edición</strong><span>Arrastra notas para moverlas · <kbd>Ctrl</kbd> + clic en dos notas para conectarlas · clic derecho en una conexión para borrarla</span>`;
 }
 
@@ -399,7 +402,10 @@ async function saveLayout() {
   const btn = document.getElementById('btnSave');
   btn.classList.add('is-loading');
   try {
-    await api('/api/graph/layout', { method: 'POST', body: { nodes, edges: [] } });
+    const fijados = [...movedNodes];
+    await api('/api/graph/layout', { method: 'POST', body: { nodes, edges: [], fijados } });
+    fijados.forEach((id) => { const n = rawData.nodes.find((x) => x.id === id); if (n) n.fijado = true; });
+    movedNodes.clear();
     toast('Posiciones guardadas');
   } finally {
     btn.classList.remove('is-loading');
@@ -438,3 +444,89 @@ function updateStats() {
 
 initGraph();
 document.addEventListener('themechange', () => { if (network) renderGraph(); });
+
+
+/* ============================================================
+   GRAFO AUTOMÁTICO (servidor: app/graph_layout.py) · fijar nodos · deshacer
+   ============================================================ */
+function updatePinButton(node) {
+  const b = document.getElementById('panel-pin-btn');
+  b.setAttribute('aria-pressed', String(!!node.fijado));
+  document.getElementById('panel-pin-label').textContent = node.fijado ? 'Soltar posición' : 'Fijar posición';
+}
+async function togglePin() {
+  const node = rawData.nodes.find((n) => n.id === panelNodeId);
+  if (!node) return;
+  node.fijado = !node.fijado;
+  if (node.fijado && network) { const p = network.getPositions([node.id])[node.id]; if (p) await api('/api/graph/layout', { method: 'POST', body: { nodes: [{ id: node.id, x: Math.round(p.x), y: Math.round(p.y) }], edges: [] }, quiet: true }); }
+  await api('/api/graph/fijar', { method: 'POST', body: { id: node.id, fijado: node.fijado } });
+  movedNodes.delete(node.id);
+  nodesDS.update({ id: node.id, shapeProperties: node.fijado ? { borderDashes: [3, 3] } : { borderDashes: false } });
+  updatePinButton(node);
+  toast(node.fijado ? 'Posición fijada: «Generar automático» puede respetarla' : 'Posición suelta', { type: 'info' });
+}
+
+async function openAutoLayout() {
+  if (!rawData.nodes.length) return;
+  const fijados = rawData.nodes.filter((n) => n.fijado).length + movedNodes.size;
+  let dlg = document.getElementById('autoDialog');
+  if (!dlg) {
+    dlg = document.createElement('dialog');
+    dlg.id = 'autoDialog';
+    dlg.className = 'modal modal-sm';
+    dlg.setAttribute('aria-labelledby', 'autoTitle');
+    dlg.innerHTML = `<div class="modal-header"><h2 id="autoTitle">Generar grafo automático</h2>
+        <button type="button" class="btn btn-ghost btn-icon modal-close" data-close aria-label="Cerrar">${icon('x')}</button></div>
+      <div class="modal-body stack">
+        <p>Se recolocan todos los nodos: la categoría mayor en el centro, las demás a su alrededor (cuanto más grande, más cerca), subcategorías en anillos por profundidad y las notas sin categoría en el anillo exterior.</p>
+        <label class="check"><input type="checkbox" class="checkbox" id="autoRespect"><span><strong>Respetar nodos fijados</strong><br><span class="small muted" id="autoRespectHint"></span></span></label>
+        <p class="small muted">Podrás deshacerlo con «Deshacer recolocado».</p></div>
+      <div class="modal-footer"><span class="spacer"></span><button type="button" class="btn" data-close>Cancelar</button>
+        <button type="button" class="btn btn-primary" id="autoGo">${icon('sparkles', 'icon-sm')}Generar</button></div>`;
+    document.body.appendChild(dlg);
+    wireAllDialogs();
+    dlg.querySelector('#autoGo').addEventListener('click', () => { const r = dlg.querySelector('#autoRespect').checked; closeModal(dlg); runAutoLayout(r); });
+  }
+  dlg.querySelector('#autoRespect').checked = fijados > 0;
+  dlg.querySelector('#autoRespect').disabled = fijados === 0;
+  dlg.querySelector('#autoRespectHint').textContent = fijados ? `${fijados} ${fijados === 1 ? 'nodo fijado' : 'nodos fijados'} (arrastrados y guardados, o fijados desde su ficha) conservan su sitio.` : 'Aún no hay nodos fijados: arrastra uno y guarda las posiciones, o fíjalo desde su ficha.';
+  openModal(dlg);
+}
+
+async function runAutoLayout(respetar) {
+  const btn = document.getElementById('btnAuto');
+  btn.classList.add('is-loading');
+  try {
+    if (respetar && movedNodes.size) await saveLayout();   // lo arrastrado pasa a fijado antes de recolocar
+    const r = await api('/api/graph/auto', { method: 'POST', body: { respetar_fijados: respetar } });
+    animateTo(r.posiciones);
+    rawData.nodes.forEach((n) => { const p = r.posiciones[n.id]; if (p) { n.x = p.x; n.y = p.y; } if (!respetar) n.fijado = false; });
+    if (!respetar) movedNodes.clear();
+    document.getElementById('btnAutoUndo').hidden = false;
+    toast(`Grafo recolocado (${r.total} nodos)`, { action: { label: 'Deshacer', onClick: undoAutoLayout }, duration: 8000 });
+  } finally { btn.classList.remove('is-loading'); }
+}
+
+/* Movimiento suave de todos los nodos visibles a sus nuevas posiciones y encuadre final */
+function animateTo(targets) {
+  if (!network) return;
+  network.setOptions({ physics: { enabled: false } });
+  const desde = network.getPositions();
+  const ids = Object.keys(desde).filter((id) => targets[id]);
+  const dur = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 750;
+  const t0 = performance.now();
+  const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+  const fit = () => network.fit({ animation: { duration: dur ? 500 : 0, easingFunction: 'easeInOutQuad' }, minZoomLevel: matchMedia('(max-width: 767px)').matches ? 0.12 : 0.15, maxZoomLevel: 1.2 });
+  const paso = (now) => {
+    const k = dur ? Math.min(1, (now - t0) / dur) : 1, e = ease(k);
+    nodesDS.update(ids.map((id) => ({ id, x: desde[id].x + (targets[id].x - desde[id].x) * e, y: desde[id].y + (targets[id].y - desde[id].y) * e, physics: false })));
+    if (k < 1) requestAnimationFrame(paso); else { fit(); updateStats(); }
+  };
+  requestAnimationFrame(paso);
+}
+
+async function undoAutoLayout() {
+  try { await api('/api/graph/auto/deshacer', { method: 'POST' }); } catch { return; }
+  toast('Posiciones anteriores restauradas', { type: 'info' });
+  await initGraph();
+}

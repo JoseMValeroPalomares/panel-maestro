@@ -90,8 +90,8 @@ def test_1_crear_desde_cada_punto_de_entrada(context, server, api):
     inbox.press("#inboxCapture-text", "Control+Enter")
     assert visto_en_los_dos("Idea desde el Inbox")["origin"] == "ideas"
 
-    # FAB (captura rápida) en Tareas
-    tareas.click(".fab")
+    # Captura rápida en Tareas (en escritorio no hay FAB: el botón «Capturar» del pie de la barra lateral)
+    tareas.click(".sidebar-footer [data-open-capture]")
     tareas.click("#captureForm [data-capture-type=tarea]")
     tareas.fill("#captureForm-text", "Desde el FAB")
     tareas.click("#captureForm [type=submit]")
@@ -297,7 +297,8 @@ def test_5_contadores_y_listados_iguales_entre_pestanas(context, server, api):
     _abrir(tareas, server, "/tareas")
     assert _contadores(inbox) == _contadores(tareas)
     srv = api.get("/api/items/counts").json()
-    assert _contadores(tareas)["pend"] == str(srv["pendientes"]) == _contadores(tareas)["menu"]
+    assert _contadores(tareas)["pend"] == str(srv["pendientes"])
+    assert _contadores(tareas)["menu"] == str(srv["inbox"]["pendientes"])  # el menú cuenta solo lo del Inbox
 
     # Completar en Tareas → el Inbox (otra pestaña) cuadra sin recargar
     first = _orden(tareas)[0]
@@ -420,10 +421,7 @@ def test_capturas_despues(browser, server, api, w, h):
     try:
         _abrir(page, server, "/tareas")
         page.screenshot(path=f"{SHOTS}/tareas-{w}.png", full_page=True)
-        _abrir(page, server, "/inbox")
-        if mobile:
-            page.click("#btnSidebar")
-            page.wait_for_timeout(500)
+        _abrir(page, server, "/inbox")  # en el móvil empieza en la lista
         page.screenshot(path=f"{SHOTS}/inbox-{w}.png")
     finally:
         ctx.close()

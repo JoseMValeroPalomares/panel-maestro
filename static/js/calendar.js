@@ -138,7 +138,7 @@
         // un pintado anterior (al llegar las preferencias) no sabía aún qué hay: la primera vez se coloca con los datos
         if (!this.placed) { this.placed = true; this.keepScroll = null; }
       } catch {
-        this.el.querySelector('.cal-body').innerHTML = emptyState({ iconName: 'wifi-off', title: 'No se pudo cargar el calendario', compact: true });
+        showState(this.el.querySelector('.cal-body'), loadFailed('No se pudo cargar el calendario', true), () => this.load());
         return;
       }
       this.render();
@@ -298,6 +298,28 @@
       return html + '</div></div>';
     }
 
+    /* Agenda: los bloques de cada rutina (a menudo una docena al día) van plegados en una línea con su horario y lo
+       hecho, en el sitio del primero; se despliegan con un toque. Así los eventos del día no se pierden entre ellos. */
+    agendaItems(list) {
+      const groups = {};
+      list.forEach((e) => { if (e.kind === 'routine' && e.routine_id) (groups[e.routine_id] ||= []).push(e); });
+      const shown = new Set();
+      return list.map((e) => {
+        const g = e.kind === 'routine' && e.routine_id ? groups[e.routine_id] : null;
+        if (!g || g.length < 3 || this.compact) return `<li>${this.chip(e)}</li>`;
+        if (shown.has(e.routine_id)) return '';
+        shown.add(e.routine_id);
+        const timed = g.filter((x) => !x.all_day);
+        const span = timed.length ? `${timed[0].start.slice(11, 16)}–${(timed[timed.length - 1].end || timed[timed.length - 1].start).slice(11, 16)}` : '';
+        const done = g.filter((x) => x.done).length;
+        return `<li><details class="cal-agroup" data-kind="routine"><summary>${icon('repeat', 'icon-sm')}
+            <span class="cal-agroup-title">${esc(e.routine_title || e.title)}</span>
+            <span class="tiny muted tabular">${g.length} bloques${span ? ` · ${span}` : ''} · ${done}/${g.length} hechos</span>
+            ${icon('chevron-down', 'icon-sm cal-agroup-chev')}</summary>
+          <ul class="cal-alist">${g.map((x) => `<li>${this.chip(x)}</li>`).join('')}</ul></details></li>`;
+      }).join('');
+    }
+
     agendaHTML() {
       const [a, b] = this.range();
       const byDay = {};
@@ -313,7 +335,7 @@
         out.push(`<section class="cal-aday${isToday ? ' is-today' : ''}" data-day="${k}">
           <h3 class="cal-ahead"><button type="button" class="cal-adate" data-goto="${k}" aria-label="Ver el ${esc(fmtDay(d, { weekday: 'long', day: 'numeric', month: 'long' }))}">
             <span class="cal-adnum tabular">${d.getDate()}</span><span class="cal-adow">${esc(`${fmtDay(d, { weekday: 'short' })} · ${fmtDay(d, { month: 'short' })}`.replace(/\./g, ''))}</span></button></h3>
-          ${list.length ? `<ul class="cal-alist">${list.map((e) => `<li>${this.chip(e)}</li>`).join('')}</ul>` : '<p class="cal-anone tiny subtle">Nada hoy</p>'}</section>`);
+          ${list.length ? `<ul class="cal-alist">${this.agendaItems(list)}</ul>` : '<p class="cal-anone tiny subtle">Nada hoy</p>'}</section>`);
       }
       if (out.length) gap();
       return `<div class="cal-agenda">${out.join('') || `<p class="small muted">Nada en los próximos ${this.days} días.</p>`}</div>`;

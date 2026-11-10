@@ -205,7 +205,7 @@
       body.innerHTML = '';
       empty.hidden = false;
       empty.innerHTML = state.rows.length
-        ? emptyState({ iconName: 'filter', title: 'Nada coincide con el filtro', text: 'Prueba con otra búsqueda o quita los filtros.', compact: true })
+        ? stateView({ kind: 'no-results', title: 'Nada coincide con el filtro', text: 'Prueba con otra búsqueda o quita los filtros.', compact: true })
         : emptyState({ iconName: c.icon, title: `Aún no hay ${c.many}`, text: 'Puedes importarlos desde un CSV o JSON.', compact: true });
     } else {
       empty.hidden = true;

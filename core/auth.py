@@ -25,7 +25,7 @@ log = get_logger("auth")
 SESSION_COOKIE = "panel_session"
 
 # Rutas accesibles sin sesión: login, recursos estáticos sin datos personales y PWA.
-PUBLIC_EXACT = {"/login", "/logout", "/healthz", "/sw.js", "/manifest.webmanifest", "/favicon.ico",
+PUBLIC_EXACT = {"/login", "/logout", "/healthz", "/sw.js", "/manifest.webmanifest", "/favicon.ico", "/sim",
                 "/static/manifest.json"}
 PUBLIC_PREFIXES = ("/static/css/", "/static/js/", "/static/vendor/", "/static/icons/", "/static/fonts/")
 

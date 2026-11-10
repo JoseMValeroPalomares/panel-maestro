@@ -58,7 +58,7 @@ import sqlite3
 
 from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Path as FPath, Request
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Path as FPath, Query, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -697,6 +697,14 @@ def _write_meal_ingredients(conn, meal_id: int, resolved: list[dict]):
                      (meal_id, ing["ingredient_id"], ing["gramos"], ing["unidades"]))
 
 
+@app.get("/api/photo-search")
+def photo_search(q: str = Query(..., min_length=2, max_length=120)):
+    """Fotos candidatas para un plato (búsqueda de imágenes en la web). Se eligen en el formulario del plato; al
+    guardar, la elegida se descarga a la caché local (_cache_meal_image) y deja de depender de internet."""
+    from app.scraper import search_images
+    return {"options": search_images(f"{q} plato receta", n=12)}
+
+
 @app.post("/api/meals/suggest-gramos")
 def suggest_gramos(payload: SuggestGramosRequest):
     with get_db() as conn:
@@ -761,8 +769,21 @@ def get_meal(meal_id: int):
     result["kcal_check"] = nu.comprobar_kcal(total["kcal"], total["proteinas"], total["carbohidratos"], total["grasas"])
     return result
 
+def find_meal_photo(meal_id: int, nombre: str) -> None:
+    """Plato nuevo sin foto: busca una por su nombre y la guarda en local (en segundo plano, tras crearlo).
+    Si el usuario ya puso una mientras tanto, no la pisa."""
+    from app.scraper import cache_thumbnail, search_images
+    for o in search_images(f"{nombre} plato receta", n=6):
+        local = cache_thumbnail(o["image"], str(config.UPLOADS_DIR / "thumbs"))
+        if local:
+            with get_db() as conn:
+                conn.execute("UPDATE meals SET image_url=?, image_source='busqueda' WHERE id=? AND (image_url IS NULL OR image_url='')",
+                             (local, meal_id))
+            return
+
+
 @app.post("/api/meals")
-def create_meal(meal: MealIn):
+def create_meal(meal: MealIn, background_tasks: BackgroundTasks):
     with get_db() as conn:
         resolved = _resolve_ingredients(conn, meal.ingredientes)
         gramos_rec = meal.gramos_recomendados
@@ -775,6 +796,9 @@ def create_meal(meal: MealIn):
               json.dumps(meal.instrucciones), _cache_meal_image(meal.image_url), meal.image_source))
         meal_id = cursor.lastrowid
         _write_meal_ingredients(conn, meal_id, resolved)
+        con_foto = bool(conn.execute("SELECT image_url FROM meals WHERE id=?", (meal_id,)).fetchone()["image_url"])
+    if not con_foto and not config.DISABLE_SCHEDULER:  # en pruebas (sin programador) no se sale a internet
+        background_tasks.add_task(find_meal_photo, meal_id, meal.nombre)
     return {"status": "success", "id": meal_id, "gramos_recomendados": gramos_rec}
 
 @app.patch("/api/meals/{meal_id}")

@@ -29,6 +29,7 @@ KINDS = {
     ("brain", "finance.debts"): ("deuda", "hand-coins"),
     ("brain", "finance.wishes"): ("deseo", "shopping-bag"),
     ("brain", "finance.recurring"): ("recurrente", "repeat"),
+    ("brain", "rendimiento.dia"): ("registro de rendimiento", "activity"),
 }
 
 
@@ -91,6 +92,11 @@ def restore(db: str, token: str) -> dict:
         with get_db() as conn:
             found = undo.pop(conn, token, "finance.")
             return {"restored": restore_finance(conn, found[1]) if found else 0, "kind": kind}
+    if db == "brain" and kind == "rendimiento.dia":
+        from app.rendimiento import restore as restore_rendimiento
+        with get_db() as conn:
+            found = undo.pop(conn, token, "rendimiento.")
+            return {"restored": restore_rendimiento(conn, found[1]) if found else 0, "kind": kind}
     if db == "comidas":
         from comidas.bulk import bulk_undo as comidas_undo
         return {"restored": comidas_undo(token)["restored"], "kind": kind}

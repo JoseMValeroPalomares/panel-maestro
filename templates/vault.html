@@ -4,15 +4,15 @@
 {% block actions %}
 <div class="search hide-mobile vault-search">{{ icon('search') }}
   <input id="searchInput" class="input" type="search" placeholder="Buscar en el Baúl" aria-label="Buscar en el Baúl" autocomplete="off"></div>
-<button type="button" class="btn btn-primary" onclick="openAddModal()">{{ icon('plus') }}<span class="hide-mobile">Añadir</span><span class="sr-only show-mobile">Añadir recurso</span></button>
+<button type="button" class="btn btn-primary" data-call="openAddModal">{{ icon('plus') }}<span class="hide-mobile">Añadir</span><span class="sr-only show-mobile">Añadir recurso</span></button>
 {% endblock %}
 {% block content %}
 <div class="vault">
   <div class="vault-controls">
     <div class="segmented" role="tablist" aria-label="Vista">
-      <button type="button" class="main-tab" data-maintab="library" role="tab" aria-selected="true" onclick="switchMainTab(this,'library')">Biblioteca</button>
-      <button type="button" class="main-tab" data-maintab="watchlater" role="tab" aria-selected="false" onclick="switchMainTab(this,'watchlater')">Para más tarde <span class="badge" id="wlBadge" hidden>0</span></button>
-      <button type="button" class="main-tab" data-maintab="watched" role="tab" aria-selected="false" onclick="switchMainTab(this,'watched')">Vistos <span class="badge" id="watchedBadge" hidden>0</span></button>
+      <button type="button" class="main-tab" data-maintab="library" role="tab" aria-selected="true" data-call="switchMainTab" data-args='["$el", "library"]'>Biblioteca</button>
+      <button type="button" class="main-tab" data-maintab="watchlater" role="tab" aria-selected="false" data-call="switchMainTab" data-args='["$el", "watchlater"]'>Para más tarde <span class="badge" id="wlBadge" hidden>0</span></button>
+      <button type="button" class="main-tab" data-maintab="watched" role="tab" aria-selected="false" data-call="switchMainTab" data-args='["$el", "watched"]'>Vistos <span class="badge" id="watchedBadge" hidden>0</span></button>
     </div>
     <div class="search show-mobile">{{ icon('search') }}
       <input id="searchInputMobile" class="input" type="search" placeholder="Buscar en el Baúl" aria-label="Buscar en el Baúl" autocomplete="off"></div>

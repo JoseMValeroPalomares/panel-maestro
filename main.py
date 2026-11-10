@@ -48,13 +48,14 @@ for _sub in (cerebro_app, estudio_app, comidas_app):
 
 # El ultimo middleware añadido es el mas externo: las cabeceras de seguridad
 # envuelven tambien las respuestas 401/redirect del middleware de auth.
-# CSP: todo el JS/CSS se sirve desde el propio panel (static/vendor). 'unsafe-inline'
-# en script-src sigue siendo necesario por los manejadores onclick del HTML.
+# CSP: todo el JS/CSS se sirve desde el propio panel (static/vendor) y no hay JS en línea: los botones usan
+# data-call (ui.js) en lugar de onclick. Las simulaciones de las notas, que sí lo necesitan, corren en /sim con su
+# propia CSP y sandbox (core/pwa.py). style-src mantiene 'unsafe-inline' por los atributos style del HTML.
 # img-src admite https/http por las miniaturas del Baúl y las fotos de platos;
 # connect-src admite ws: para el WebSocket directo del navegador al ESP32.
 CSP = "; ".join([
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline'",
+    "script-src 'self'",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https: http:",
     "font-src 'self' data:",

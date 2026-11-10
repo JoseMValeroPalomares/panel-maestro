@@ -33,13 +33,13 @@
 .col-icon { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; color: var(--tile-fg); flex-shrink: 0; }
 .col-icon[data-kind="inbox"] { background: var(--tile-inbox); }
 .col-icon[data-kind="nota"] { background: var(--tile-notas); }
-.col-icon[data-kind="ideas"] { background: var(--tile-baul); }
+.col-icon[data-kind="ideas"] { background: var(--c-idea); }
 .il-fold { color: var(--text-3); flex-shrink: 0; }
 .il-fold .icon { transition: rotate var(--dur) var(--ease-out); }
 .il-fold[aria-expanded="false"] .icon { rotate: -90deg; }
 .il-group-body[hidden], .il-cat-body[hidden], .il-note-body[hidden] { display: none; }
 .il-empty { font-size: var(--fs-13); color: var(--text-3); padding: var(--sp-2) 0; }
-.il-empty code, .tareas code { font-family: var(--font-mono); font-size: 0.95em; background: var(--fill); padding: 1px 5px; border-radius: var(--r-xs); white-space: pre; }
+.il-empty code, .tareas code { font-family: var(--font-mono); font-size: max(12px, 0.95em); background: var(--fill); padding: 1px 5px; border-radius: var(--r-xs); white-space: pre; }
 
 /* Notas: categoría → subcategoría → nota */
 .il-cat + .il-cat { margin-top: var(--sp-3); }
@@ -66,7 +66,7 @@
 
 /* Color de cada tipo: tarea, idea o rutina */
 .il-item { --type-color: var(--tile-tareas); }
-.il-item[data-type="idea"] { --type-color: var(--tile-baul); }
+.il-item[data-type="idea"] { --type-color: var(--c-idea); }
 .il-item[data-type="rutina"] { --type-color: var(--tile-rutinas); }
 
 /* Tarjeta */
@@ -89,7 +89,11 @@
 .il-due.is-late { color: var(--danger-text); font-weight: 600; }
 .il-due.is-today { color: var(--warning-text); font-weight: 600; }
 .tag.prio[data-prio="alta"] { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger-text); }
-.tag.prio[data-prio="media"] { background: var(--warning-soft); color: var(--warning-text); }
+/* Prioridad: solo la alta llama la atención; media y baja informan sin color (casi todo era «media» en naranja) */
+.tag.prio[data-prio="media"] { background: transparent; color: var(--text-2); padding-inline: 2px; }
+.tag.prio[data-prio="baja"] { background: transparent; color: var(--text-3); padding-inline: 2px; }
+/* «hace 5 días» es ruido salvo cuando miras esa tarjeta (con ratón); en táctil se queda */
+@media (hover: hover) { .il-item:not(:hover):not(:focus-within) > .il-row .il-when { visibility: hidden; } }
 .card-link { display: inline-flex; align-items: center; gap: 3px; color: var(--accent-text); }
 .il-more { color: var(--text-3); margin-top: -2px; }
 .il-kids-fold { margin-top: -2px; }
@@ -104,7 +108,7 @@
 .il-details-md { font-size: var(--fs-13); line-height: 1.55; color: var(--text); overflow-wrap: anywhere; }
 .il-details-md > * + * { margin-top: 0.5em; }
 .il-details-md ul, .il-details-md ol { padding-left: 1.3em; }
-.il-details-md code { font-size: 0.92em; background: var(--fill-strong); padding: 0 4px; border-radius: 4px; }
+.il-details-md code { font-size: max(12px, 0.92em); background: var(--fill-strong); padding: 0 4px; border-radius: 4px; }
 .il-details-md a { color: var(--accent-text); }
 .il-details .btn { margin-top: var(--sp-1); margin-left: calc(var(--sp-2) * -1); }
 @media (pointer: coarse) { .il-chip-btn { min-height: 32px; padding: 4px 10px; } }
@@ -146,7 +150,7 @@
 .card-check:hover { border-color: var(--tile-tareas); color: var(--tile-tareas); }
 .card-check:active { transform: scale(0.9); }
 .card-check.done { background: var(--tile-tareas); border-color: var(--tile-tareas); color: var(--tile-fg); }
-.il-item[data-type="idea"] > .il-row .card-check.done { background: var(--tile-baul); border-color: var(--tile-baul); }
+.il-item[data-type="idea"] > .il-row .card-check.done { background: var(--c-idea); border-color: var(--c-idea); }
 .small-check { width: 18px; height: 18px; margin-top: 0; }
 .small-check .icon { width: 11px; height: 11px; }
 
@@ -283,6 +287,8 @@ body[data-resize="s"], body[data-resize="s"] * { cursor: ns-resize !important; }
 body[data-resize="se"], body[data-resize="se"] * { cursor: nwse-resize !important; }
 .view-seg button { display: inline-flex; align-items: center; gap: 6px; }
 .task-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-3); }
+.filters-more { display: contents; }
+.filters-toggle { display: none; }
 .task-filters .search { min-width: 200px; }
 .cat-filter { width: auto; max-width: 220px; }
 .chip .icon { width: 14px; height: 14px; }
@@ -304,7 +310,14 @@ body[data-resize="se"], body[data-resize="se"] * { cursor: nwse-resize !importan
   .il-addform { margin-left: 24px; }
   .il-bulkbar { bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + var(--sp-2)); }
   .page-tareas .il-bulkbar ~ .fab, .page-tareas:has(.il-bulkbar:not([hidden])) .fab { display: none; }
-  .task-filters .search { flex-basis: 100%; order: -1; }
+  /* Filtros en el móvil: estado a todo el ancho; búsqueda + «Filtros» + seleccionar; tipo y categoría al abrir */
+  .task-filters .status-seg { flex: 1 1 100%; display: flex; }
+  .task-filters .status-seg button { flex: 1; }
+  .task-filters .search { flex: 1 1 0; min-width: 0; }
+  .filters-toggle { display: inline-flex; }
+  .filters-toggle .badge { margin-left: 2px; }
+  .filters-more { display: none; flex: 1 1 100%; flex-wrap: wrap; gap: var(--sp-2); order: 9; }
+  .task-filters.is-open .filters-more { display: flex; }
   .cat-filter { flex: 1; max-width: none; }
   .capture-form.is-compact .capture-row { flex: 1 1 100%; }
   .status-seg button { padding-inline: var(--sp-2); }
@@ -334,26 +347,26 @@ body[data-resize="se"], body[data-resize="se"] * { cursor: nwse-resize !importan
 .il-streak { color: var(--warning-text); font-weight: 600; }
 .il-habit { margin-top: var(--sp-2); padding: var(--sp-2) var(--sp-3); border-radius: var(--r-md); background: var(--fill); display: inline-flex; flex-direction: column; gap: 6px; max-width: 100%; }
 .habit-grid { display: flex; gap: 3px; overflow-x: auto; }
-.habit-days, .habit-week { display: grid; grid-template-rows: repeat(7, 11px); gap: 3px; }
-.habit-days span { font-size: 9px; line-height: 11px; color: var(--text-3); width: 10px; }
-.habit-cell { width: 11px; height: 11px; border-radius: 3px; background: var(--fill-strong); }
-.habit-cell[data-state="done"] { background: var(--tile-estudio); }
+.habit-days, .habit-week { display: grid; grid-template-rows: repeat(7, 12px); gap: 3px; }
+.habit-days span { font-size: 12px; line-height: 12px; color: var(--text-3); width: 12px; }
+.habit-cell { width: 12px; height: 12px; border-radius: 3px; background: var(--fill-strong); }
+.habit-cell[data-state="done"] { background: var(--c-routine); }
 .habit-cell[data-state="missed"] { background: color-mix(in srgb, var(--danger) 35%, var(--fill-strong)); }
-.habit-cell[data-state="pending"] { box-shadow: inset 0 0 0 1.5px var(--tile-estudio); background: transparent; }
+.habit-cell[data-state="pending"] { box-shadow: inset 0 0 0 1.5px var(--c-routine); background: transparent; }
 .habit-cell[data-state="off"] { background: transparent; box-shadow: inset 0 0 0 1px var(--separator); }
 .habit-cell[data-state="future"] { visibility: hidden; }
 .il-habit p .icon { width: 12px; height: 12px; vertical-align: -1px; color: var(--warning-text); }
 /* Próximos eventos (del calendario) con la misma tarjeta */
 .il-evlist { list-style: none; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
-.il-evdot { display: inline-flex; color: var(--tile-grafo); padding: 4px; }
+.il-evdot { display: inline-flex; color: var(--c-event); padding: 4px; }
 .il-event[data-type="examen"] .il-evdot { color: var(--danger); }
 .il-event[data-type="entrega"] .il-evdot { color: var(--warning); }
 .il-evlink { color: var(--text); text-decoration: none; }
 .il-evlink:hover { color: var(--accent-text); }
 a.il-due { color: inherit; text-decoration: none; }
 a.il-due:hover { color: var(--accent-text); }
-.col-icon[data-kind="rutinas"] { color: var(--tile-estudio); }
-.col-icon[data-kind="calendario"] { color: var(--tile-grafo); }
+.col-icon[data-kind="rutinas"] { color: var(--c-routine); }
+.col-icon[data-kind="calendario"] { color: var(--c-event); }
 
 /* Rutinas por pasos: resumen de hoy en el grupo y botón de empezar (static/js/routines.js) */
 .il-run { color: var(--accent-text); margin-top: -2px; }
@@ -367,3 +380,8 @@ a.il-due:hover { color: var(--accent-text); }
 .il-routine { color: var(--text-2); text-decoration: none; padding: 1px 6px; border-radius: var(--r-pill);
   background: color-mix(in srgb, var(--tile-rutinas) 16%, transparent); }
 .il-routine:hover { color: var(--text); background: color-mix(in srgb, var(--tile-rutinas) 28%, transparent); }
+
+/* Diálogo de copiar varias tareas */
+.copy-modal .check { display: flex; gap: var(--sp-2); align-items: flex-start; cursor: pointer; }
+.copy-modal .check .checkbox { margin-top: 2px; }
+.copy-modal .copy-preview { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-13); white-space: pre; overflow: auto; min-height: 9rem; }

@@ -37,11 +37,6 @@ function rgbToHex(r, g, b) {
   return "#" + [r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("");
 }
 
-function shadeColor(r, g, b, factor) {
-  const clamp = (v) => Math.max(0, Math.min(255, Math.round(v)));
-  return rgbToHex(clamp(r * factor), clamp(g * factor), clamp(b * factor));
-}
-
 function applyAccentColor(r, g, b) {
   // Solo los elementos propios de Estudio (anillo del pomodoro, hoy en el calendario):
   // el acento del sistema de diseño no cambia para no romper el contraste.

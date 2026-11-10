@@ -6,7 +6,7 @@
 {%- endmacro -%}
 {%- from "_items.html" import capture_form -%}
 <!DOCTYPE html>
-<html lang="es" data-icons="{{ asset('/static/icons.svg') }}">
+<html lang="es" data-icons="{{ asset('/static/icons.svg') }}" data-ills="{{ asset('/static/ilustraciones.svg') }}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -18,7 +18,8 @@
 <meta name="apple-mobile-web-app-title" content="Panel">
 <title>{{ page_title }} · Panel</title>
 <link rel="manifest" href="/manifest.webmanifest">
-<link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+<link rel="icon" href="/static/icons/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/static/icons/favicon-32.png" sizes="32x32" type="image/png">
 <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
 <script src="{{ asset('/static/js/theme-init.js') }}"></script>
 <link rel="stylesheet" href="{{ asset('/static/css/ds.css') }}">
@@ -31,7 +32,7 @@
   <aside class="sidebar" id="appSidebar" aria-label="Secciones">
     <div class="sidebar-top">
       <a class="sidebar-brand" href="/hoy" aria-label="Panel, inicio (Hoy)">
-        <span class="tile" data-section="notas">{{ icon('brain') }}</span><span>Panel</span>
+        {{ brand_mark() }}<span>Panel</span>
       </a>
       <button type="button" class="btn btn-ghost btn-icon nav-toggle" data-nav-toggle aria-controls="appSidebar" aria-expanded="true" aria-label="Plegar menú" title="Plegar menú (Ctrl+.)">{{ icon('panel-left-close') }}{{ icon('panel-left-open') }}</button>
     </div>
@@ -75,15 +76,17 @@
 </div>
 
 <nav class="tabbar" aria-label="Secciones">
-  {% for key, label, href, ic in tabbar() %}
-  <a class="tab" href="{{ href }}" data-section="{{ key }}" {% if key == section %}aria-current="page"{% endif %}>
+  {# Todas las secciones; se ven las elegidas en Ajustes (o las de por defecto) gracias a tabbar-init.js #}
+  {% for key, label, href, ic in nav_all() %}{% set pos = tabbar_default.index(key) if key in tabbar_default else -1 %}
+  <a class="tab" href="{{ href }}" data-section="{{ key }}" {% if pos >= 0 %}data-default style="order: {{ pos }}"{% else %}hidden{% endif %} {% if key == section %}aria-current="page"{% endif %}>
     <span class="tab-icon">{{ icon(ic) }}{% if key == 'inbox' %}<span class="tab-badge" data-inbox-count hidden></span>{% endif %}</span>{{ label }}
   </a>
   {% endfor %}
-  <button type="button" class="tab" data-open-more>
-    <span class="tab-icon">{{ icon('ellipsis') }}</span>Más
+  <button type="button" class="tab tab-more" data-open-more aria-label="Más secciones y ajustes">
+    <span class="tab-icon">{{ icon('ellipsis') }}<span class="tab-badge" data-inbox-count hidden></span></span>Más
   </button>
 </nav>
+<script src="{{ asset('/static/js/tabbar-init.js') }}"></script>
 
 {% block fab %}
 <button type="button" class="fab" data-open-capture aria-label="Captura rápida" title="Captura rápida (C)">{{ icon('plus') }}</button>
@@ -104,7 +107,8 @@
   </div>
   <div class="modal-body stack">
     <button type="button" class="btn btn-block" data-open-status>{{ icon('plug-zap', 'icon-sm') }}Estado de las conexiones<span class="net-dot" data-status-dot hidden></span></button>
-    <button type="button" class="btn btn-block" onclick="closeModal('moreSheet'); Palette.open()">{{ icon('command', 'icon-sm') }}Paleta de comandos <kbd class="hide-mobile">Ctrl K</kbd></button>
+    <button type="button" class="btn btn-block" data-call="closeModal;openAiSettings" data-args='[["moreSheet"], []]'>{{ icon('sparkles', 'icon-sm') }}IA para corregir notas</button>
+    <button type="button" class="btn btn-block" data-call="closeModal;Palette.open" data-args='[["moreSheet"], []]'>{{ icon('search', 'icon-sm') }}Buscar en todo el panel <kbd class="hide-mobile">Ctrl K</kbd></button>
     <ul class="list">
       {% for key, label, href, ic in nav_all() %}
       <li><a class="list-row" href="{{ href }}" {% if key == section %}aria-current="page"{% endif %}>
@@ -112,17 +116,28 @@
       </a></li>
       {% endfor %}
     </ul>
+    <fieldset class="field tabbar-picker">
+      <legend class="field-label">Pestañas del móvil</legend>
+      <p class="field-hint" id="tabbarHint">Elige hasta 4 secciones para la barra de abajo; el resto queda en «Más».</p>
+      <div class="tabbar-options" aria-describedby="tabbarHint">
+        {% for key, label, href, ic in nav_all() %}
+        <label class="tabbar-option"><input type="checkbox" value="{{ key }}" data-tabbar-choice><span class="tile" data-section="{{ key }}">{{ icon(ic) }}</span><span>{{ label }}</span></label>
+        {% endfor %}
+      </div>
+    </fieldset>
     <fieldset class="field theme-picker">
       <legend class="field-label">Tema</legend>
       <div class="theme-grid" role="radiogroup" aria-label="Tema">
-        {% for key, label in theme_choices %}{% set p = theme_preview(key) %}
+        {# Un solo grupo de radio (las flechas recorren todos); los títulos solo ordenan a la vista #}
+        {% for gtitle, choices in theme_groups %}{% if gtitle %}<span class="theme-group" aria-hidden="true">{{ gtitle }}</span>{% endif %}
+        {% for key, label in choices %}{% set p = theme_preview(key) %}
         <button type="button" role="radio" aria-checked="false" data-theme-choice="{{ key }}" class="theme-option">
           <span class="theme-swatch" style="--p-bg: {{ p.bg }}; --p-elev: {{ p.elev }}; --p-accent: {{ p.accent }}; --p-text: {{ p.text }}" aria-hidden="true"><span></span><span></span></span>
           <span class="theme-name">{{ label }}</span>
-        </button>{% endfor %}
+        </button>{% endfor %}{% endfor %}
       </div>
     </fieldset>
-    <button type="button" class="btn btn-block" onclick="closeModal('moreSheet'); Reminders.openSettings()">{{ icon('bell', 'icon-sm') }}Avisos y recordatorios</button>
+    <button type="button" class="btn btn-block" data-call="closeModal;Reminders.openSettings" data-args='[["moreSheet"], []]'>{{ icon('bell', 'icon-sm') }}Avisos y recordatorios</button>
     <label class="field capture-key-field"><span class="field-label">Tecla de la captura rápida</span>
       <input class="input" id="captureKeyInput" maxlength="1" autocomplete="off" aria-describedby="captureKeyHint">
       <span class="field-hint" id="captureKeyHint">Una letra; funciona fuera de los campos de texto. Ctrl+K abre la paleta de comandos.</span></label>
@@ -142,6 +157,7 @@
 <script src="{{ asset('/static/js/reminders.js') }}"></script>
 <script src="{{ asset('/static/js/palette.js') }}"></script>
 <script src="{{ asset('/static/js/status.js') }}"></script>
+<script src="{{ asset('/static/js/ia-ajustes.js') }}"></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

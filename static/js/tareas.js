@@ -17,13 +17,29 @@
     paintType(b.dataset.typeFilter);
     view.setFilters({ type: b.dataset.typeFilter });
     remember();
+    paintFilterCount();
   }));
 
   let timer;
   $('taskSearch').addEventListener('input', (e) => {
     clearTimeout(timer);
-    timer = setTimeout(() => view.setFilters({ q: e.target.value.trim() }), 120);
+    timer = setTimeout(() => { view.setFilters({ q: e.target.value.trim() }); paintFilterCount(); }, 120);
   });
+
+  // Móvil: tipo y categoría van plegados tras «Filtros»; el botón dice cuántos hay puestos
+  const bar = document.querySelector('.task-filters');
+  $('filtersToggle').addEventListener('click', () => {
+    const open = !bar.classList.contains('is-open');
+    bar.classList.toggle('is-open', open);
+    $('filtersToggle').setAttribute('aria-expanded', String(open));
+  });
+  function paintFilterCount() {
+    const n = (view.filters.type && view.filters.type !== 'all' ? 1 : 0) + (view.filters.category ? 1 : 0);
+    $('filtersCount').textContent = String(n);
+    $('filtersCount').hidden = !n;
+    $('filtersToggle').setAttribute('aria-label', n ? `Filtros (${n} puestos)` : 'Filtros');
+  }
+  document.addEventListener('items:changed', paintFilterCount);
 
   // Categorías: las del Inbox/Ideas y las de las notas con casillas (área y área - sub)
   const sel = $('catFilter');
@@ -41,7 +57,7 @@
       .map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
     sel.value = set.has(current) ? current : '';
   }
-  sel.addEventListener('change', () => { view.setFilters({ category: sel.value }); remember(); });
+  sel.addEventListener('change', () => { view.setFilters({ category: sel.value }); remember(); paintFilterCount(); });
   document.addEventListener('items:changed', paintCategories);
   if (!new URLSearchParams(location.search).get('item')) {
     Promise.all([Prefs.ready, Items.ready()]).then(() => {
@@ -53,6 +69,7 @@
       sel.value = category;
       paintType(type);
       view.setFilters({ type, category });
+      paintFilterCount();
     }).catch(() => {});
   }
 

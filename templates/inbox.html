@@ -27,8 +27,9 @@
       <a class="btn btn-ghost btn-sm" href="/tareas" title="Gestionar en Tareas">{{ icon('external-link', 'icon-sm') }}<span class="sr-only">Abrir en Tareas</span></a>
     </div>
     <div class="choice-chips choice-chips-sm type-chips" data-pane-only="lista" role="radiogroup" aria-label="Tipo">
-      {% for v, l in [('all', 'Todo'), ('tarea', 'Tareas'), ('idea', 'Ideas'), ('rutina', 'Rutinas')] %}
-      <label class="choice-chip"><input type="radio" name="inboxType" value="{{ v }}" {% if v == 'all' %}checked{% endif %}><span>{{ l }}</span></label>
+      {# «Por procesar» (solo el grupo Inbox) es lo de por defecto: la lista completa vive en Tareas #}
+      {% for v, l in [('inbox', 'Por procesar'), ('all', 'Todo'), ('tarea', 'Tareas'), ('idea', 'Ideas'), ('rutina', 'Rutinas')] %}
+      <label class="choice-chip"><input type="radio" name="inboxType" value="{{ v }}" {% if v == 'inbox' %}checked{% endif %}><span>{{ l }}</span></label>
       {% endfor %}
     </div>
 
@@ -115,7 +116,7 @@
 {% block fab %}{% endblock %}
 {% block scripts %}
 <script src="{{ asset('/static/vendor/marked/marked.min.js') }}"></script><script src="{{ asset('/static/vendor/dompurify/purify.min.js') }}"></script>
-<script src="{{ asset('/static/js/item-list.js') }}"></script>
+<script src="{{ asset('/static/js/item-list.js') }}"></script><script src="{{ asset('/static/js/item-copy.js') }}"></script>
 <script src="{{ asset('/static/js/calendar.js') }}"></script>
 <script src="{{ asset('/static/js/inbox.js') }}"></script>
 <script src="{{ asset('/static/js/board.js') }}"></script>

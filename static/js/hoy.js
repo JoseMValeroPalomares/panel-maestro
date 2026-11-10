@@ -88,12 +88,45 @@
 
     const f = data.flashcards;
     $('hoyRepaso').innerHTML = f.pendientes ? `<p><b class="tabular">${f.pendientes}</b> tarjeta${f.pendientes === 1 ? '' : 's'} de ${f.notas} nota${f.notas === 1 ? '' : 's'} para repasar hoy.</p>
-      <a class="btn btn-tinted btn-sm" href="/?flashcards=1">${icon('book-open', 'icon-sm')}Repasar ahora</a>` : empty('Ninguna flashcard pendiente hoy.');
+      <a class="btn btn-tinted btn-sm" href="/?flashcards=1">${icon('layers', 'icon-sm')}Repasar ahora</a>` : empty('Ninguna flashcard pendiente hoy.');
+
+    // Un día tranquilo no es una rejilla de «no hay nada»: las tarjetas vacías se juntan en una línea con su enlace
+    const quiet = [
+      [!(tareas.length || data.atrasadas.length), 'hoyTareas', 'nada con fecha', '/tareas', 'Tareas'],
+      [!!c && !c.comidas.length, 'hoyComida', 'comida sin planificar', '/comidas/', 'Planificar'],
+      [!f.pendientes, 'hoyRepaso', 'nada que repasar', '', ''],
+    ];
+    const line = [];
+    quiet.forEach(([isEmpty, id, text, href, link]) => {
+      $(id).closest('.hoy-card').hidden = isEmpty;
+      if (isEmpty) line.push(href ? `${text} (<a href="${href}">${link}</a>)` : text);
+    });
+    $('hoyQuiet').hidden = !line.length;
+    $('hoyQuiet').innerHTML = line.length ? `${icon('circle-check', 'icon-sm')}<span>También hoy: ${line.join(' · ')}.</span>` : '';
+  }
+
+  // Rendimiento: los cuatro semáforos del día y la alerta más grave (app/rendimiento.py)
+  const NIVEL = { verde: ['Bien', 'circle-check'], ambar: ['Atención', 'triangle-alert'], rojo: ['Alerta', 'octagon-alert'], gris: ['Sin datos', 'circle-dashed'] };
+  const LUCES = [['metabolico', 'Metabólico'], ['codificacion', 'Codificación'], ['sueno', 'Sueño'], ['rotacion', 'Rotación']];
+  async function loadRend() {
+    let p;
+    try { p = await api('/api/rendimiento/panel', { quiet: true }); } catch { showState($('hoyRend'), loadFailed('No se pudo cargar Rendimiento', true), loadRend); return; }
+    const alerta = p.alertas.find((a) => a.nivel === 'rojo') || p.alertas[0];
+    $('hoyRend').innerHTML = p.registrado ? `<ul class="hoy-lights">${LUCES.map(([k, t]) => {
+        const s = p.semaforos[k], [label, ic] = NIVEL[s.nivel];
+        return `<li class="hoy-light"><span class="hoy-light-name">${t}</span><span class="rd-status" data-nivel="${s.nivel}" title="${esc(s.frase)}">${icon(ic, 'icon-sm')}${label}</span></li>`;
+      }).join('')}</ul>
+      ${alerta ? `<p class="small hoy-rend-alert"><b>${esc(alerta.titulo)}.</b> ${esc(alerta.texto)}</p>` : '<p class="small muted">Ninguna regla salta hoy.</p>'}`
+      : `<p class="small muted">Aún no has registrado el día: dos minutos, con lo habitual ya relleno.</p>
+         <a class="btn btn-tinted btn-sm" href="/rendimiento?registrar=1">${icon('pencil', 'icon-sm')}Registrar el día</a>`;
   }
 
   async function load() {
+    loadRend();
     try { data = await api('/api/today', { quiet: true }); } catch {
-      $('hoyAgenda').innerHTML = emptyState({ iconName: 'wifi-off', title: 'No se pudo cargar el día', compact: true });
+      // Sin el resumen del día no hay agenda, rutinas, tareas ni comida: lo dice una vez y ofrece reintentar
+      ['hoyRutinas', 'hoyTareas', 'hoyComida'].forEach((id) => { $(id).innerHTML = ''; });
+      showState($('hoyAgenda'), loadFailed('No se pudo cargar el día', true), load);
       return;
     }
     render();

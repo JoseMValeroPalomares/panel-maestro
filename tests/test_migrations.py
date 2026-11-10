@@ -55,9 +55,33 @@ def test_cada_paso_se_queda_con_su_hora(tmp_path):
             (4, "Comer", 1, None, 30, None, 6), (5, "Sábado", 1, None, None, '{"freq": "weekly", "days": [5]}', 5),
             (6, "Sin hora", None, None, None, '{"freq": "daily"}', 4), (7, "Paso", 6, None, 5, None, 3)]
     conn.executemany("INSERT INTO inbox (id, content, item_type, parent_id, due_time, duration_min, repeat, sort_order) VALUES (?, ?, 'rutina', ?, ?, ?, ?, ?)", rows)
-    assert apply_pending(conn, MIGRATIONS) == [16]
+    assert apply_pending(conn, [x for x in MIGRATIONS if x.version <= 16]) == [16]
     horas = dict(conn.execute("SELECT id, due_time FROM inbox").fetchall())
     # Comer sale del lunes (tras Uni); Sábado, del único día en que toca; sin hora de partida no se inventa
     assert horas == {1: "07:30", 2: "07:30", 3: "08:30", 4: "09:30", 5: "08:10", 6: None, 7: None}
     revert(conn, MIGRATIONS, 15)
     assert dict(conn.execute("SELECT id, due_time FROM inbox").fetchall()) == {1: "07:30", 2: None, 3: "08:30", 4: None, 5: None, 6: None, 7: None}
+
+
+def test_rendimiento_tablas_nuevas_y_vuelta(tmp_path):
+    """Migración 17: tablas rend_* nuevas, con los bloques borrándose en cascada con su día; `down` las quita."""
+    conn = _db(tmp_path)
+    conn.execute("PRAGMA foreign_keys = ON")
+    apply_pending(conn, MIGRATIONS)
+    conn.execute("INSERT INTO rend_dias (fecha, acostarse) VALUES ('2030-01-01', '23:30')")
+    conn.execute("INSERT INTO rend_bloques (fecha, asignatura, minutos, codificacion, pausas, estado) VALUES ('2030-01-01', 'IG', 50, 'codigo', 'no', 'funcional')")
+    conn.execute("DELETE FROM rend_dias")
+    assert conn.execute("SELECT COUNT(*) FROM rend_bloques").fetchone()[0] == 0
+    revert(conn, MIGRATIONS, 16)
+    assert not conn.execute("SELECT name FROM sqlite_master WHERE name LIKE 'rend_%'").fetchall()
+
+
+def test_rendimiento_alertas_e_ia_y_vuelta(tmp_path):
+    """Migración 18: alertas guardadas y estado del router; `down` las quita y la auditoría pierde solo su hash."""
+    conn = _db(tmp_path)
+    apply_pending(conn, MIGRATIONS)
+    assert any(r[1] == "entrada_hash" for r in conn.execute("PRAGMA table_info(rend_auditorias)"))
+    conn.execute("INSERT INTO rend_alertas (fecha, regla, nivel, titulo, texto) VALUES ('2030-01-01', 'x', 'rojo', 't', 't')")
+    revert(conn, MIGRATIONS, 17)
+    assert not conn.execute("SELECT name FROM sqlite_master WHERE name IN ('rend_alertas', 'llm_uso', 'llm_enfriamiento', 'llm_registro')").fetchall()
+    assert not any(r[1] == "entrada_hash" for r in conn.execute("PRAGMA table_info(rend_auditorias)"))

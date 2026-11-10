@@ -140,7 +140,7 @@ async function loadPlan() {
     planState = await api(`${API}/weekly-plan/${semana()}/full`, { quiet: true });
     setFranjas(planState.franjas);
   } catch {
-    $('dayPanel').innerHTML = emptyState({ iconName: 'wifi-off', title: 'No se pudo cargar el plan', text: 'Revisa la conexión y recarga.', compact: true });
+    showState($('dayPanel'), loadFailed('No se pudo cargar el plan', true), loadPlan);
     return;
   }
   renderPlan();
@@ -149,6 +149,7 @@ async function loadPlan() {
 
 function renderPlan() {
   if (!planState) return;
+  $('weekEmpty').hidden = !DIAS.every(d => !planState.dias[d.key].total.kcal);
   renderDayStrip();
   renderGrid();
   renderDayPanel();
@@ -212,7 +213,7 @@ function cellHtml(dia, franja, slot) {
   const platos = slot?.platos || [];
   if (!platos.length) {
     return `<div class="meal-cell is-empty"><button type="button" class="cell-add" data-act="add" data-dia="${dia}" data-franja="${franja}" aria-label="Añadir plato: ${FRANJA_LABEL[franja]} del ${dia}">${icon('plus', 'icon-sm')}<span>Añadir</span></button>
-      <button type="button" class="btn btn-ghost btn-icon btn-sm cell-off-btn" data-act="franja-off" data-dia="${dia}" data-franja="${franja}" aria-label="Quitar ${escapeHtml(FRANJA_LABEL[franja] || franja)} el ${dia}" title="Quitar esta comida este día">${icon('eye-off', 'icon-sm')}</button></div>`;
+      <button type="button" class="btn btn-ghost btn-icon btn-sm cell-off-btn" data-act="franja-off" data-dia="${dia}" data-franja="${franja}" aria-label="Quitar ${escapeHtml(FRANJA_LABEL[franja] || franja)} el ${dia}" title="Quitar esta comida este día">${icon('calendar-off', 'icon-sm')}</button></div>`;
   }
   return `<div class="meal-cell${slot.is_fixed ? ' is-fixed' : ''}" data-plan="${slot.plan_id}">
     <ul class="cell-platos">${platos.map(p => `<li><button type="button" class="cell-plato" data-act="recipe" data-meal="${p.meal_id}">
@@ -269,7 +270,7 @@ async function applyTemplate(t, dia, franja) {
 async function openTemplatePicker(anchor, dia, franja) {
   await loadTemplates();
   if (!templates.length) { toast('Aún no hay plantillas: guarda una comida como plantilla desde su menú «…»', { type: 'info' }); return; }
-  openMenu(anchor, templates.map(t => ({ label: `${t.favorito ? '★ ' : ''}${t.nombre} · ${t.items.length} plato${t.items.length === 1 ? '' : 's'}`, icon: 'layout-template', onClick: () => applyTemplate(t, dia, franja) })));
+  openMenu(anchor, templates.map(t => ({ label: `${t.nombre} · ${t.items.length} plato${t.items.length === 1 ? '' : 's'}`, icon: t.favorito ? 'star' : 'layout-template', onClick: () => applyTemplate(t, dia, franja) })));
 }
 async function saveTemplate(slot) {
   const nombre = await uiPrompt('Guardar como plantilla', { label: 'Nombre', value: `${FRANJA_LABEL[slot.franja] || 'Comida'}: ${slot.platos.map(p => p.nombre).join(' + ')}`.slice(0, 80), confirmLabel: 'Guardar' });
@@ -297,11 +298,11 @@ function openCellMenu(anchor, dia, franja) {
     { label: 'Añadir otro plato', icon: 'plus', onClick: () => openAssign(dia, franja) },
     { label: 'Añadir primero y segundo', icon: 'copy-plus', onClick: () => platoDoble(dia, franja) },
     { label: 'Aplicar una plantilla…', icon: 'layout-template', onClick: () => openTemplatePicker(anchor, dia, franja) },
-    { label: 'Guardar como plantilla…', icon: 'star', onClick: () => saveTemplate(slot) },
+    { label: 'Guardar como plantilla…', icon: 'layout-template', onClick: () => saveTemplate(slot) },
     principal && { label: 'Sustituir por la mejor opción', icon: 'wand-sparkles', onClick: () => regenerateCell(slot.plan_id) },
     { label: slot.is_fixed ? 'Dejar de fijar' : 'Fijar (el generador no lo toca)', icon: slot.is_fixed ? 'pin-off' : 'pin', onClick: () => togglePin(slot.plan_id) },
     { label: 'Añadir a la compra', icon: 'shopping-cart', onClick: () => addPlatosToShopping(slot.platos) },
-    { label: franjaOff(franja, dia) ? `Volver a poner ${(FRANJA_LABEL[franja] || '').toLowerCase()} este día` : `Quitar ${(FRANJA_LABEL[franja] || '').toLowerCase()} este día`, icon: 'eye-off',
+    { label: franjaOff(franja, dia) ? `Volver a poner ${(FRANJA_LABEL[franja] || '').toLowerCase()} este día` : `Quitar ${(FRANJA_LABEL[franja] || '').toLowerCase()} este día`, icon: 'calendar-off',
       onClick: () => setFranjaDia(franja, dia, franjaOff(franja, dia)) },
     { separator: true },
     { label: 'Vaciar esta comida', icon: 'trash-2', danger: true, onClick: () => clearCell(slot.plan_id) },
@@ -394,7 +395,7 @@ function renderDayPanel() {
         <button type="button" class="btn btn-ghost btn-sm dp-doble" data-act="doble" data-dia="${selectedDia}" data-franja="${f.key}" title="Añadir primero y segundo para lo que falta" aria-label="Primero y segundo en ${f.label}">${icon('copy-plus', 'icon-sm')}<span class="hide-mobile">1.º y 2.º</span></button>
         <button type="button" class="btn btn-ghost btn-icon btn-sm" data-act="templates" data-dia="${selectedDia}" data-franja="${f.key}" aria-label="Aplicar una plantilla a ${f.label}" title="Plantillas" aria-haspopup="menu">${icon('layout-template', 'icon-sm')}</button>
         <button type="button" class="btn btn-ghost btn-icon btn-sm" data-act="add" data-dia="${selectedDia}" data-franja="${f.key}" aria-label="Añadir plato a ${f.label}">${icon('plus', 'icon-sm')}</button>
-        ${platos.length ? '' : `<button type="button" class="btn btn-ghost btn-icon btn-sm" data-act="franja-off" data-dia="${selectedDia}" data-franja="${f.key}" aria-label="Quitar ${f.label} este día" title="Quitar esta comida este día">${icon('eye-off', 'icon-sm')}</button>`}
+        ${platos.length ? '' : `<button type="button" class="btn btn-ghost btn-icon btn-sm" data-act="franja-off" data-dia="${selectedDia}" data-franja="${f.key}" aria-label="Quitar ${f.label} este día" title="Quitar esta comida este día">${icon('calendar-off', 'icon-sm')}</button>`}
       </header>
       ${platos.length ? `<ul class="dp-platos">${platos.map(p => `<li class="dp-plato">
         ${thumbHtml({ image_url: p.image_url, franja: f.key }, 'thumb-sm')}
@@ -416,7 +417,7 @@ function renderDayPanel() {
       <p class="dp-summary">${resumen}</p>
       <div class="meters">${MACROS.map(m => meterRow(m, dia.total[m.key], obj[m.key])).join('')}</div>
       <div class="dp-comidas">${comidas}</div>
-      ${quitadas.length ? `<p class="dp-off small muted">${icon('eye-off', 'icon-sm')}<span>Sin ${quitadas.map(f => f.label.toLowerCase()).join(' ni ')} este día.</span>
+      ${quitadas.length ? `<p class="dp-off small muted">${icon('calendar-off', 'icon-sm')}<span>Sin ${quitadas.map(f => f.label.toLowerCase()).join(' ni ')} este día.</span>
         ${quitadas.map(f => `<button type="button" class="btn btn-ghost btn-sm" data-act="franja-on" data-dia="${selectedDia}" data-franja="${f.key}">Poner ${escapeHtml(f.label.toLowerCase())}</button>`).join('')}</p>` : ''}
       <section class="dp-suggest" id="suggestBox" aria-label="Sugerencias"></section>
     </div>`;
@@ -471,7 +472,7 @@ async function openAssign(dia, franja) {
   $('assignTitle').textContent = `Añadir ${conArticulo(franja)}`;
   $('assignSub').textContent = `${d.full} · faltan ${num(planState?.dias[dia].restante.kcal || 0)} kcal en el día`;
   $('assignSearch').value = '';
-  $('assignFranja').innerHTML = [{ key: '', label: 'Todas' }, { key: 'fav', label: '★ Favoritos' }, ...PLATO_FRANJAS].map(f =>
+  $('assignFranja').innerHTML = [{ key: '', label: 'Todas' }, { key: 'fav', label: `${icon('star', 'icon-sm')}Favoritos` }, ...PLATO_FRANJAS].map(f =>
     `<button type="button" class="chip" data-af="${f.key}" aria-pressed="${f.key === fuente}">${f.label}</button>`).join('');
   // Atajos: plato doble y plantillas (favoritas primero)
   await loadTemplates();
@@ -517,7 +518,7 @@ async function loadMeals() {
   try {
     allMeals = (await api(`${API}/meals`, { quiet: true })).meals;
   } catch {
-    $('mealsGrid').innerHTML = emptyState({ iconName: 'wifi-off', title: 'No se pudieron cargar los platos' });
+    showState($('mealsGrid'), loadFailed('No se pudieron cargar los platos'), loadMeals);
     return;
   }
   renderMeals();
@@ -687,9 +688,57 @@ async function openMealForm(mealId = null) {
     $('mealImage').dataset.current = '';
     addIngredientRow(); addIngredientRow(); addStepRow();
   }
+  delete $('mealImage').dataset.preview;
+  paintMealPhoto();
   recalcMacros();
   openModal('mealFormModal', { focus: '#mealNombre' });
 }
+/* ---------- Foto del plato: vista previa, «Buscar foto» (candidatas de la web) y «Quitar» ---------- */
+function paintMealPhoto() {
+  const input = $('mealImage');
+  const url = input.value.trim() || input.dataset.current || '';
+  const shown = input.dataset.preview || url;
+  $('mealPhotoPreview').innerHTML = shown ? `<img src="${escapeHtml(shown)}" alt="" referrerpolicy="no-referrer">` : icon('image');
+  $('mealPhotoClear').hidden = !url;
+}
+function clearMealPhoto() {
+  const input = $('mealImage');
+  input.value = '';
+  input.dataset.current = '';
+  delete input.dataset.preview;
+  paintMealPhoto();
+}
+function openPhotoPicker() {
+  $('photoQuery').value = $('mealNombre').value.trim();
+  openModal('photoPicker', { focus: '#photoQuery' });
+  searchPhotos();
+}
+let photoOptions = [];
+async function searchPhotos() {
+  const q = $('photoQuery').value.trim(), grid = $('photoGrid');
+  if (q.length < 2) { grid.innerHTML = stateView({ kind: 'empty', title: 'Escribe el nombre del plato', compact: true }); return; }
+  grid.innerHTML = '<span class="skeleton photo-skel"></span>'.repeat(6);
+  let r;
+  try { r = await api(`${API}/photo-search?q=${encodeURIComponent(q)}`, { quiet: true }); }
+  catch { showState(grid, loadFailed('No se pudieron buscar fotos', true), searchPhotos); return; }
+  photoOptions = r.options || [];
+  grid.innerHTML = photoOptions.length
+    ? photoOptions.map((o, i) => `<button type="button" class="photo-option" data-photo="${i}" aria-label="Elegir esta foto${o.title ? `: ${escapeHtml(o.title)}` : ''}">
+        <img src="${escapeHtml(o.thumbnail || o.image)}" alt="" loading="lazy" referrerpolicy="no-referrer"></button>`).join('')
+    : stateView({ kind: 'no-results', title: `Ninguna foto para «${q}»`, text: 'Prueba con otras palabras, por ejemplo el ingrediente principal.', compact: true });
+}
+$('photoSearchForm').addEventListener('submit', (e) => { e.preventDefault(); searchPhotos(); });
+$('photoGrid').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-photo]');
+  if (!b) return;
+  const o = photoOptions[Number(b.dataset.photo)];
+  $('mealImage').value = o.image;
+  $('mealImage').dataset.preview = o.thumbnail || o.image;
+  paintMealPhoto();
+  closeModal('photoPicker');
+});
+$('mealImage').addEventListener('input', () => { delete $('mealImage').dataset.preview; paintMealPhoto(); });
+
 async function suggestGramos() {
   const { out } = collectIngredients();
   if (!out.length) { toast('Añade ingredientes con cantidad primero', { type: 'info' }); return; }

@@ -2,8 +2,8 @@
 name: Panel
 description: Panel personal (notas, inbox, tareas, comidas, estudio) con aspecto de app de sistema de Apple y temas intercambiables (Catppuccin Mocha por defecto).
 colors:
-  # Tema por defecto: Catppuccin Mocha. Los demás temas (Latte, Claro, Oscuro, Nord, Dracula, Gruvbox, Tokyo Night
-  # y «Sistema») redefinen los mismos tokens: core/themes.py → static/css/themes.css.
+  # Tema por defecto: Catppuccin Mocha. Los demás (16 + «Sistema»: ver Colors) redefinen los mismos tokens:
+  # core/themes.py → static/css/themes.css.
   bg: "#181825"
   bg-elev: "#1e1e2e"
   bg-elev-2: "#262637"
@@ -23,16 +23,24 @@ colors:
   status-done: "#a6e3a1"
   status-index: "#cba6f7"
   tile-fg: "#11111b"
-  tile-notas: "#b4befe"
-  tile-inbox: "#fab387"
+  tile-hoy: "#f9e2af"
+  tile-calendario: "#89b4fa"
+  tile-rutinas: "#f5c2e7"
   tile-tareas: "#94e2d5"
-  tile-baul: "#f9e2af"
-  tile-grafo: "#89b4fa"
+  tile-inbox: "#fab387"
+  tile-revision: "#f5e0dc"
+  tile-notas: "#b4befe"
+  tile-grafo: "#74c7ec"
+  tile-baul: "#f2cdcd"
+  tile-repaso: "#cba6f7"
+  tile-buscar: "#bac2de"
   tile-comidas: "#a6e3a1"
-  tile-estudio: "#cba6f7"
+  tile-estudio: "#f38ba8"
+  tile-economia: "#89dceb"
+  tile-rendimiento: "#eba0ac"
   tile-gestion: "#9399b2"
   tile-backups: "#7f849c"
-  tile-buscar: "#74c7ec"
+  tile-papelera: "#6c7086"
   board-canvas: "#1e1e2e"
 typography:
   display:
@@ -152,14 +160,20 @@ y selección.
 La firma del sistema son los **azulejos de color por sección** (28 px, radio 7 px, glifo `tile-fg`: oscuro sobre los
 acentos pastel de los temas oscuros, blanco sobre los saturados de los claros): se repiten en la
 barra lateral, junto al título grande de cada pantalla, en la hoja «Más» del móvil y en los encabezados de grupo
-(p. ej. Tareas agrupadas por Inbox o por nota).
+(p. ej. Tareas agrupadas por Inbox o por nota). **Cada una de las 18 secciones tiene su propio color en cada tema**
+(`core/themes.py`, `tests/test_themes.py`: sin repetidos, glifo ≥ 3:1, vecinos del menú con ΔE ≥ 15; Sistema es una
+familia de grises a propósito). La marca (`brand_mark`) son tres azulejos (Notas, Inbox, Tareas) y un nodo (Hoy) con
+los colores del tema activo.
 
 ## Colors
 
-- **Temas** (Ajustes → Tema; se guarda en `localStorage` y `theme-init.js` lo aplica antes de pintar): Catppuccin
-  Mocha (por defecto), Catppuccin Latte, Claro y Oscuro (los de Apple de la primera ronda), Nord, Dracula, Gruvbox,
-  Tokyo Night y Sistema (Claro u Oscuro según el equipo). Todos definen los mismos tokens; los valores que no son de la
-  paleta oficial están ajustados para AA y `tests/e2e/test_tema.py` lo comprueba en todas las páginas y temas.
+- **Temas** (Ajustes → Tema, agrupados en oscuros y claros; se guarda en `localStorage` y `theme-init.js` lo aplica
+  antes de pintar). Oscuros: Catppuccin Mocha (por defecto) y Macchiato, Oscuro (Apple), Nord, Dracula, Gruvbox, Tokyo
+  Night, Rosé Pine, Kanagawa, Everforest y Alto contraste. Claros: Catppuccin Latte, Claro (Apple), Rosé Pine Dawn,
+  Solarized Claro y Papel (propio: sepia cálido para leer muchas horas). Y Sistema (Claro u Oscuro según el equipo).
+  Todos definen los mismos tokens; los valores que no son de la paleta oficial están ajustados para AA y
+  `tests/e2e/test_tema.py` lo comprueba en todas las páginas y temas. Un tema nuevo es una entrada en
+  `core/themes.py` + `python -m scripts.themes` (los azulejos los vigila `tests/test_themes.py`).
 - Capas: `bg-sunken` < `bg` < `bg-elev` < `bg-elev-2` (en Mocha: crust, mantle, base y una intermedia).
 - Texto en tres niveles: `text`, `text-2` y `text-3` (mínimo para texto, ≥ 4,5:1 en todos los temas).
 - Acento único: `accent` para enlaces, `accent-fill` + `text-on-accent` para el botón primario, `accent-soft` para
@@ -168,13 +182,14 @@ barra lateral, junto al título grande de cada pantalla, en la hoja «Más» del
 - Estados de nota: por escribir (gris), en desarrollo (`warning`), consolidado (`success`), índice (morado), siempre
   como punto de 8 px + etiqueta, nunca solo color.
 - Categorías (Notas, Baúl, Grafo): `--cat-0…9` del tema activo, solo en puntos y en los nodos del grafo.
-- Azulejos: un color por sección (`tile-*`) con su glifo `tile-fg`. El lienzo del tablero (`board-bg`) es la
+- Azulejos: un color por sección (`tile-*`) con su glifo `tile-fg`. Eventos, ideas y rutinas tienen su color propio
+  (`--c-event`, `--c-idea`, `--c-routine`), que no depende del de ninguna sección. El lienzo del tablero (`board-bg`) es la
   superficie del tema en los oscuros y Mocha base en los claros: siempre oscuro, porque las formas son para él.
 
 ## Typography
 
 Pila del sistema (SF en Apple) con Inter Variable autoalojada como respaldo (`static/fonts`). Escala fija de Apple:
-12 / 13 / 15 / 17 / 20 / 22 / 28 / 34 px (`--fs-*`). Cuerpo 15 px, interlineado 1,45, tracking −0,006em; titulares
+12 / 13 / 15 / 17 / 20 / 22 / 28 / 34 px (`--fs-*`); **nada por debajo de 12 px** (también el código en línea). Cuerpo 15 px, interlineado 1,45, tracking −0,006em; titulares
 700 con −0,02em y `text-wrap: balance`. Cifras en tablas, contadores y fechas con `font-variant-numeric:
 tabular-nums` (clase `.tabular`). Monoespaciada solo para código y para mostrar sintaxis (`- [ ]`).
 
@@ -184,9 +199,11 @@ tabular-nums` (clase `.tabular`). Monoespaciada solo para código y para mostrar
   izquierda, acciones a la derecha) y `page-body` con 24 px de margen. Herramientas con ancho de lectura limitado
   (Tareas y Buscar 820 px, Copias 880 px, Repaso 960 px, Gestión 1180 px).
 - Tablet (768–1023 px): carril de iconos en lugar de la barra lateral.
-- Móvil (<768 px): barra de pestañas inferior (Notas, Inbox, Comidas, Baúl, Más), `page-body` de 16 px, tablas
-  convertidas en tarjetas, modales como hoja inferior que respeta el teclado (`--vvh`). Nunca desplazamiento
-  horizontal de página.
+- Móvil (<768 px): barra de pestañas inferior con 4 destinos elegibles en Ajustes (por defecto Hoy, Calendario,
+  Tareas, Notas) + «Más», que se marca si la sección actual no está y lleva la insignia del Inbox si el Inbox no está.
+  `page-body` de 16 px, tablas convertidas en tarjetas, modales como hoja inferior que respeta el teclado (`--vvh`).
+  Nunca desplazamiento horizontal de página. El FAB de captura solo existe por debajo de 1024 px.
+- Barra lateral: la lista de secciones se desplaza; marca y pie (Capturar, Conexiones, Ajustes) siempre visibles.
 - Espaciado en múltiplos de 4 px (`--sp-*`); objetivos táctiles de 44 px (`--touch`, `.check-hit`).
 
 ## Elevation & Depth
@@ -216,11 +233,23 @@ modales 22 px; chips en píldora; azulejos 7 px (9 px el grande). Iconos Lucide 
   destructivas usan `danger: true`. Restaurar una copia pide escribir RESTAURAR.
 - **Toast** con acción opcional («Deshacer» tras borrar en lote, 12 s).
 - **Estado vacío** (`emptyState`) con icono en círculo, título y una frase de qué hacer; **skeletons** al cargar.
+- **Estados ilustrados** (`stateView` / `showState` / `loadFailed`): vacío, hecho, sin resultados, error y sin
+  conexión, con ilustración propia (`static/ilustraciones.svg`) cuyo acento dice el tono; error y sin conexión llevan
+  «Reintentar» y se anuncian.
+- **Tooltip** (`data-tip`): un único globo en la capa superior; con ratón (retardo) y con el foco del teclado, nunca
+  con el dedo. Los botones de solo icono con `title` lo adoptan solos.
+- **Menús**: opciones de un grupo como `menuitemradio` con el icono `check` al final (nunca un «✓» de texto).
+- **Acciones** (`data-call="nombre"` + `data-args='[…]'` en JSON, `"$el"` = el propio botón; varias con `;`): la CSP
+  no permite JS en línea, así que ningún HTML lleva `onclick`. Lo interpreta `ui.js:runCall`; el contenido de
+  notas y tareas se sanea sin atributos `data-*`.
+- **Barra de filtros** (Tareas): estado, tipo, categoría y búsqueda en una fila; en el móvil, tipo y categoría tras
+  «Filtros (n)».
 - **Insignia de estado** (`.status` + `.status-dot[data-status]`) y **etiqueta** (`.tag`).
 
 ## Do's and Don'ts
 
 - Do: usar un azulejo de sección solo para identificar la sección; un único color de acento para acciones.
+- Do: un icono = un significado en todo el panel (`docs/ICONOS.md`); la prioridad solo lleva color cuando es alta.
 - Do: mostrar el estado con punto + texto; escribir la interfaz en español de España con verbos de acción.
 - Do: comprobar 375 / 768 / 1280 en todos los temas (test_tema.py), sin errores de consola ni desbordamientos.
 - Don't: emojis como iconos, texto con degradado, bordes laterales de color en tarjetas, glass decorativo.

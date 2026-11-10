@@ -6,15 +6,15 @@
   'use strict';
   const view = ItemList.mount(document.getElementById('itemList'), { variant: 'sidebar' });
   ItemList.wireStatus(view, document.querySelector('.sidebar-tabs'));
-  // Tipo (Todo, Tareas, Ideas, Rutinas): se recuerda
+  // Tipo (Por procesar, Todo, Tareas, Ideas, Rutinas): se recuerda; sin elección, «Por procesar» (solo el Inbox)
   const typeBox = document.querySelector('.type-chips');
   const setType = (t) => {
-    const r = typeBox.querySelector(`input[value="${t}"]`) || typeBox.querySelector('input[value="all"]');
+    const r = typeBox.querySelector(`input[value="${t}"]`) || typeBox.querySelector('input[value="inbox"]');
     r.checked = true;
     view.setFilters({ type: r.value });
   };
   typeBox.addEventListener('change', (e) => { setType(e.target.value); Prefs.set('inbox-type', e.target.value); });
-  Prefs.ready.then(() => setType(Prefs.get('inbox-type', 'all')));
+  Prefs.ready.then(() => setType(Prefs.get('inbox-type', 'inbox')));
 })();
 
 // Agenda de 7 días en la barra lateral (el mismo componente del calendario)

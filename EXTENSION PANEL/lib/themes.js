@@ -89,5 +89,85 @@ self.PANEL_THEMES = [
       "accent": "#7aa2f7",
       "text": "#c0caf5"
     }
+  },
+  {
+    "key": "macchiato",
+    "label": "Catppuccin Macchiato",
+    "preview": {
+      "bg": "#1e2030",
+      "elev": "#24273a",
+      "accent": "#8aadf4",
+      "text": "#cad3f5"
+    }
+  },
+  {
+    "key": "rosepine",
+    "label": "Rosé Pine",
+    "preview": {
+      "bg": "#191724",
+      "elev": "#1f1d2e",
+      "accent": "#c4a7e7",
+      "text": "#e0def4"
+    }
+  },
+  {
+    "key": "kanagawa",
+    "label": "Kanagawa",
+    "preview": {
+      "bg": "#16161d",
+      "elev": "#1f1f28",
+      "accent": "#7e9cd8",
+      "text": "#dcd7ba"
+    }
+  },
+  {
+    "key": "everforest",
+    "label": "Everforest",
+    "preview": {
+      "bg": "#232a2e",
+      "elev": "#2d353b",
+      "accent": "#7fbbb3",
+      "text": "#d3c6aa"
+    }
+  },
+  {
+    "key": "contraste",
+    "label": "Alto contraste",
+    "preview": {
+      "bg": "#000000",
+      "elev": "#0b0b0b",
+      "accent": "#6cb8ff",
+      "text": "#ffffff"
+    }
+  },
+  {
+    "key": "dawn",
+    "label": "Rosé Pine Dawn",
+    "preview": {
+      "bg": "#f4ede8",
+      "elev": "#fffaf3",
+      "accent": "#286983",
+      "text": "#575279"
+    }
+  },
+  {
+    "key": "solarized",
+    "label": "Solarized Claro",
+    "preview": {
+      "bg": "#eee8d5",
+      "elev": "#fdf6e3",
+      "accent": "#1f6fa8",
+      "text": "#073642"
+    }
+  },
+  {
+    "key": "papel",
+    "label": "Papel",
+    "preview": {
+      "bg": "#f1ebdf",
+      "elev": "#faf6ee",
+      "accent": "#1f5f6b",
+      "text": "#3b3226"
+    }
   }
 ];

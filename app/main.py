@@ -29,13 +29,16 @@ from app.pages import router as pages_router
 from app.prefs import router as prefs_router
 from app.proyecto import router as proyecto_router
 from app.reminders import router as reminders_router
+from app.rendimiento import router as rendimiento_router
+from app.rendimiento_ia import router as rendimiento_ia_router
+from app.ia_notas import router as ia_notas_router
 from app.review import router as review_router
 from app.routine_templates import router as routine_templates_router
 from app.search import router as search_router
 from app.study import router as study_router
 from app.trash import purge_expired as purge_trash, router as trash_router
 from app.uploads import router as uploads_router
-from app.vault import backfill_thumbnails, router as vault_router
+from app.vault import backfill_channels, backfill_thumbnails, backfill_video_metadata, router as vault_router
 from app.versions import router as versions_router
 from core import config
 from core.logging_config import get_logger
@@ -59,6 +62,8 @@ async def lifespan(app: FastAPI):
     if not config.DISABLE_SCHEDULER:
         # Una vez al arrancar, en segundo plano: miniaturas externas -> caché local
         scheduler.add_job(backfill_thumbnails, id="backfill_thumbnails", replace_existing=True)
+        scheduler.add_job(backfill_video_metadata, id="backfill_video_metadata", replace_existing=True)
+        scheduler.add_job(backfill_channels, id="backfill_channels", replace_existing=True)
         scheduler.add_job(
             run_daily_backup,
             CronTrigger(hour=3, minute=30),
@@ -90,5 +95,5 @@ app.state.scheduler = scheduler
 for module_router in (pages_router, notes_router, graph_router, vault_router, extension_router, study_router, uploads_router,
                       bulk_router, items_router, search_router, boards_router, boards_api_router, backups_router, ordering_router,
                       versions_router, review_router, prefs_router, links_router, calendar_router, trash_router, reminders_router,
-                      capture_router, overview_router, routine_templates_router, finance_router, dotfiles_router, proyecto_router):
+                      capture_router, overview_router, routine_templates_router, finance_router, rendimiento_router, rendimiento_ia_router, ia_notas_router, dotfiles_router, proyecto_router):
     app.include_router(module_router)

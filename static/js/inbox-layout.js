@@ -1,7 +1,8 @@
 /* ==========================================================================
    inbox-layout.js — panel lateral del Inbox (plegable) y hoja inferior en móvil
-   En escritorio el estado se recuerda; en móvil la hoja empieza cerrada para ver
-   el tablero, se abre con el botón «Lista» y se aparta sola mientras se arrastra.
+   En escritorio el estado se recuerda; en móvil la hoja empieza abierta (revisar y marcar es lo habitual en el
+   móvil) salvo si se llega a un tablero concreto (?tablero=), se cierra con «Lista», tocando fuera o arrastrando
+   la agarradera, y se aparta sola mientras se arrastra.
    ========================================================================== */
 (function () {
   'use strict';
@@ -18,7 +19,7 @@
     if (remember && !mobile.matches) { try { localStorage.setItem(KEY, open ? 'open' : 'closed'); } catch {} }
   }
   function initial() {
-    if (mobile.matches) return set(false, false);
+    if (mobile.matches) return set(!new URLSearchParams(location.search).has('tablero'), false);
     let saved = null;
     try { saved = localStorage.getItem(KEY); } catch {}
     set(saved !== 'closed', false);

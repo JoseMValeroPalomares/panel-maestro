@@ -5,7 +5,7 @@
 .vault-controls > .segmented { align-self: flex-start; }
 .filter-bar { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; }
 .filter-bar .chips { flex: 1; min-width: 0; }
-.main-tab .badge { height: 18px; min-width: 18px; font-size: 11px; margin-left: 2px; }
+.main-tab .badge { height: 18px; min-width: 18px; font-size: 12px; margin-left: 2px; }
 
 .vault-section + .vault-section { margin-top: var(--sp-10); }
 .vault-section > .section-title { display: flex; align-items: center; gap: var(--sp-2); }
@@ -46,8 +46,7 @@
 .yt-channel { color: var(--text-2); font-size: var(--fs-13); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .yt-actions { display: flex; align-items: center; gap: 2px; margin-top: 2px; }
 .yt-actions .btn-icon { color: var(--text-3); }
-.star.on { color: var(--warning); }
-.star.on .icon { fill: currentColor; }
+.later-btn.on { color: var(--accent); }
 .yt-card.pending .yt-actions { opacity: 0.5; }
 
 .web-list { margin-bottom: var(--sp-2); }
@@ -66,3 +65,25 @@
   .yt-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4) var(--sp-3); }
   .yt-title { font-size: var(--fs-13); }
 }
+
+/* Canales: avatar redondo sobre su propio color difuminado (vault.js:ytCard) */
+.yt-avatar-bg { position: relative; display: grid; place-items: center; background: var(--fill); overflow: hidden; }
+.yt-avatar-bg::before { content: ""; position: absolute; inset: -24px; background: var(--av) center / cover no-repeat; filter: blur(22px) saturate(1.15); opacity: 0.6; }
+.yt-avatar { position: relative; width: 44%; aspect-ratio: 1; border-radius: 50%; object-fit: cover; box-shadow: var(--shadow-2); }
+
+/* Vistos: grupos plegables por categoría y canal */
+.group-toggle {
+  display: inline-flex; align-items: center; gap: var(--sp-2); min-height: var(--touch, 44px); max-width: 100%;
+  padding: 0 var(--sp-2) 0 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; text-align: left; letter-spacing: inherit;
+}
+.group-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-sm); }
+.group-toggle .chev { transition: transform var(--dur) var(--ease-out); color: var(--text-3); flex-shrink: 0; }
+.group-toggle[aria-expanded="false"] .chev { transform: rotate(-90deg); }
+.vgroup .cat-header { margin: var(--sp-4) 0 var(--sp-1); }
+.vgroup-body { padding-left: var(--sp-5); }
+.channel-header { margin: var(--sp-2) 0 var(--sp-2); font-size: var(--fs-14); font-weight: 600; color: var(--text-2); }
+.channel-header .count { color: var(--text-3); font-weight: 500; font-variant-numeric: tabular-nums; }
+.channel-name.is-unknown { font-style: italic; color: var(--text-3); }
+.channel-group { margin-bottom: var(--sp-3); }
+.channel-group .yt-grid[hidden], .vgroup-body[hidden] { display: none; }
+@media (max-width: 767px) { .vgroup-body { padding-left: var(--sp-2); } }

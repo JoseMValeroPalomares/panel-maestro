@@ -88,6 +88,16 @@ browser.commands.onCommand.addListener(async (cmd) => {
 /* ---------- Mensajes del popup y las opciones ---------- */
 browser.runtime.onMessage.addListener((msg) => {
   if (msg?.type === 'refresh') return refreshBadge();
+  // youtube.js: vídeo visto de un canal del Baúl (sin conexión va a la cola) y vistos de un canal
+  if (msg?.type === 'yt-visto') {
+    const { video_id, channel, title } = msg;
+    return Panel.send('ytvisto', { video_id, channel, title })
+      .then((r) => (r.sent ? r.data : { tracked: false, queued: true }))
+      .catch(() => null);
+  }
+  if (msg?.type === 'yt-canal') {
+    return Panel.request('/api/ext/youtube/canal?channel=' + encodeURIComponent(msg.channel)).catch(() => null);
+  }
 });
 
 /* ---------- Reintentos y estado periódicos ---------- */

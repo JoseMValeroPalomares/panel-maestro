@@ -56,7 +56,7 @@
 .node-text.align-title { justify-content: flex-start; text-align: left; font-weight: 650; white-space: nowrap; text-overflow: ellipsis; }
 .node-text[contenteditable="true"] { pointer-events: auto; cursor: text; user-select: text; -webkit-user-select: text; caret-color: var(--accent); }
 .node-fo:has([contenteditable="true"]) { pointer-events: auto; }
-.node-parent { font-size: 11px; fill: #a6adc8; font-style: italic; }
+.node-parent { font-size: 12px; fill: #a6adc8; font-style: italic; }
 /* Tarjeta del Inbox con sus pasos: los tamaños en em, para que escalen con la tarjeta */
 .node-text.has-steps { height: auto; font-weight: 600; }
 .node-steps { display: flex; flex-direction: column; margin-top: 0.5em; font-family: var(--font-sans); line-height: 1.25; }

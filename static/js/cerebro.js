@@ -115,15 +115,10 @@ function updateLockToggleUI() {
   el.innerHTML = icon(noteIsEncrypted ? 'lock' : 'lock-open', 'icon-sm');
   el.setAttribute('aria-pressed', String(noteIsEncrypted));
   el.setAttribute('aria-label', noteIsEncrypted ? 'Nota cifrada: quitar protección' : 'Cifrar nota');
+  window.refreshAiButton?.();
 }
 
 /* ---------- Árbol de categorías ---------- */
-const CAT_COLORS = window.CATEGORY_COLORS;
-function categoryColor(cat) {
-  let hash = 0;
-  for (let i = 0; i < cat.length; i++) hash = (hash * 31 + cat.charCodeAt(i)) | 0;
-  return CAT_COLORS[Math.abs(hash) % CAT_COLORS.length];
-}
 function splitCategoryPath(catRaw) {
   if (!catRaw || !catRaw.trim()) return ['Sin categoría'];
   const parts = catRaw.replace(/->/g, ' - ').split(/\s+-\s+/).map(s => s.trim()).filter(Boolean);
@@ -390,7 +385,7 @@ async function loadNotes() {
     const data = await api('/api/notes');
     allNotes = data.notes;
   } catch {
-    $('notesList').innerHTML = emptyState({ iconName: 'wifi-off', title: 'No se pudieron cargar las notas', text: 'Revisa la conexión y recarga.', compact: true });
+    showState($('notesList'), loadFailed('No se pudieron cargar las notas', true), loadNotes);
     return;
   }
   renderTagChips();
@@ -408,9 +403,17 @@ function showNotePane(show) {
 /* ---------- Portada (sin nota abierta): cómo van las notas y por dónde seguir ---------- */
 async function renderNotesHome() {
   const box = $('notesHome');
-  if (!box || matchMedia('(max-width: 767px)').matches) return;
+  if (!box) return;
+  // En el móvil la lista hace de portada: encima, «Seguir escribiendo» con las tres últimas
+  const mobile = matchMedia('(max-width: 767px)').matches;
   let d;
-  try { d = await api('/api/notes-home', { quiet: true }); } catch { return; }
+  try { d = await api('/api/notes-home', { quiet: true }); } catch {
+    if (mobile) return;
+    // sin la portada no se enseña la bienvenida (parecería que no hay notas): se avisa y se puede reintentar
+    showState(box, loadFailed('No se pudo cargar la portada de Notas', true), renderNotesHome);
+    return;
+  }
+  if (mobile) { paintRecent(d.recientes || []); return; }
   if (!d.total) return;  // sin notas: se queda el mensaje de bienvenida
   const orden = ['consolidado', 'en-desarrollo', 'por-escribir', 'indice'];
   const bar = orden.filter((k) => d.estados[k]).map((k) => `<span data-status="${k}" style="flex:${d.estados[k]}" title="${STATUS_LABELS[k]}: ${d.estados[k]}"></span>`).join('');
@@ -429,9 +432,9 @@ async function renderNotesHome() {
         <div><h2 class="nh-title-main">Tus notas</h2>
           <p class="small muted"><b class="tabular">${d.total}</b> notas · <b class="tabular">${pct} %</b> consolidadas</p></div>
         <div class="nh-actions">
-          <button type="button" class="btn btn-primary" onclick="createNewNotePrompt()">${icon('square-pen', 'icon-sm')}Nueva nota</button>
-          ${d.flashcards ? `<button type="button" class="btn btn-tinted" onclick="openFlashcardsModal()">${icon('layers', 'icon-sm')}Repasar ${d.flashcards} flashcard${d.flashcards === 1 ? '' : 's'}</button>` : ''}
-          <button type="button" class="btn" onclick="quickRecall()">${icon('shuffle', 'icon-sm')}Una al azar</button>
+          <button type="button" class="btn btn-primary" data-call="createNewNotePrompt">${icon('square-pen', 'icon-sm')}Nueva nota</button>
+          ${d.flashcards ? `<button type="button" class="btn btn-tinted" data-call="openFlashcardsModal">${icon('layers', 'icon-sm')}Repasar ${d.flashcards} flashcard${d.flashcards === 1 ? '' : 's'}</button>` : ''}
+          <button type="button" class="btn" data-call="quickRecall">${icon('shuffle', 'icon-sm')}Una al azar</button>
         </div>
       </header>
       <div class="nh-bar" role="img" aria-label="${orden.filter((k) => d.estados[k]).map((k) => `${STATUS_LABELS[k]}: ${d.estados[k]}`).join(', ')}">${bar}</div>
@@ -444,8 +447,17 @@ async function renderNotesHome() {
       </div>
     </div>`;
 }
+function paintRecent(list) {
+  const box = $('notesRecent');
+  if (!box) return;
+  box.hidden = !list.length;
+  box.innerHTML = `<h2 class="nr-h">${icon('history', 'icon-sm')}Seguir escribiendo</h2>
+    <ul class="nr-list">${list.slice(0, 3).map((n) => `<li><button type="button" class="nr-row" data-open="${escapeHtml(n.id)}">
+      <span class="status-dot" data-status="${n.status}" aria-hidden="true"></span><span class="nr-title">${escapeHtml(n.title)}</span>
+      <span class="tiny muted">${n.last_modified ? timeAgo(n.last_modified) : ''}</span></button></li>`).join('')}</ul>`;
+}
 document.addEventListener('click', (e) => {
-  const b = e.target.closest('#notesHome [data-open]');
+  const b = e.target.closest('#notesHome [data-open], #notesRecent [data-open]');
   if (b) openNote(b.dataset.open);
 });
 
@@ -686,7 +698,7 @@ function updateStatusBadge() {
 }
 function toggleStatusMenu(anchor) {
   openMenu(anchor, Object.entries(STATUS_LABELS).map(([value, label]) => ({
-    label: (value === activeStatus ? '✓ ' : '') + label,
+    label, checked: value === activeStatus,
     onClick: () => setNoteStatus(value),
   })), { align: 'start' });
 }
@@ -702,6 +714,30 @@ async function setNoteStatus(status) {
   await loadNotes();
 }
 
+/* Barra del editor: «Insertar» y «Marcar» agrupan lo que antes eran botones sueltos (mismas acciones) */
+function openInsertMenu(anchor) {
+  openMenu(anchor, [
+    { label: 'Enlace externo', icon: 'external-link', onClick: () => wrapSelection('[', '](url)') },
+    { label: 'Enlazar una tarea o idea', icon: 'link-2', onClick: linkItemToNote },
+    { separator: true },
+    { label: 'Tabla', icon: 'table', onClick: insertTableTemplate },
+    { label: 'Fórmula LaTeX', icon: 'sigma', onClick: insertFormula },
+    { label: 'Bloque de código', icon: 'code', onClick: () => wrapSelection('```\n', '\n```') },
+    { label: 'Separador', icon: 'minus', onClick: () => insertLine('---') },
+    { separator: true },
+    { label: 'Calendario incrustado', icon: 'calendar', onClick: () => insertBlock('```calendario\nvista: agenda\ndías: 7\n```\n') },
+    { label: 'Flashcard (pregunta >> respuesta)', icon: 'layers', onClick: insertFlashcardTemplate },
+    { label: 'Simulación interactiva', icon: 'play', onClick: insertSimulationTemplate },
+  ], { align: 'start' });
+}
+function openMarkMenu(anchor) {
+  openMenu(anchor, [
+    { label: 'Para resumir', icon: 'list-collapse', onClick: () => markBlock('resumir') },
+    { label: 'Para entender mejor', icon: 'circle-help', onClick: () => markBlock('entender') },
+    { label: 'Está mal', icon: 'triangle-alert', onClick: () => markBlock('mal') },
+  ], { align: 'start' });
+}
+
 function openNoteMenu(anchor) {
   openMenu(anchor, [
     { label: 'Guardar ahora', icon: 'save', onClick: () => saveNote(false) },
@@ -715,7 +751,7 @@ function openNoteMenu(anchor) {
 }
 function copyNoteLink() {
   const title = $('noteTitle').value;
-  navigator.clipboard?.writeText(`[[${title}]]`).then(() => toast('Enlace copiado: [[' + title + ']]'), () => toast('No se pudo copiar', { type: 'error' }));
+  copyText(`[[${title}]]`).then((ok) => ok ? toast('Enlace copiado: [[' + title + ']]') : toast('No se pudo copiar', { type: 'error' }));
 }
 
 /* ---------- Nueva nota ---------- */
@@ -788,6 +824,10 @@ function renderReadMode() {
     return;
   }
   container.innerHTML = renderMarkdownWithWikiLinks(raw);
+  // Si la nota empieza con «# Su título», ese H1 repetiría el título de arriba: se oculta solo al leer (el .md no cambia)
+  const first = container.firstElementChild;
+  const plain = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+  if (first?.tagName === 'H1' && plain(first.textContent) === plain($('noteTitle').value)) first.classList.add('title-echo');
   paintItemLinks(container);
   window.Calendar?.mountEmbeds(container);  // bloques ```calendario
   enhanceRendered(container);
@@ -835,14 +875,34 @@ function wireTaskCheckboxes(container, raw) {
   });
 }
 
+/* KaTeX (≈ 280 KB) y highlight.js (≈ 120 KB) se piden la primera vez que una nota los necesita */
+const lazyLibs = {};
+function loadScript(url) {
+  return (lazyLibs[url] ||= new Promise((ok, ko) => {
+    const s = document.createElement('script');
+    s.src = url;
+    s.onload = ok;
+    s.onerror = () => { delete lazyLibs[url]; ko(new Error(`No se pudo cargar ${url}`)); };
+    document.head.appendChild(s);
+  }));
+}
+const libUrl = (k) => $('notesLayout').dataset[k];
+const renderMath = (el) => renderMathInElement(el, {
+  delimiters: [{ left: '$$', right: '$$', display: true }, { left: '$', right: '$', display: false }],
+  throwOnError: false,
+});
+const highlightCode = (el) => el.querySelectorAll('pre code:not([data-highlighted])').forEach((block) => hljs.highlightElement(block));
+
 function enhanceRendered(container) {
-  if (window.renderMathInElement) {
-    renderMathInElement(container, {
-      delimiters: [{ left: '$$', right: '$$', display: true }, { left: '$', right: '$', display: false }],
-      throwOnError: false,
-    });
+  if (container.textContent.includes('$')) {
+    if (window.renderMathInElement) renderMath(container);
+    else loadScript(libUrl('katex')).then(() => loadScript(libUrl('autoRender')))
+      .then(() => { if (container.isConnected) renderMath(container); }).catch(() => {});
   }
-  if (window.hljs) container.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
+  if (container.querySelector('pre code')) {
+    if (window.hljs) highlightCode(container);
+    else loadScript(libUrl('hljs')).then(() => { if (container.isConnected) highlightCode(container); }).catch(() => {});
+  }
   const known = new Set(allNotes.map(n => n.id));
   container.querySelectorAll('.wiki-link[data-note-id]').forEach(a => {
     if (allNotes.length && !known.has(a.dataset.noteId)) { a.classList.add('missing'); a.title = 'Nota inexistente: pulsa para crearla'; }
@@ -894,7 +954,7 @@ async function renderNoteLinks() {
   bar.hidden = !items.length;
   bar.innerHTML = items.length ? `<span class="note-links-label">${icon('link', 'icon-sm')}<span class="sr-only">Enlazadas:</span></span>`
     + items.map((it) => `<a href="/tareas?item=${it.id}" class="item-link${it.done ? ' is-done' : ''}" data-item-id="${it.id}" title="Abrir en Tareas">${icon(it.done ? 'circle-check' : ITEM_ICONS[it.type] || 'square-check', 'icon-sm')}<span>${escapeHtml(it.text.split('\n')[0].slice(0, 60))}</span></a>`).join('')
-    + `<button type="button" class="btn btn-ghost btn-icon btn-sm" onclick="linkItemToNote()" aria-label="Enlazar otra tarea o idea" title="Enlazar otra tarea o idea">${icon('plus', 'icon-sm')}</button>` : '';
+    + `<button type="button" class="btn btn-ghost btn-icon btn-sm" data-call="linkItemToNote" aria-label="Enlazar otra tarea o idea" title="Enlazar otra tarea o idea">${icon('plus', 'icon-sm')}</button>` : '';
 }
 async function linkItemToNote() {
   const id = activeNoteId;
@@ -1103,7 +1163,9 @@ function renderMarkdownWithWikiLinks(raw) {
 }
 
 function sanitizeHtml(html) {
-  return window.DOMPurify ? DOMPurify.sanitize(html, { USE_PROFILES: { html: true }, FORBID_ATTR: ['style'] }) : escapeHtml(html);
+  // Sin atributos data-*: el contenido de una nota no puede disparar acciones del panel (data-call, data-open…);
+  // los que usa el panel (wikilinks, simulaciones) se añaden después de sanear.
+  return window.DOMPurify ? DOMPurify.sanitize(html, { USE_PROFILES: { html: true }, FORBID_ATTR: ['style'], ALLOW_DATA_ATTR: false }) : escapeHtml(html);
 }
 
 // Delegación: wikilinks, notas en listas y simulaciones sin onclick inline.
@@ -1145,10 +1207,18 @@ function runSimulation(widgetId) {
     frameWrap.appendChild(iframe);
     btn.innerHTML = icon('rotate-ccw', 'icon-sm') + 'Reiniciar';
   }
-  iframe.srcdoc = '';
-  requestAnimationFrame(() => { iframe.srcdoc = code; });
+  // /sim (core/pwa.py) es un documento vacío con su propia CSP; al cargar avisa con «sim-ready» y recibe el código.
+  // Recargarlo es reiniciar la simulación.
+  iframe.dataset.sim = widgetId;
+  iframe.src = '/sim?r=' + Date.now();
 }
 window.addEventListener('message', (e) => {
+  if (e.data && e.data.type === 'sim-ready') {
+    const f = [...document.querySelectorAll('.sim-frame-wrap iframe')].find((x) => x.contentWindow === e.source);
+    const code = f && window.__simCodes[f.dataset.sim];
+    if (code != null) e.source.postMessage({ type: 'sim-run', code }, '*');  // origen opaco: no hay otro destino posible
+    return;
+  }
   if (e.data && e.data.type === 'sim-resize') {
     document.querySelectorAll('.sim-frame-wrap iframe').forEach(f => {
       if (f.contentWindow === e.source) f.style.height = Math.min(Math.max(e.data.height, 120), 900) + 'px';
@@ -1492,7 +1562,7 @@ function copyManagerListForAI() {
   managerFiltered().forEach(n => { (grouped[n.category || 'Sin categoría'] ||= []).push(n.title || '(sin título)'); });
   let text = 'Esta es la lista de mis notas por categoría en mi segundo cerebro digital. Ayúdame a evaluar si la organización tiene sentido, si hay categorías redundantes o mal nombradas, notas que deberían fusionarse o categorías que deberían dividirse:\n\n';
   Object.keys(grouped).sort().forEach(cat => { text += `## ${cat}\n${grouped[cat].map(t => `- ${t}`).join('\n')}\n\n`; });
-  navigator.clipboard.writeText(text).then(() => toast('Lista copiada al portapapeles'), () => uiAlert('No se pudo copiar', text.slice(0, 400) + '…'));
+  copyText(text).then((ok) => ok ? toast('Lista copiada al portapapeles') : uiAlert('No se pudo copiar', text.slice(0, 400) + '…'));
 }
 
 

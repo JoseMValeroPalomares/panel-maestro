@@ -147,6 +147,9 @@ dialog.modal.modal-newnote { width: min(620px, calc(100vw - 32px)); overflow: vi
 .tb-btn:hover { background: var(--hover); color: var(--text); }
 .tb-btn:active { background: var(--press); }
 .tb-btn .icon { width: 17px; height: 17px; }
+.tb-btn.tb-menu { width: auto; display: inline-flex; gap: 4px; padding: 0 var(--sp-2); font-weight: 600; }
+.tb-btn.tb-menu .icon-sm { width: 14px; height: 14px; opacity: 0.7; }
+@media (max-width: 1279px) { .tb-menu-label { display: none; } }
 .tb-annot[data-annot="resumir"] { color: var(--warning); }
 .tb-annot[data-annot="entender"] { color: var(--accent); }
 .tb-annot[data-annot="mal"] { color: var(--danger); }
@@ -301,3 +304,46 @@ dialog.modal.modal-newnote { width: min(620px, calc(100vw - 32px)); overflow: vi
   .versions-list { max-height: 30vh; }
   .versions-preview { max-height: 40vh; }
 }
+
+/* Lectura: el «# Título» del principio no se repite bajo el título de la nota */
+.read-content > .title-echo { display: none; }
+/* Móvil: «Seguir escribiendo» encima de la lista (la portada de escritorio no cabe) */
+.notes-recent { display: none; }
+@media (max-width: 767px) {
+  .notes-recent:not([hidden]) { display: block; padding: var(--sp-2) var(--sp-4) var(--sp-3); border-bottom: 1px solid var(--separator); }
+  .nr-h { display: flex; align-items: center; gap: 6px; margin: 0 0 var(--sp-1); font-size: var(--fs-13); font-weight: 600; color: var(--text-2); }
+  .nr-list { list-style: none; margin: 0; padding: 0; }
+  .nr-row { display: flex; align-items: center; gap: var(--sp-2); width: 100%; min-height: var(--touch); text-align: left; color: var(--text); }
+  .nr-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+
+/* Corregir con IA */
+.ai-body { display: flex; flex-direction: column; gap: var(--sp-3); }
+.ai-wait { display: flex; flex-direction: column; align-items: center; gap: var(--sp-3); padding: var(--sp-6) 0; }
+.ai-sensible { align-items: flex-start; padding: var(--sp-3); border-radius: var(--r-md); background: var(--bg-elev-2); }
+.ai-part { border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--sp-2) var(--sp-3) var(--sp-3); margin: 0; min-width: 0; }
+.ai-part-head { font-size: var(--fs-12); color: var(--text-muted); margin-bottom: var(--sp-2); }
+.ai-cols { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); }
+.ai-col { min-width: 0; padding: var(--sp-2); border-radius: var(--r-sm); font-size: var(--fs-13); overflow-wrap: anywhere; white-space: pre-wrap; }
+.ai-before { background: var(--danger-soft); }
+.ai-after { background: color-mix(in srgb, var(--success) 14%, transparent); }
+.ai-tag { display: block; font-size: var(--fs-11, 11px); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); margin-bottom: 2px; }
+.ai-line + .ai-line { margin-top: 2px; }
+.ai-empty { color: var(--text-muted); font-style: italic; }
+.ai-col del { background: color-mix(in srgb, var(--danger) 30%, transparent); text-decoration: line-through; }
+.ai-col ins { background: color-mix(in srgb, var(--success) 35%, transparent); text-decoration: none; }
+.ai-prov { align-items: flex-start; }
+.ai-test { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.ai-ok { color: var(--success-text); }
+.ai-provs .warn { color: var(--danger-text); }
+#aiBtn[aria-disabled="true"] { opacity: .45; pointer-events: auto; cursor: help; }  /* desactivado, pero un clic explica por qué */
+@media (max-width: 767px) { .ai-cols { grid-template-columns: 1fr; } }
+.ai-modal .modal-footer { flex-wrap: wrap; row-gap: var(--sp-2); }
+@media (max-width: 767px) { .ai-modal .modal-footer .btn { flex: 1 1 auto; } .ai-modal .modal-footer .spacer { display: none; } }
+#aiSetBody > *, .ai-body > * { flex-shrink: 0; }
+.ai-modal .check { display: flex; gap: var(--sp-2); align-items: flex-start; cursor: pointer; }
+.ai-modal .check .checkbox { margin-top: 2px; }
+.ai-modal .ai-part-head { align-items: center; }
+.spinner { width: 28px; height: 28px; border-radius: 50%; border: 3px solid var(--separator-strong); border-top-color: var(--accent); animation: ai-spin .9s linear infinite; }
+@keyframes ai-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 3s; } .group-toggle .chev { transition: none; } }

@@ -32,7 +32,7 @@ MOCK = """(() => {
       async set(o) { write({ ...read(), ...JSON.parse(JSON.stringify(o)) }); },
       async remove(k) { const s = read(); [].concat(k).forEach((x) => delete s[x]); write(s); },
     } },
-    tabs: { query: async () => [init.tab], executeScript: async () => [init.selection], create: async (o) => __calls.push(['tab', o.url]) },
+    tabs: { query: async () => [init.tab], executeScript: async (o) => [String((o && o.code) || '').includes('panel-progress') ? init.progress : init.selection], create: async (o) => __calls.push(['tab', o.url]) },
     runtime: { getURL: (p) => 'http://ext.test/' + p, sendMessage: async (m) => __calls.push(['msg', m.type]), openOptionsPage: async () => __calls.push(['options']),
                onMessage: ev(), onStartup: ev(), onInstalled: ev() },
     contextMenus: { removeAll: async () => {}, create(o) { (window.__menus ||= []).push(o.id); }, onClicked: ev('menu') },
@@ -60,7 +60,7 @@ def _exe():
     return os.environ.get("PLAYWRIGHT_CHROMIUM") or found[-1]
 
 
-def open_ext(nocors, page_name, store, tab=None, selection="", width=380, height=600):
+def open_ext(nocors, page_name, store, tab=None, selection="", width=380, height=600, progress=None, start="inbox"):
     ctx = nocors.new_context(viewport={"width": width, "height": height})
     page = ctx.new_page()
     errors = []
@@ -74,10 +74,12 @@ def open_ext(nocors, page_name, store, tab=None, selection="", width=380, height
         route.fulfill(body=f.read_bytes(), content_type=TYPES.get(f.suffix, "application/octet-stream")) if f.is_file() else route.fulfill(status=404)
 
     page.route("http://ext.test/**", serve)
-    init = {"store": store, "tab": tab or {"url": "https://ejemplo.org/articulo", "title": "Un artículo"}, "selection": selection}
+    init = {"store": store, "tab": tab or {"url": "https://ejemplo.org/articulo", "title": "Un artículo"}, "selection": selection, "progress": progress}
     page.add_init_script(MOCK % {"init": json.dumps(init)})
     page.goto(f"http://ext.test/{page_name}")
     page.wait_for_load_state("networkidle")
+    if page_name == "popup.html" and start and not selection and not store.get("pending"):
+        page.click(f"#tab-{start}")   # el popup abre en el Baúl: estos tests parten de la pestaña que usan
     return ctx, page, errors
 
 
@@ -120,6 +122,7 @@ def test_popup_envia_la_seleccion_al_inbox(nocors, server, api):
         assert store_of(page)["recentInboxCats"][0] == "Lecturas"
         # al volver a abrirlo, la categoría usada es un chip de un clic
         page.reload()
+        page.click("#tab-inbox")
         page.wait_for_selector("#inboxChips .chip")
         assert page.locator("#inboxChips .chip").first.text_content() == "Lecturas"
         page.locator("#inboxChips .chip").first.click()
@@ -135,31 +138,93 @@ def test_popup_envia_la_seleccion_al_inbox(nocors, server, api):
         ctx.close()
 
 
-def test_popup_baul_youtube_y_duplicado(nocors, server, api):
-    url = "https://www.youtube.com/watch?v=extension123"
-    ctx, page, errors = open_ext(nocors, "popup.html", {"baseUrl": server, "token": "t", "lastTab": "vault"},
+def test_el_popup_abre_siempre_en_el_baul(nocors, server):
+    # aunque la última pestaña usada fuera otra; con texto seleccionado, en cambio, es del Inbox
+    ctx, page, errors = open_ext(nocors, "popup.html", {"baseUrl": server, "token": "t", "lastTab": "cal"}, start=None)
+    try:
+        assert page.get_attribute("#tab-vault", "aria-selected") == "true" and page.is_visible("#panel-vault")
+        assert page.locator(".tabs [role=tab]").first.get_attribute("id") == "tab-vault"          # y es la primera pestaña
+        assert not errors, errors
+    finally:
+        ctx.close()
+
+
+def test_popup_baul_clasifica_solo_un_video_nuevo_como_ver_mas_tarde(nocors, server, api):
+    url = "https://www.youtube.com/watch?v=extension12&list=PLabc&t=33s"
+    ctx, page, errors = open_ext(nocors, "popup.html", {"baseUrl": server, "token": "t"}, start=None,
                                  tab={"url": url, "title": "Un vídeo"})
     try:
-        assert page.get_attribute("#tab-vault", "aria-selected") == "true"
+        page.wait_for_function("document.getElementById('detectedBadge').textContent !== 'Enlace web'")
         assert page.input_value("#vaultUrl") == url and "Vídeo de YouTube" in page.text_content("#kind")
+        assert page.text_content("#detectedBadge") == "Ver más tarde" and "nuevo" in page.text_content("#detectedReason")
+        assert not page.is_visible("#vaultState")                      # el selector está plegado: no hace falta tocarlo
         page.fill("#vaultCategory", "Ver")
-        page.check("#watchLater")
         if SHOTS:
             page.screenshot(path=f"{SHOTS}/ext-popup-baul.png", full_page=True)
         page.click("#saveVault")
         page.wait_for_selector("#result[data-type=ok]")
-        res = next(r for r in api.get("/api/resources").json()["resources"] if r["url"] == url)
-        assert res["category"] == "Ver" and res["watch_later"] == 1
-        page.reload()  # el popup se cierra al guardar; se vuelve a abrir en la misma página
+        assert "para más tarde" in page.text_content("#result")
+        res = next(r for r in api.get("/api/resources").json()["resources"] if "extension12" in r["url"])
+        assert res["category"] == "Ver" and res["watch_later"] == 1 and res["url"] == "https://www.youtube.com/watch?v=extension12"
+        # el mismo vídeo con otra URL (youtu.be, con tiempo): ya está en el Baúl → se detecta «visto» y se marca sin duplicar
+        page.evaluate("localStorage.setItem('__ext_tab', 1)")
+        page.reload()
         page.wait_for_load_state("networkidle")
+        page.fill("#vaultUrl", "https://youtu.be/extension12?t=5")
+        page.wait_for_function("document.getElementById('detectedBadge').textContent === 'Visto'", polling=100)
+        assert "ya está en el Baúl" in page.text_content("#detectedReason")
         page.click("#saveVault")
-        page.wait_for_selector("#result[data-type=warn]")
-        assert "Ya estaba" in page.text_content("#result")
-        # teclado: flechas cambian de pestaña
+        page.wait_for_selector("#result[data-type=ok]")
+        assert "como visto" in page.text_content("#result")
+        rows = [r for r in api.get("/api/resources").json()["resources"] if "extension12" in r["url"]]
+        assert len(rows) == 1 and rows[0]["watched"] == 1 and rows[0]["watch_later"] == 0
+        # teclado: las flechas cambian de pestaña (Baúl → Inbox)
         page.focus("#tab-vault")
-        page.keyboard.press("ArrowLeft")
+        page.keyboard.press("ArrowRight")
         assert page.get_attribute("#tab-inbox", "aria-selected") == "true" and page.is_visible("#panel-inbox")
         assert not errors, errors
+    finally:
+        ctx.close()
+
+
+def test_popup_baul_canal_y_umbral_de_visto(nocors, server, api):
+    # página de un canal → se guarda como canal de YouTube, sin tocar el selector
+    ctx, page, errors = open_ext(nocors, "popup.html", {"baseUrl": server, "token": "t"}, start=None,
+                                 tab={"url": "https://www.youtube.com/@CanalDeExtension", "title": "Canal"})
+    try:
+        page.wait_for_function("document.getElementById('detectedBadge').textContent === 'Canal de YouTube'")
+        page.click("#saveVault")
+        page.wait_for_selector("#result[data-type=ok]")
+        assert "como canal de YouTube" in page.text_content("#result")
+        res = next(r for r in api.get("/api/resources").json()["resources"] if "CanalDeExtension" in r["url"])
+        assert res["watch_later"] == 0 and res["watched"] == 0
+    finally:
+        ctx.close()
+    # vídeo nuevo con el 80 % reproducido (umbral por defecto 50 %) → visto; con el 10 % → ver más tarde
+    for vid, played, esperado in (("extprogres1", 800, "Visto"), ("extprogres2", 100, "Ver más tarde")):
+        ctx, page, errors = open_ext(nocors, "popup.html", {"baseUrl": server, "token": "t"}, start=None,
+                                     tab={"url": f"https://www.youtube.com/watch?v={vid}", "title": "V"}, progress={"played": played, "duration": 1000})
+        try:
+            page.wait_for_function(f"document.getElementById('detectedBadge').textContent === '{esperado}'")
+            if esperado == "Visto":
+                assert "80 %" in page.text_content("#detectedReason")
+        finally:
+            ctx.close()
+
+
+def test_popup_baul_web_sin_clasificar_y_cambio_manual(nocors, server, api):
+    ctx, page, errors = open_ext(nocors, "popup.html", {"baseUrl": server, "token": "t", "lastVaultCat": "Lecturas"}, start=None)
+    try:
+        page.wait_for_function("document.getElementById('detectedBadge').textContent !== ''")
+        assert page.text_content("#detectedBadge") == "Enlace web"
+        assert page.input_value("#vaultCategory") == "Lecturas"           # la última categoría usada sigue de partida
+        page.click("#detectedChange")                                      # un clic para cambiarlo
+        page.click("#vaultState [data-state=seen]")
+        assert page.text_content("#detectedBadge") == "Visto" and page.get_attribute("#vaultState [data-state=seen]", "aria-pressed") == "true"
+        page.click("#saveVault")
+        page.wait_for_selector("#result[data-type=ok]")
+        res = next(r for r in api.get("/api/resources").json()["resources"] if r["url"] == "https://ejemplo.org/articulo")
+        assert res["watched"] == 1 and res["category"] == "Lecturas"
     finally:
         ctx.close()
 
@@ -378,7 +443,7 @@ def _dia(n):
 def test_agenda_ver_crear_mover_y_completar(nocors, server, api):
     eid = api.post("/api/calendar/events", json={"title": "Evento de la extensión", "start": f"{_dia(1)}T10:00"}).json()["id"]
     rid = api.post("/api/items", json={"text": "Rutina de la extensión", "type": "rutina"}).json()["id"]
-    ctx, page, errors = open_ext(nocors, "popup.html", {"baseUrl": server, "token": "t", "lastTab": "cal"})
+    ctx, page, errors = open_ext(nocors, "popup.html", {"baseUrl": server, "token": "t", "lastTab": "cal"}, start="cal")
     try:
         page.wait_for_selector(".agenda-row")
         assert page.get_attribute("#tab-cal", "aria-selected") == "true"
@@ -409,6 +474,7 @@ def test_elegir_padre_y_prefijos(nocors, server, api):
     ctx, page, errors = open_ext(nocors, "popup.html", {"baseUrl": server, "token": "t"})
     try:
         page.wait_for_selector(f"#parent option[value='{padre}']", state="attached")
+        page.click("#moreParent summary")
         page.select_option("#parent", str(padre))
         page.fill("#content", "Paso desde la extensión")
         page.uncheck("#includeLink")
@@ -419,6 +485,7 @@ def test_elegir_padre_y_prefijos(nocors, server, api):
         assert hijo["parent_id"] == padre
         page.reload()
         page.wait_for_selector("#status[data-state=ok]")
+        page.click("#tab-inbox")
         page.fill("#content", "r: estirar cada día")
         page.uncheck("#includeLink")
         page.click("#saveInbox")
@@ -430,7 +497,7 @@ def test_elegir_padre_y_prefijos(nocors, server, api):
 
 
 def test_evento_sin_conexion_va_a_la_cola(nocors, server, api):
-    ctx, page, errors = open_ext(nocors, "popup.html", {"baseUrl": "http://127.0.0.1:9", "token": "t", "lastTab": "cal"})
+    ctx, page, errors = open_ext(nocors, "popup.html", {"baseUrl": "http://127.0.0.1:9", "token": "t", "lastTab": "cal"}, start="cal")
     try:
         page.wait_for_selector(".agenda .hint")
         page.fill("#calText", "cena con amigos viernes 21:00")

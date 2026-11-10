@@ -37,6 +37,8 @@ UPLOADS_DIR = Path(_env("PANEL_UPLOADS_DIR") or PROJECT_ROOT / "static" / "uploa
 BACKUPS_DIR = Path(_env("PANEL_BACKUPS_DIR") or PROJECT_ROOT / "backups")
 LOGS_DIR = Path(_env("PANEL_LOGS_DIR") or PROJECT_ROOT / "logs")
 TRASH_DIR = Path(_env("PANEL_TRASH_DIR") or DATA_DIR / "trash")
+# Lista ordenada de modelos de IA (app/llm_router.py); si no existe se usa la de app/llm_modelos.json
+LLM_MODELS_FILE = Path(_env("PANEL_LLM_MODELS") or DATA_DIR / "llm_modelos.json")
 # Repo de dotfiles y el ~ del que salen (app/dotfiles.py). BASE: commit con ~ tal cual si el repo se retocó después
 DOTFILES_DIR = Path(_env("PANEL_DOTFILES_DIR") or Path.home() / "dotfiles")
 DOTFILES_HOME = Path(_env("PANEL_DOTFILES_HOME") or Path.home())

@@ -30,7 +30,7 @@
       S = await api(`/api/finance/summary?month=${month}`, { quiet: true });
       movs = (await api(`/api/finance/movements?month=${month}`, { quiet: true })).movements;
     } catch {
-      $('ecMoney').innerHTML = emptyState({ iconName: 'wifi-off', title: 'No se pudo cargar', compact: true });
+      showState($('ecMoney'), loadFailed('No se pudo cargar Economía', true), load);
       return;
     }
     render();
@@ -77,12 +77,12 @@
         ${S.presupuesto_total ? `<p class="tiny muted ec-note">Presupuesto del mes: ${money(S.presupuesto_total)} · ${m.gastos <= S.presupuesto_total ? `quedan ${money(S.presupuesto_total - m.gastos)}` : `te has pasado ${money(m.gastos - S.presupuesto_total)}`}</p>` : ''}`
         : '<p class="small muted">Sin gastos este mes.</p>'}
       <h3 class="hoy-h3">Gasto de los últimos 6 meses</h3>
-      <div class="ec-months" role="img" aria-label="${S.meses.map((x) => `${monthName(x.mes, { month: 'long' })}: ${money(x.gastos)} gastado, ${money(x.ingresos)} ingresado`).join('; ')}">
+      ${S.meses.every((x) => !x.gastos) ? '<p class="small muted">Sin gastos en estos meses: el gráfico aparece al apuntar el primero.</p>' : `<div class="ec-months" role="img" aria-label="${S.meses.map((x) => `${monthName(x.mes, { month: 'long' })}: ${money(x.gastos)} gastado, ${money(x.ingresos)} ingresado`).join('; ')}">
         ${S.meses.map((x) => `<button type="button" class="ec-mcol${x.mes === month ? ' is-on' : ''}" data-goto-month="${x.mes}" title="${monthName(x.mes)}: ${money(x.gastos)} gastado · ${money(x.ingresos)} ingresado" aria-hidden="true" tabindex="-1">
           <span class="ec-mval tabular">${x.gastos ? Math.round(x.gastos) : ''}</span>
           <span class="ec-mbar"><span style="height:${x.gastos ? Math.max(3, x.gastos / maxMes * 100) : 0}%"></span></span>
           <span class="ec-mlab">${monthName(x.mes, { month: 'short' }).replace('.', '')}</span></button>`).join('')}
-      </div>`;
+      </div>`}`;
 
     // Deudas: lo que te deben y lo que debes
     const meDeben = S.deudas.filter((d) => d.direccion === 'me-deben'), debo = S.deudas.filter((d) => d.direccion === 'debo');

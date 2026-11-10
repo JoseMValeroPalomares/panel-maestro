@@ -1,7 +1,9 @@
 /* ==========================================================================
    ui.js — piezas comunes de interfaz (script clásico, sin módulos)
    Expone: icon, escapeHtml, api, parseTime, copyText, toast, openModal, closeModal, uiConfirm,
-   uiPrompt, openMenu, skeletonRows, emptyState, openCapture, timeAgo, CATEGORY_COLORS
+   uiPrompt, openMenu, skeletonRows, emptyState, stateView, showState, openCapture, timeAgo, CATEGORY_COLORS
+   Tooltips: cualquier elemento con data-tip (y los botones de solo icono con title) muestra un globo al pasar
+   el ratón o con el foco del teclado.
    ========================================================================== */
 (function () {
   'use strict';
@@ -14,8 +16,11 @@
 
   // Sprite con su versión (ver core/templating.asset): así nunca se mezcla con uno viejo en caché
   const ICONS = document.documentElement.dataset.icons || '/static/icons.svg';
-  function icon(name, cls = '') {
-    return `<svg class="icon ${cls}" aria-hidden="true"><use href="${ICONS}#i-${name}"></use></svg>`;
+  const ILLS = document.documentElement.dataset.ills || '/static/ilustraciones.svg';
+  // Sin label es decorativo (lo nombra el botón o el texto de al lado); con label, el icono informa por sí solo.
+  function icon(name, cls = '', { label = '' } = {}) {
+    const a11y = label ? `role="img" aria-label="${escapeHtml(label)}"` : 'aria-hidden="true"';
+    return `<svg class="icon ${cls}" ${a11y}><use href="${ICONS}#i-${name}"></use></svg>`;
   }
 
   function timeAgo(epochSeconds) {
@@ -98,8 +103,11 @@
   /* ---------- Toasts ---------- */
   let toastRegion;
   // Copiar al portapapeles. Sin https (el móvil por la red local) el navegador no da navigator.clipboard
+  // Hay que llamarla DIRECTAMENTE desde el manejador del clic (sin await antes): el método antiguo exige gesto del usuario.
   async function copyText(text) {
-    try { await navigator.clipboard.writeText(text); return true; } catch { /* probamos a la antigua */ }
+    if (window.isSecureContext && navigator.clipboard?.writeText) {
+      try { await navigator.clipboard.writeText(text); return true; } catch { /* probamos a la antigua */ }
+    }
     const ta = document.createElement('textarea');
     ta.value = text;
     ta.readOnly = true;
@@ -370,8 +378,12 @@
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'menu-item' + (item.danger ? ' danger' : '');
-      b.setAttribute('role', 'menuitem');
-      b.innerHTML = (item.icon ? icon(item.icon) : '') + `<span>${escapeHtml(item.label)}</span>`;
+      // checked: opción de un grupo (estado, prioridad…); la elegida lleva el icono de marca al final
+      const choice = 'checked' in item;
+      b.setAttribute('role', choice ? 'menuitemradio' : 'menuitem');
+      if (choice) b.setAttribute('aria-checked', String(!!item.checked));
+      b.innerHTML = (item.icon ? icon(item.icon) : '') + `<span>${escapeHtml(item.label)}</span>` +
+        (choice ? `<span class="menu-check">${item.checked ? icon('check', 'icon-sm') : ''}</span>` : '');
       b.addEventListener('click', () => { closeMenu(); item.onClick?.(); });
       el.appendChild(b);
     });
@@ -407,6 +419,31 @@
     return Array.from({ length: n }, (_, i) =>
       `<span class="skeleton ${cls}" style="width:${88 - (i * 7) % 30}%"></span>`).join('');
   }
+  /* ---------- Estados con ilustración: vacío, hecho, sin resultados, error y sin conexión ----------
+     stateView devuelve el HTML; showState lo pinta en un elemento y conecta «Reintentar» (onRetry).
+     El tono de la ilustración dice el tipo de mensaje; error y sin conexión se anuncian (role="alert"). */
+  const STATES = { empty: ['vacio', 'accent'], done: ['hecho', 'success'], 'no-results': ['sin-resultados', 'accent'],
+    error: ['error', 'danger'], offline: ['sin-conexion', 'warning'] };
+  function stateView({ kind = 'empty', title, text = '', actionLabel = '', action = '', retry = false, compact = false }) {
+    const [ill, tone] = STATES[kind] || STATES.empty;
+    const alert = kind === 'error' || kind === 'offline' ? ' role="alert"' : '';
+    const btn = retry ? `<button type="button" class="btn btn-tinted" data-state-retry>${icon('rotate-ccw')}Reintentar</button>`
+      : actionLabel ? `<button type="button" class="btn btn-tinted" data-empty-action="${escapeHtml(action)}">${icon('plus')}${escapeHtml(actionLabel)}</button>` : '';
+    return `<div class="empty state${compact ? ' empty-compact' : ''}" data-state-kind="${kind}" style="--ill-accent: var(--${tone})"${alert}>
+      <svg class="ill" aria-hidden="true"><use href="${ILLS}#ill-${ill}"></use></svg>
+      <h3>${escapeHtml(title)}</h3>${text ? `<p>${escapeHtml(text)}</p>` : ''}${btn}</div>`;
+  }
+  function showState(el, opts, onRetry) {
+    if (!el) return;
+    el.innerHTML = stateView({ ...opts, retry: !!onRetry || opts.retry });
+    const b = el.querySelector('[data-state-retry]');
+    if (b && onRetry) b.addEventListener('click', () => { b.classList.add('is-loading'); onRetry(); });
+  }
+  // Error de carga: «sin conexión» si el navegador no tiene red, «no se pudo cargar» si el panel falló
+  const loadFailed = (title, compact = false) => (navigator.onLine === false
+    ? { kind: 'offline', title: 'Sin conexión con el panel', text: 'Se actualizará al volver a la red de casa.', compact }
+    : { kind: 'error', title, text: 'El panel no ha respondido. Tus datos están guardados.', compact });
+
   function emptyState({ iconName = 'inbox', title, text = '', actionLabel = '', action = '', compact = false }) {
     return `<div class="empty${compact ? ' empty-compact' : ''}">
       <div class="empty-icon">${icon(iconName)}</div>
@@ -418,6 +455,71 @@
 
   /* ---------- Tema (sistema / claro / oscuro) ---------- */
 
+
+  /* ---------- Tooltip (data-tip) ----------
+     Un solo globo que vive en la capa superior (popover): no lo recorta un contenedor con overflow ni lo tapa un
+     diálogo abierto. Sale al pasar el ratón (con retardo) o con el foco del teclado; nunca con el dedo. Los botones
+     de solo icono con title lo adoptan solos (title → data-tip y, si les faltaba, aria-label): sin globo doble. */
+  const ICON_ONLY = '.btn-icon, .tb-btn, .tool-btn';
+  let tipEl = null, tipFor = null, tipTimer = 0;
+  function adoptTitle(el) {
+    if (!el?.matches?.(ICON_ONLY) || !el.hasAttribute('title')) return;
+    const t = el.getAttribute('title');
+    el.removeAttribute('title');
+    if (!el.dataset.tip) el.dataset.tip = t;
+    if (!el.hasAttribute('aria-label') && !el.hasAttribute('aria-labelledby')) el.setAttribute('aria-label', t);
+  }
+  function hideTip() {
+    clearTimeout(tipTimer);
+    if (!tipEl || !tipFor) return;
+    tipFor = null;
+    tipEl.classList.remove('is-on');
+    try { if (tipEl.matches(':popover-open')) tipEl.hidePopover(); } catch {}
+  }
+  function showTip(el) {
+    const text = el.dataset.tip;
+    if (!text || !el.isConnected) return;
+    if (!tipEl) {
+      tipEl = document.createElement('div');
+      tipEl.className = 'tip';
+      tipEl.setAttribute('aria-hidden', 'true');  // el nombre accesible ya es el aria-label del control
+      if ('popover' in tipEl) tipEl.popover = 'manual';
+      document.body.appendChild(tipEl);
+    }
+    tipFor = el;
+    tipEl.textContent = text;
+    try { if (tipEl.popover && !tipEl.matches(':popover-open')) tipEl.showPopover(); } catch {}
+    const r = el.getBoundingClientRect();
+    const tw = tipEl.offsetWidth, th = tipEl.offsetHeight;
+    let top = r.top - th - 6;
+    if (top < 4) top = r.bottom + 6;
+    const left = Math.max(4, Math.min(r.left + r.width / 2 - tw / 2, window.innerWidth - tw - 4));
+    tipEl.style.transform = `translate(${Math.round(left)}px, ${Math.round(top)}px)`;
+    tipEl.classList.add('is-on');
+  }
+  document.addEventListener('pointerover', (e) => {
+    if (e.pointerType === 'touch') return;
+    const el = e.target.closest?.('[data-tip], [title]');
+    if (!el) return;
+    adoptTitle(el);
+    if (!el.dataset.tip || el === tipFor) return;
+    clearTimeout(tipTimer);
+    tipTimer = setTimeout(() => showTip(el), 450);
+  });
+  document.addEventListener('pointerout', (e) => {
+    const el = e.target.closest?.('[data-tip]');
+    if (el && !el.contains(e.relatedTarget)) hideTip();
+  });
+  document.addEventListener('focusin', (e) => {
+    const el = e.target.closest?.('[data-tip], [title]');
+    if (!el) return;
+    adoptTitle(el);
+    if (el.dataset.tip && el.matches(':focus-visible')) showTip(el);
+  });
+  document.addEventListener('focusout', hideTip);
+  document.addEventListener('pointerdown', hideTip, true);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideTip(); }, true);
+  window.addEventListener('scroll', hideTip, true);
 
   /* ---------- visualViewport: alto real con teclado móvil ---------- */
   function syncViewport() {
@@ -439,7 +541,7 @@
   async function refreshInboxBadge() {
     try {
       const c = await api('/api/items/counts', { quiet: true });
-      const n = c.pendientes;
+      const n = c.inbox?.pendientes ?? c.pendientes;  // solo lo que está por procesar en el Inbox
       document.querySelectorAll('[data-inbox-count]').forEach((el) => {
         el.textContent = n > 99 ? '99+' : String(n);
         el.hidden = n === 0;
@@ -454,6 +556,30 @@
     if (prefill) ta.value = prefill;
     openModal(dlg, { focus: '[data-capture-text]' });
   }
+
+  /* ---------- Acciones declarativas (data-call) ----------
+     Sustituyen a los manejadores «on…» en el HTML (la CSP ya no permite JS en línea):
+       <button data-call="setMode" data-args='["edit"]'>          → setMode('edit')
+       <button data-call="openNoteMenu" data-args='["$el"]'>      → openNoteMenu(este botón)
+       <button data-call="closeModal;Palette.open" data-args='[["moreSheet"], []]'>  → varias, en orden
+     El nombre se busca en window (admite «Objeto.método»). */
+  function runCall(el) {
+    const names = el.dataset.call.split(';').map((s) => s.trim()).filter(Boolean);
+    let args = [];
+    try { args = el.dataset.args ? JSON.parse(el.dataset.args) : []; } catch { console.error('data-args no es JSON:', el); return; }
+    names.forEach((name, i) => {
+      const list = names.length > 1 ? (args[i] || []) : args;
+      let ctx = window, fn = window;
+      for (const part of name.split('.')) { ctx = fn; fn = fn?.[part]; }
+      if (typeof fn !== 'function') { console.error(`Acción desconocida: ${name}`); return; }
+      fn.apply(ctx, list.map((a) => (a === '$el' ? el : a)));
+    });
+  }
+  document.addEventListener('click', (e) => {
+    const el = e.target.closest?.('[data-call]');
+    if (!el || el.disabled || el.getAttribute('aria-disabled') === 'true') return;
+    runCall(el);
+  });
 
   /* ---------- Arranque del shell ---------- */
   function init() {
@@ -506,6 +632,7 @@
     }
     wireNavToggle();
     wireThemePicker();
+    wireTabbarPicker();
     refreshInboxBadge();
     onDataChange(/^\/api\/(items|inbox|notes|bulk\/notes)/, refreshInboxBadge);
     if ('serviceWorker' in navigator && (location.protocol === 'https:' || ['localhost', '127.0.0.1'].includes(location.hostname) || window.isSecureContext)) {
@@ -560,6 +687,34 @@
     const fixTabs = () => grid.querySelectorAll('[data-theme-choice]').forEach((b) => { b.tabIndex = b.getAttribute('aria-checked') === 'true' ? 0 : -1; });
     fixTabs();
     document.addEventListener('themechange', fixTabs);
+  }
+
+  /* ---------- Pestañas del móvil (Ajustes) ----------
+     Hasta TABBAR_MAX secciones en la barra de abajo, en el orden del menú; se guardan en Prefs («tabbar») y
+     tabbar-init.js las coloca. Sin ninguna marcada vuelven las de por defecto. */
+  function wireTabbarPicker() {
+    const boxes = [...document.querySelectorAll('[data-tabbar-choice]')];
+    const max = window.TABBAR_MAX || 4;
+    const current = () => {
+      const pref = Prefs.get('tabbar', null);
+      if (Array.isArray(pref) && pref.length) return pref;
+      return [...document.querySelectorAll('.tabbar a.tab[data-default]')].map((t) => t.dataset.section);
+    };
+    const paint = () => {
+      const keys = current();
+      boxes.forEach((b) => { b.checked = keys.includes(b.value); });
+      const full = boxes.filter((b) => b.checked).length >= max;
+      boxes.forEach((b) => { b.disabled = full && !b.checked; });
+      window.applyTabbar?.(Prefs.get('tabbar', null));
+    };
+    boxes.forEach((b) => b.addEventListener('change', () => {
+      const keys = boxes.filter((x) => x.checked).map((x) => x.value).slice(0, max);
+      Prefs.set('tabbar', keys);
+      paint();
+    }));
+    paint();
+    Prefs.ready.then(paint);
+    document.addEventListener('prefs:changed', paint);
   }
 
   /* ---------- Navegación lateral plegable a iconos ----------
@@ -682,8 +837,15 @@
   const prefsReady = prefsLoad();
   onDataChange(/^\/api\/prefs/, prefsLoad);
 
-  // Colores de categoría (Notas, Baúl): variables del tema activo (--cat-0…9 en themes.css)
+  // Colores de categoría (Notas, Grafo, Baúl): variables del tema activo (--cat-0…9 en themes.css). Una categoría
+  // tiene el mismo color en todas partes: el índice sale de un hash de su nombre (categoryIndex).
   const CATEGORY_COLORS = Array.from({ length: 10 }, (_, i) => `var(--cat-${i})`);
+  function categoryIndex(cat) {
+    let hash = 0;
+    for (let i = 0; i < cat.length; i++) hash = (hash * 31 + cat.charCodeAt(i)) | 0;
+    return Math.abs(hash) % CATEGORY_COLORS.length;
+  }
+  const categoryColor = (cat) => CATEGORY_COLORS[categoryIndex(String(cat ?? ''))];
 
   /* ---------- Días de la semana: L M X J V S D que se marcan y desmarcan ----------
      Una rutina y sus bloques eligen los días igual en todas partes: los 7 = cada día, algunos = esos días.
@@ -709,9 +871,9 @@
 
   Object.assign(window, {
   dayPicker, readDays, repeatFromDays, everyNote,
-    CATEGORY_COLORS,
+    CATEGORY_COLORS, categoryIndex, categoryColor,
     icon, escapeHtml, timeAgo, api, parseTime, copyText, toast, openModal, closeModal, uiConfirm, uiAlert, uiPrompt,
-    openMenu, closeMenu, skeletonRows, emptyState, setTheme, openCapture, refreshInboxBadge, wireAllDialogs, onDataChange, Prefs, uiPick, fuzzyScore,
+    openMenu, closeMenu, skeletonRows, emptyState, stateView, showState, loadFailed, setTheme, openCapture, refreshInboxBadge, wireAllDialogs, onDataChange, Prefs, uiPick, fuzzyScore,
   });
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

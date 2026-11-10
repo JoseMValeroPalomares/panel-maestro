@@ -47,3 +47,7 @@ git-branch
 workflow
 kanban
 layout-dashboard
+thermometer chart-scatter bed smile cloud-fog
+octagon-alert circle-x circle-dashed
+# Fase 3 de la interfaz: sustitutos de iconos con dos significados
+clipboard-check bookmark-plus bookmark-check list-plus calendar-off list-collapse circle-help list-filter highlighter file-search

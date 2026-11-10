@@ -12,23 +12,26 @@
     <h1>Notas</h1>
   </div>
   <div class="page-actions">
-    <button type="button" class="btn btn-ghost" onclick="quickRecall()" title="Abrir una nota al azar para repasar">{{ icon('shuffle') }}<span class="hide-mobile">Repasar</span></button>
-    <button type="button" class="btn btn-ghost" onclick="openFlashcardsModal()" title="Repaso de flashcards">
+    <button type="button" class="btn btn-ghost" data-call="quickRecall" title="Abrir una nota al azar para repasar">{{ icon('shuffle') }}<span class="hide-mobile">Repasar</span></button>
+    <button type="button" class="btn btn-ghost" data-call="openFlashcardsModal" title="Repaso de flashcards">
       {{ icon('layers') }}<span class="hide-mobile">Flashcards</span><span id="fcDueBadge" class="badge badge-accent" hidden></span>
     </button>
-    <button type="button" class="btn btn-ghost btn-icon hide-mobile" onclick="openHealthModal()" title="Salud del cerebro" aria-label="Salud del cerebro">{{ icon('activity') }}</button>
-    <button type="button" class="btn btn-ghost btn-icon hide-mobile" onclick="openManagerModal()" title="Gestor de notas" aria-label="Gestor de notas">{{ icon('table-2') }}</button>
+    <button type="button" class="btn btn-ghost btn-icon hide-mobile" data-call="openHealthModal" title="Salud del cerebro" aria-label="Salud del cerebro">{{ icon('activity') }}</button>
+    <button type="button" class="btn btn-ghost btn-icon hide-mobile" data-call="openManagerModal" title="Gestor de notas" aria-label="Gestor de notas">{{ icon('table-2') }}</button>
     <span id="streakBadge" class="streak" title="Días seguidos estudiando">{{ icon('flame', 'icon-sm') }}<span>0</span></span>
   </div>
 </header>
 
-<div class="notes-layout" id="notesLayout">
+{# KaTeX y highlight.js se cargan solo si la nota tiene fórmulas o código (cerebro.js: enhanceRendered) #}
+<div class="notes-layout" id="notesLayout" data-katex="{{ asset('/static/vendor/katex/katex.min.js') }}"
+  data-auto-render="{{ asset('/static/vendor/katex/auto-render.min.js') }}" data-hljs="{{ asset('/static/vendor/highlight/highlight.min.js') }}">
   <!-- Lista de notas -->
   <section class="notes-list-pane" id="sidebar" aria-label="Lista de notas">
     <div class="list-pane-top">
       <div class="search">
         {{ icon('search') }}
-        <input id="searchInput" class="input" type="search" placeholder="Buscar notas" autocomplete="off" aria-label="Buscar notas">
+        <input id="searchInput" class="input" type="search" placeholder="Filtrar por título o categoría…" autocomplete="off" aria-label="Filtrar notas por título o categoría" aria-describedby="filterHint">
+        <span class="sr-only" id="filterHint">Para buscar dentro del texto de las notas, usa Ctrl K o la página Buscar.</span>
       </div>
       <div class="chips chips-scroll" role="group" aria-label="Filtrar por estado" id="statusChips">
         <button type="button" class="chip" data-status-filter="all" aria-pressed="true">Todas</button>
@@ -39,13 +42,14 @@
       </div>
       <div id="tagChips" class="chips chips-scroll" role="group" aria-label="Filtrar por etiqueta"></div>
     </div>
+    <section class="notes-recent" id="notesRecent" aria-label="Seguir escribiendo" hidden></section>
     <div class="notes-tree" id="notesList" aria-label="Notas por categoría">
       {% for _ in range(9) %}<span class="skeleton skeleton-row"></span>{% endfor %}
     </div>
     <div class="list-pane-footer">
-      <button type="button" class="btn btn-ghost btn-sm" onclick="openAnnotationsModal()">{{ icon('pin', 'icon-sm') }}Anotaciones</button>
+      <button type="button" class="btn btn-ghost btn-sm" data-call="openAnnotationsModal">{{ icon('pin', 'icon-sm') }}Anotaciones</button>
       <span class="grow"></span>
-      <button type="button" class="btn btn-primary btn-sm" onclick="createNewNotePrompt()">{{ icon('square-pen', 'icon-sm') }}Nueva nota</button>
+      <button type="button" class="btn btn-primary btn-sm" data-call="createNewNotePrompt">{{ icon('square-pen', 'icon-sm') }}Nueva nota</button>
     </div>
   </section>
 
@@ -53,15 +57,17 @@
   <section class="note-pane" id="editorArea" aria-label="Nota" hidden>
     <div class="note-head" id="editorHeader">
       <div class="note-head-top">
-        <button type="button" class="btn btn-ghost btn-sm back-btn" onclick="closeNote()" title="Volver a la vista general">{{ icon('chevron-left') }}Notas</button>
+        <button type="button" class="btn btn-ghost btn-sm back-btn" data-call="closeNote" title="Volver a la vista general">{{ icon('chevron-left') }}Notas</button>
         <nav id="breadcrumbs" class="breadcrumbs" aria-label="Categoría"></nav>
         <span class="grow"></span>
         <span id="saveIndicator" class="save-indicator" role="status" aria-live="polite"></span>
         <div class="segmented mode-toggle" role="group" aria-label="Modo">
-          <button type="button" id="modeBtnRead" onclick="setMode('read')" aria-pressed="true">{{ icon('book-open', 'icon-sm') }}<span class="hide-mobile">Lectura</span><span class="sr-only show-mobile">Lectura</span></button>
-          <button type="button" id="modeBtnEdit" onclick="setMode('edit')" aria-pressed="false">{{ icon('pencil', 'icon-sm') }}<span class="hide-mobile">Edición</span><span class="sr-only show-mobile">Edición</span></button>
+          <button type="button" id="modeBtnRead" data-call="setMode" data-args='["read"]' aria-pressed="true">{{ icon('book-open', 'icon-sm') }}<span class="hide-mobile">Lectura</span><span class="sr-only show-mobile">Lectura</span></button>
+          <button type="button" id="modeBtnEdit" data-call="setMode" data-args='["edit"]' aria-pressed="false">{{ icon('pencil', 'icon-sm') }}<span class="hide-mobile">Edición</span><span class="sr-only show-mobile">Edición</span></button>
         </div>
-        <button type="button" class="btn btn-ghost btn-icon" id="noteMenuBtn" aria-label="Más acciones" aria-haspopup="menu" aria-expanded="false" onclick="openNoteMenu(this)">{{ icon('ellipsis') }}</button>
+        <button type="button" class="btn btn-ghost btn-icon" id="aiBtn" data-call="openAiCorrect" aria-label="Corregir con IA" title="Corregir con IA">{{ icon('sparkles') }}</button>
+        <button type="button" class="btn btn-ghost btn-icon" id="aiPromptBtn" data-call="copyAiPrompt" aria-label="Copiar prompt y nota para pegar en una IA" title="Copiar prompt + nota para ChatGPT, Claude o Gemini">{{ icon('copy') }}</button>
+        <button type="button" class="btn btn-ghost btn-icon" id="noteMenuBtn" aria-label="Más acciones" aria-haspopup="menu" aria-expanded="false" data-call="openNoteMenu" data-args='["$el"]'>{{ icon('ellipsis') }}</button>
       </div>
       <label class="sr-only" for="noteTitle">Título</label>
       <textarea id="noteTitle" class="note-title-input" rows="1" placeholder="Título" maxlength="300" autocomplete="off" spellcheck="true"></textarea>
@@ -78,52 +84,43 @@
           <label class="sr-only" for="noteTags">Etiquetas</label>
           <input type="text" id="noteTags" class="input input-quiet" placeholder="etiquetas, separadas, por comas" maxlength="1000" autocomplete="off">
         </div>
-        <button type="button" id="statusBadge" class="status-btn" data-status="por-escribir" aria-haspopup="menu" aria-expanded="false" onclick="toggleStatusMenu(this)">
+        <button type="button" id="statusBadge" class="status-btn" data-status="por-escribir" aria-haspopup="menu" aria-expanded="false" data-call="toggleStatusMenu" data-args='["$el"]'>
           <span class="status-dot"></span><span id="statusBadgeLabel">Por escribir</span>{{ icon('chevron-down', 'icon-sm') }}
         </button>
-        <button type="button" class="btn btn-ghost btn-icon btn-sm lock-toggle" id="lockToggle" onclick="toggleEncryption()" aria-pressed="false" title="Nota privada (cifrada en el navegador)" aria-label="Cifrar nota">{{ icon('lock-open', 'icon-sm') }}</button>
+        <button type="button" class="btn btn-ghost btn-icon btn-sm lock-toggle" id="lockToggle" data-call="toggleEncryption" aria-pressed="false" title="Nota privada (cifrada en el navegador)" aria-label="Cifrar nota">{{ icon('lock-open', 'icon-sm') }}</button>
       </div>
       <div class="note-links" id="noteLinks" aria-label="Tareas e ideas enlazadas" hidden></div>
     </div>
 
     <div class="editor-toolbar" id="toolbar" role="toolbar" aria-label="Formato" hidden>
-      <button type="button" class="tb-btn" onclick="wrapSelection('**','**')" title="Negrita (Ctrl+B)" aria-label="Negrita">{{ icon('bold') }}</button>
-      <button type="button" class="tb-btn" onclick="wrapSelection('*','*')" title="Cursiva (Ctrl+I)" aria-label="Cursiva">{{ icon('italic') }}</button>
-      <button type="button" class="tb-btn" onclick="wrapSelection('<u>','</u>')" title="Subrayado" aria-label="Subrayado">{{ icon('underline') }}</button>
-      <button type="button" class="tb-btn" onclick="wrapSelection('~~','~~')" title="Tachado" aria-label="Tachado">{{ icon('strikethrough') }}</button>
-      <button type="button" class="tb-btn" onclick="wrapSelection('`','`')" title="Código en línea" aria-label="Código en línea">{{ icon('code') }}</button>
+      <button type="button" class="tb-btn" data-call="wrapSelection" data-args='["**", "**"]' title="Negrita (Ctrl+B)" aria-label="Negrita">{{ icon('bold') }}</button>
+      <button type="button" class="tb-btn" data-call="wrapSelection" data-args='["*", "*"]' title="Cursiva (Ctrl+I)" aria-label="Cursiva">{{ icon('italic') }}</button>
+      <button type="button" class="tb-btn" data-call="wrapSelection" data-args='["&lt;u&gt;", "&lt;/u&gt;"]' title="Subrayado" aria-label="Subrayado">{{ icon('underline') }}</button>
+      <button type="button" class="tb-btn" data-call="wrapSelection" data-args='["~~", "~~"]' title="Tachado" aria-label="Tachado">{{ icon('strikethrough') }}</button>
+      <button type="button" class="tb-btn" data-call="wrapSelection" data-args='["`", "`"]' title="Código en línea" aria-label="Código en línea">{{ icon('code') }}</button>
       <span class="toolbar-sep"></span>
-      <button type="button" class="tb-btn" onclick="insertHeading(1)" title="Título 1" aria-label="Título 1">{{ icon('heading-1') }}</button>
-      <button type="button" class="tb-btn" onclick="insertHeading(2)" title="Título 2" aria-label="Título 2">{{ icon('heading-2') }}</button>
-      <button type="button" class="tb-btn" onclick="insertHeading(3)" title="Título 3" aria-label="Título 3">{{ icon('heading-3') }}</button>
+      <button type="button" class="tb-btn" data-call="insertHeading" data-args='[1]' title="Título 1" aria-label="Título 1">{{ icon('heading-1') }}</button>
+      <button type="button" class="tb-btn" data-call="insertHeading" data-args='[2]' title="Título 2" aria-label="Título 2">{{ icon('heading-2') }}</button>
+      <button type="button" class="tb-btn" data-call="insertHeading" data-args='[3]' title="Título 3" aria-label="Título 3">{{ icon('heading-3') }}</button>
       <span class="toolbar-sep"></span>
-      <button type="button" class="tb-btn" onclick="insertWikiLink()" title="Enlace a otra nota (Ctrl+K)" aria-label="Enlace a otra nota">{{ icon('link') }}</button>
-      <button type="button" class="tb-btn" onclick="linkItemToNote()" title="Enlazar una tarea o idea" aria-label="Enlazar una tarea o idea">{{ icon('square-check') }}</button>
-      <button type="button" class="tb-btn" onclick="insertBlock('```calendario\nvista: agenda\ndías: 7\n```\n')" title="Calendario incrustado (vista: agenda, semana, mes o día)" aria-label="Insertar un calendario">{{ icon('calendar') }}</button>
-      <button type="button" class="tb-btn" onclick="wrapSelection('[','](url)')" title="Enlace externo" aria-label="Enlace externo">{{ icon('external-link') }}</button>
-      <button type="button" class="tb-btn" onclick="insertList(false)" title="Lista" aria-label="Lista">{{ icon('list') }}</button>
-      <button type="button" class="tb-btn" onclick="insertList(true)" title="Lista numerada" aria-label="Lista numerada">{{ icon('list-ordered') }}</button>
-      <button type="button" class="tb-btn" onclick="insertTask()" title="Tarea (- [ ])" aria-label="Tarea">{{ icon('square-check') }}</button>
-      <button type="button" class="tb-btn" onclick="insertLine('> ')" title="Cita" aria-label="Cita">{{ icon('quote') }}</button>
-      <button type="button" class="tb-btn" onclick="insertLine('---')" title="Separador" aria-label="Separador">{{ icon('minus') }}</button>
+      <button type="button" class="tb-btn" data-call="insertWikiLink" title="Enlace a otra nota (Ctrl+K)" aria-label="Enlace a otra nota">{{ icon('link') }}</button>
+      <button type="button" class="tb-btn" data-call="insertList" data-args='[false]' title="Lista" aria-label="Lista">{{ icon('list') }}</button>
+      <button type="button" class="tb-btn" data-call="insertList" data-args='[true]' title="Lista numerada" aria-label="Lista numerada">{{ icon('list-ordered') }}</button>
+      <button type="button" class="tb-btn" data-call="insertTask" title="Tarea (- [ ])" aria-label="Tarea">{{ icon('square-check') }}</button>
+      <button type="button" class="tb-btn" data-call="insertLine" data-args='["&gt; "]' title="Cita" aria-label="Cita">{{ icon('quote') }}</button>
       <span class="toolbar-sep"></span>
-      <button type="button" class="tb-btn" onclick="insertTableTemplate()" title="Tabla" aria-label="Tabla">{{ icon('table') }}</button>
-      <button type="button" class="tb-btn" onclick="insertFormula()" title="Fórmula LaTeX" aria-label="Fórmula">{{ icon('sigma') }}</button>
-      <button type="button" class="tb-btn" onclick="wrapSelection('```\n','\n```')" title="Bloque de código" aria-label="Bloque de código">{{ icon('square') }}</button>
-      <button type="button" class="tb-btn" onclick="insertSimulationTemplate()" title="Simulación interactiva" aria-label="Simulación">{{ icon('play') }}</button>
-      <button type="button" class="tb-btn" onclick="insertFlashcardTemplate()" title="Flashcard (pregunta >> respuesta)" aria-label="Flashcard">{{ icon('layers') }}</button>
+      {# Lo menos frecuente, agrupado: la barra cabe sin desplazarse y las acciones siguen todas ahí #}
+      <button type="button" class="tb-btn tb-menu" data-call="openInsertMenu" data-args='["$el"]' aria-haspopup="menu" aria-expanded="false" aria-label="Insertar">{{ icon('plus') }}<span class="tb-menu-label">Insertar</span>{{ icon('chevron-down', 'icon-sm') }}</button>
+      <button type="button" class="tb-btn tb-menu" data-call="openMarkMenu" data-args='["$el"]' aria-haspopup="menu" aria-expanded="false" aria-label="Marcar el párrafo">{{ icon('highlighter') }}<span class="tb-menu-label">Marcar</span>{{ icon('chevron-down', 'icon-sm') }}</button>
       <span class="toolbar-sep"></span>
-      <button type="button" class="tb-btn" onclick="splitSelectionToNewNote()" title="Mover la selección a una nota nueva" aria-label="Dividir en nota nueva">{{ icon('scissors') }}</button>
-      <button type="button" class="tb-btn tb-annot" data-annot="resumir" onclick="markBlock('resumir')" title="Marcar: resumir" aria-label="Marcar para resumir">R</button>
-      <button type="button" class="tb-btn tb-annot" data-annot="entender" onclick="markBlock('entender')" title="Marcar: entender mejor" aria-label="Marcar para entender">E</button>
-      <button type="button" class="tb-btn tb-annot" data-annot="mal" onclick="markBlock('mal')" title="Marcar: está mal" aria-label="Marcar como erróneo">{{ icon('triangle-alert') }}</button>
+      <button type="button" class="tb-btn" data-call="splitSelectionToNewNote" title="Mover la selección a una nota nueva" aria-label="Dividir en nota nueva">{{ icon('scissors') }}</button>
       <span class="grow"></span>
       <span id="charCount" class="tiny subtle tabular hide-mobile"></span>
       <div class="segmented split-toggle hide-mobile" role="group" aria-label="Previsualización">
-        <button type="button" data-pv="0" onclick="setPreview(0)" aria-pressed="false" title="Solo editor" aria-label="Solo editor">{{ icon('square', 'icon-sm') }}</button>
-        <button type="button" data-pv="50" onclick="setPreview(50)" aria-pressed="true" title="Editor y previsualización" aria-label="Editor y previsualización">{{ icon('columns-2', 'icon-sm') }}</button>
+        <button type="button" data-pv="0" data-call="setPreview" data-args='[0]' aria-pressed="false" title="Solo editor" aria-label="Solo editor">{{ icon('square', 'icon-sm') }}</button>
+        <button type="button" data-pv="50" data-call="setPreview" data-args='[50]' aria-pressed="true" title="Editor y previsualización" aria-label="Editor y previsualización">{{ icon('columns-2', 'icon-sm') }}</button>
       </div>
-      <button type="button" class="tb-btn show-mobile" onclick="openMobilePreview()" title="Previsualizar" aria-label="Previsualizar">{{ icon('eye') }}</button>
+      <button type="button" class="tb-btn show-mobile" data-call="openMobilePreview" title="Previsualizar" aria-label="Previsualizar">{{ icon('eye') }}</button>
     </div>
 
     <div id="readPane" class="read-pane"><article id="readContent" class="prose read-content"></article></div>
@@ -140,7 +137,7 @@ $f = m \cdot a$
       <aside id="previewPane" class="preview-pane" aria-label="Previsualización">
         <div class="preview-head">
           <span class="small muted">Previsualización</span>
-          <button type="button" class="btn btn-ghost btn-sm show-mobile" onclick="closeMobilePreview()">{{ icon('x', 'icon-sm') }}Cerrar</button>
+          <button type="button" class="btn btn-ghost btn-sm show-mobile" data-call="closeMobilePreview">{{ icon('x', 'icon-sm') }}Cerrar</button>
         </div>
         <div id="previewContent" class="prose preview-content"></div>
       </aside>
@@ -154,7 +151,7 @@ $f = m \cdot a$
         <div class="empty-icon">{{ icon('notebook-pen') }}</div>
         <h3>Elige una nota o empieza una nueva</h3>
         <p>Enlaza ideas con <kbd>[[Nombre de nota]]</kbd>, crea flashcards con <kbd>pregunta &gt;&gt; respuesta</kbd> y pulsa <kbd>E</kbd> para editar.</p>
-        <button type="button" class="btn btn-primary" onclick="createNewNotePrompt()">{{ icon('square-pen') }}Nueva nota</button>
+        <button type="button" class="btn btn-primary" data-call="createNewNotePrompt">{{ icon('square-pen') }}Nueva nota</button>
       </div>
     </div>
   </section>
@@ -178,7 +175,7 @@ $f = m \cdot a$
   </div>
   <div class="modal-footer">
     <button type="button" class="btn" data-close>Cancelar</button>
-    <button type="button" class="btn btn-primary" onclick="confirmNewNote()">Crear nota</button>
+    <button type="button" class="btn btn-primary" data-call="confirmNewNote">Crear nota</button>
   </div>
 </dialog>
 
@@ -194,8 +191,8 @@ $f = m \cdot a$
     <p id="passphraseError" class="field-error" role="alert" hidden>Contraseña incorrecta o dato corrupto.</p>
   </div>
   <div class="modal-footer">
-    <button type="button" class="btn" onclick="cancelPassphrase()">Cancelar</button>
-    <button type="button" class="btn btn-primary" onclick="confirmPassphrase()">Continuar</button>
+    <button type="button" class="btn" data-call="cancelPassphrase">Cancelar</button>
+    <button type="button" class="btn btn-primary" data-call="confirmPassphrase">Continuar</button>
   </div>
 </dialog>
 
@@ -207,12 +204,12 @@ $f = m \cdot a$
     <div id="fcCardArea" class="fc-card"><span class="skeleton skeleton-title"></span><span class="skeleton skeleton-line"></span></div>
   </div>
   <div class="modal-footer fc-footer">
-    <button type="button" id="fcRevealBtn" class="btn btn-primary btn-lg btn-block" onclick="revealFlashcardAnswer()">Mostrar respuesta</button>
+    <button type="button" id="fcRevealBtn" class="btn btn-primary btn-lg btn-block" data-call="revealFlashcardAnswer">Mostrar respuesta</button>
     <div id="fcGradeButtons" class="fc-grades" hidden>
-      <button type="button" class="btn fc-grade" data-q="0" onclick="gradeFlashcard(0)">Otra vez</button>
-      <button type="button" class="btn fc-grade" data-q="2" onclick="gradeFlashcard(2)">Difícil</button>
-      <button type="button" class="btn fc-grade" data-q="4" onclick="gradeFlashcard(4)">Bien</button>
-      <button type="button" class="btn fc-grade" data-q="5" onclick="gradeFlashcard(5)">Fácil</button>
+      <button type="button" class="btn fc-grade" data-q="0" data-call="gradeFlashcard" data-args='[0]'>Otra vez</button>
+      <button type="button" class="btn fc-grade" data-q="2" data-call="gradeFlashcard" data-args='[2]'>Difícil</button>
+      <button type="button" class="btn fc-grade" data-q="4" data-call="gradeFlashcard" data-args='[4]'>Bien</button>
+      <button type="button" class="btn fc-grade" data-q="5" data-call="gradeFlashcard" data-args='[5]'>Fácil</button>
     </div>
   </div>
 </dialog>
@@ -231,7 +228,7 @@ $f = m \cdot a$
   <div class="modal-body stack">
     <div class="row row-wrap">
       <div class="search grow">{{ icon('search') }}<input id="managerSearch" type="search" class="input" placeholder="Filtrar por título o categoría" aria-label="Filtrar"></div>
-      <button type="button" class="btn btn-tinted" onclick="copyManagerListForAI()" id="copyAiBtn">{{ icon('copy') }}Copiar para IA</button>
+      <button type="button" class="btn btn-tinted" data-call="copyManagerListForAI" id="copyAiBtn">{{ icon('copy') }}Copiar para IA</button>
     </div>
     <div id="managerTableWrap"></div>
   </div>
@@ -241,9 +238,7 @@ $f = m \cdot a$
 {% block scripts %}
 <script src="{{ asset('/static/vendor/marked/marked.min.js') }}"></script>
 <script src="{{ asset('/static/vendor/dompurify/purify.min.js') }}"></script>
-<script src="{{ asset('/static/vendor/katex/katex.min.js') }}"></script>
-<script src="{{ asset('/static/vendor/katex/auto-render.min.js') }}"></script>
-<script src="{{ asset('/static/vendor/highlight/highlight.min.js') }}"></script>
 <script src="{{ asset('/static/js/calendar.js') }}"></script>
 <script src="{{ asset('/static/js/cerebro.js') }}"></script>
+<script src="{{ asset('/static/js/ia-notas.js') }}"></script>
 {% endblock %}

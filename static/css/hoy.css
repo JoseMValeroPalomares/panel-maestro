@@ -11,7 +11,7 @@
 .hoy-row.is-past { opacity: 0.6; }
 .hoy-row.is-now .hoy-time { color: var(--success-text); font-weight: 600; }
 .hoy-time { flex: 0 0 6.5em; font-size: var(--fs-13); color: var(--text-2); }
-.hoy-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--tile-grafo); flex-shrink: 0; margin: 0 8px; }
+.hoy-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--c-event); flex-shrink: 0; margin: 0 8px; }
 .hoy-row[data-type="examen"] .hoy-dot { background: var(--danger); }
 .hoy-row[data-type="entrega"] .hoy-dot { background: var(--warning); }
 .hoy-title { flex: 1; min-width: 0; color: var(--text); text-decoration: none; overflow-wrap: anywhere; }
@@ -55,3 +55,20 @@ a.hoy-title:hover { color: var(--accent-text); }
 .hoy-money > div { display: flex; flex-direction: column; gap: 2px; }
 .hoy-money b { font-size: var(--fs-20); }
 .hoy-money-hint { margin: var(--sp-2) 0 0; }
+
+/* Rendimiento: cuatro semáforos (icono + texto) y la alerta más grave */
+.hoy-lights { list-style: none; padding: 0; margin: 0 0 var(--sp-2); display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-2) var(--sp-3); }
+.hoy-light { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.hoy-light-name { font-size: var(--fs-13); color: var(--text-2); font-weight: 600; }
+.hoy-rend-alert { margin: var(--sp-2) 0 0; color: var(--text-2); }
+.hoy-rend-alert b { color: var(--text); }
+.rd-status { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px 2px 6px; border-radius: var(--r-pill);
+  font-size: var(--fs-12); font-weight: 650; white-space: nowrap; background: var(--fill); color: var(--text-2); }
+.rd-status[data-nivel="verde"] { background: var(--success-soft); color: var(--success-text); }
+.rd-status[data-nivel="ambar"] { background: var(--warning-soft); color: var(--warning-text); }
+.rd-status[data-nivel="rojo"] { background: var(--danger-soft); color: var(--danger-text); }
+
+/* Tarjetas vacías resumidas en una línea (hoy.js) */
+.hoy-quiet { display: flex; align-items: center; gap: var(--sp-2); margin: var(--sp-4) 0 0; }
+.hoy-quiet[hidden] { display: none; }
+.hoy-quiet .icon { color: var(--success-text, var(--success)); flex-shrink: 0; }
