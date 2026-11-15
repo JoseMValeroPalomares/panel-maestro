@@ -1,30 +1,18 @@
 {
   "manifest_version": 2,
   "name": "Panel: Inbox, Baúl y agenda",
-  "version": "2.7.0",
+  "version": "2.9.0",
   "description": "Envía al Inbox de tu Panel lo que seleccionas o la página que ves (tarea, idea o paso de otra; prefijos t: i: r: e:), guarda enlaces en el Baúl y consulta y gestiona tu agenda. Funciona sin conexión: lo guarda y lo envía después.",
-  "icons": { "48": "icons/icon.svg", "96": "icons/icon.svg" },
+  "icons": {
+    "48": "icons/icon.svg",
+    "96": "icons/icon.svg"
+  },
   "permissions": [
     "activeTab",
     "storage",
     "contextMenus",
     "alarms",
-    "notifications",
-    "http://*/*",
-    "https://*/*"
-  ],
-  "content_scripts": [
-    {
-      "matches": ["http://*/login*", "https://*/login*"],
-      "js": ["lib/panel.js", "autologin.js"],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": ["https://www.youtube.com/*"],
-      "js": ["youtube.js"],
-      "css": ["youtube.css"],
-      "run_at": "document_idle"
-    }
+    "notifications"
   ],
   "browser_action": {
     "default_popup": "popup.html",
@@ -32,20 +20,29 @@
     "default_icon": "icons/icon.svg"
   },
   "background": {
-    "scripts": ["lib/panel.js", "background.js"],
-    "persistent": false
+    "scripts": [
+      "lib/panel.js",
+      "background.js"
+    ],
+    "persistent": true
   },
   "commands": {
     "_execute_browser_action": {
-      "suggested_key": { "default": "Alt+Shift+I" },
+      "suggested_key": {
+        "default": "Alt+Shift+I"
+      },
       "description": "Enviar al Inbox"
     },
     "open-vault": {
-      "suggested_key": { "default": "Alt+Shift+B" },
+      "suggested_key": {
+        "default": "Alt+Shift+B"
+      },
       "description": "Guardar en el Baúl"
     },
     "open-agenda": {
-      "suggested_key": { "default": "Alt+Shift+A" },
+      "suggested_key": {
+        "default": "Alt+Shift+A"
+      },
       "description": "Agenda: ver y crear eventos"
     }
   },
@@ -58,8 +55,14 @@
       "id": "cerebro-digital-vault@tudominio.local",
       "strict_min_version": "109.0",
       "data_collection_permissions": {
-        "required": ["none"]
+        "required": [
+          "none"
+        ]
       }
     }
-  }
+  },
+  "optional_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ]
 }

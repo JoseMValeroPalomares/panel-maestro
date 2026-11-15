@@ -7,6 +7,7 @@ personales y sube solo esa rama, sin forzar. Si algo falla no se publica nada: e
 
 Ese script y .publicignore no se publican: en una copia instalada desde GitHub no existen y la tarjeta no aparece.
 """
+
 import os
 import re
 import subprocess
@@ -25,8 +26,8 @@ router = APIRouter(prefix="/api/proyecto")
 SCRIPT = "scripts/publicar.sh"
 IGNORE_FILE = ".publicignore"
 MAIN = "main"
-REMOTE_REF = "refs/remotes/github/main"   # lo último que hay en GitHub
-PUBLISHED_REF = "refs/panel/publicado"    # el commit de main que se publicó
+REMOTE_REF = "refs/remotes/github/main"  # lo último que hay en GitHub
+PUBLISHED_REF = "refs/panel/publicado"  # el commit de main que se publicó
 _lock = threading.Lock()
 
 
@@ -66,7 +67,9 @@ def _changes() -> dict[str, str]:
     if not base:
         return {}
     paths = _public_paths()
-    fields = os.fsdecode(_git("diff", "--name-status", "--no-renames", "-z", base, "HEAD", "--", *paths).stdout).split("\0")
+    fields = os.fsdecode(_git("diff", "--name-status", "--no-renames", "-z", base, "HEAD", "--", *paths).stdout).split(
+        "\0"
+    )
     kinds = {"A": "nuevo", "D": "borrado"}
     rows = {path: kinds.get(code, "modificado") for code, path in zip(fields[::2], fields[1::2])}
     for code, path in _dirty(*paths):
@@ -93,7 +96,14 @@ def status() -> dict:
     commits = []
     for i, line in enumerate(_text(_git("log", "-12", "--format=%h%x00%ct%x00%s")).splitlines()):
         short, when, subject = line.split("\0", 2)
-        commits.append({"hash": short, "date": int(when), "subject": subject[:160], "pushed": unpublished is not None and i >= unpublished})
+        commits.append(
+            {
+                "hash": short,
+                "date": int(when),
+                "subject": subject[:160],
+                "pushed": unpublished is not None and i >= unpublished,
+            }
+        )
     tracked = [p for p in os.fsdecode(_git("ls-files", "-z", "--", *_public_paths()).stdout).split("\0") if p]
     components = Counter(_component(path) for path in tracked)
     pushed_at = _git("log", "-1", "--format=%ct", REMOTE_REF, check=False)
@@ -123,7 +133,9 @@ def file_diff(path: str) -> dict:
     if kind is None:
         raise RepoError(404, "Ese archivo no tiene cambios")
     before = _git("show", f"{REMOTE_REF}:{path}", check=False)
-    return diff_payload(path, kind, before.stdout if before.returncode == 0 else None, read_entry(config.PROJECT_DIR / path))
+    return diff_payload(
+        path, kind, before.stdout if before.returncode == 0 else None, read_entry(config.PROJECT_DIR / path)
+    )
 
 
 def _commit_pending() -> None:
@@ -135,7 +147,9 @@ def _commit_pending() -> None:
 
 def _run_script() -> None:
     try:
-        run = subprocess.run(["bash", SCRIPT], cwd=config.PROJECT_DIR, capture_output=True, text=True, timeout=180, env=git_env())
+        run = subprocess.run(
+            ["bash", SCRIPT], cwd=config.PROJECT_DIR, capture_output=True, text=True, timeout=180, env=git_env()
+        )
     except subprocess.TimeoutExpired:
         raise RepoError(504, "La publicación tardó demasiado: revisa la conexión y vuelve a intentarlo.")
     if run.returncode:
@@ -153,7 +167,9 @@ def publish() -> dict:
             raise RepoError(404, "No hay nada que publicar en este equipo")
         branch = _text(_git("branch", "--show-current"))
         if branch != MAIN:
-            raise RepoError(409, f"El proyecto está en la rama «{branch or 'sin rama'}»: vuelve a {MAIN} para publicar.")
+            raise RepoError(
+                409, f"El proyecto está en la rama «{branch or 'sin rama'}»: vuelve a {MAIN} para publicar."
+            )
         first = _ref(REMOTE_REF) is None
         changes = _changes()
         if not first and not changes:

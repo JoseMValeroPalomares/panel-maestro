@@ -1,4 +1,5 @@
 """Enlaces tarea/idea ↔ nota: marcador [[tarea:N]] en el .md e índice item_links en la BD."""
+
 from core import config
 
 NOTA = "---\ncategory: Pruebas\nstatus: en-desarrollo\ntitle: Nota enlaces\n---\n\n# Nota enlaces\n\nTexto.\n"
@@ -39,8 +40,14 @@ def test_enlazar_desde_la_tarea_escribe_en_la_nota(client):
 def test_enlazar_desde_la_nota_al_guardar(client):
     nid = _nota(client, "nota-enlaces-2")
     iid = client.post("/api/items", json={"text": "Una idea", "type": "idea"}).json()["id"]
-    body = {"title": "Nota enlaces", "category": "Pruebas", "status": "en-desarrollo", "tags": [], "encrypted": False,
-            "content": f"# Nota enlaces\n\nVer [[idea:{iid}]] y [[tarea:999999]].\n"}
+    body = {
+        "title": "Nota enlaces",
+        "category": "Pruebas",
+        "status": "en-desarrollo",
+        "tags": [],
+        "encrypted": False,
+        "content": f"# Nota enlaces\n\nVer [[idea:{iid}]] y [[tarea:999999]].\n",
+    }
     assert client.post(f"/api/notes/{nid}", json=body).status_code == 200
     assert [x["id"] for x in client.get(f"/api/notes/{nid}/links").json()["items"]] == [iid]  # el inexistente no cuenta
     assert _item(client, iid)["links"][0]["note_id"] == nid

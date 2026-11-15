@@ -10,6 +10,7 @@
 Además: deshacer sin límite práctico, exportar PNG/SVG/JSON e importar, rendimiento con 500
 formas y capturas a 375/768/1280 (si BOARD_SHOTS apunta a una carpeta).
 """
+
 import json
 import os
 from pathlib import Path
@@ -39,7 +40,12 @@ def view_rect(page):
 
 
 def inside(n, v):
-    return v["x"] <= n["x"] and v["y"] <= n["y"] and n["x"] + n["w"] <= v["x"] + v["w"] and n["y"] + n["h"] <= v["y"] + v["h"]
+    return (
+        v["x"] <= n["x"]
+        and v["y"] <= n["y"]
+        and n["x"] + n["w"] <= v["x"] + v["w"]
+        and n["y"] + n["h"] <= v["y"] + v["h"]
+    )
 
 
 def test_1_paleta_clic_arrastrar_y_mis_plantillas(page, server, api):
@@ -53,7 +59,9 @@ def test_1_paleta_clic_arrastrar_y_mis_plantillas(page, server, api):
     n = doc(page)["nodes"][-1]
     assert n["kind"] == "diamond"
     v = view_rect(page)
-    assert abs(n["x"] + n["w"] / 2 - (v["x"] + v["w"] / 2)) < 12 and abs(n["y"] + n["h"] / 2 - (v["y"] + v["h"] / 2)) < 12
+    assert (
+        abs(n["x"] + n["w"] / 2 - (v["x"] + v["w"] / 2)) < 12 and abs(n["y"] + n["h"] / 2 - (v["y"] + v["h"] / 2)) < 12
+    )
     # arrastrar: queda centrado donde se suelta
     target = screen(page, 300, 420)
     drag(page, tile_center(page, ".shape-tile[data-shape=container]"), target, steps=16)
@@ -66,7 +74,7 @@ def test_1_paleta_clic_arrastrar_y_mis_plantillas(page, server, api):
     assert e["p1"] and e["p2"] and not e.get("from") and e["endHead"] == "arrow"
     # una plantilla de la lista, arrastrada al tablero
     before = len(doc(page)["nodes"])
-    drag(page, tile_center(page, ".tpl-tile[data-template=b2]"), screen(page, 700, 300), steps=16)
+    drag(page, tile_center(page, '.tpl-tile[data-template="c:decision"]'), screen(page, 700, 300), steps=16)
     page.wait_for_timeout(200)
     assert len(doc(page)["nodes"]) == before + 3
     # Mis plantillas: guardar la selección y que aparezca en la lista
@@ -80,10 +88,16 @@ def test_1_paleta_clic_arrastrar_y_mis_plantillas(page, server, api):
 
 
 def test_2_formas_contenedor_y_doble_clic_texto(page, server, api):
-    bid = _board(api, {"nodes": [
-        {"id": "c", "kind": "container", "x": 100, "y": 100, "w": 400, "h": 300, "text": "Grupo"},
-        {"id": "a", "kind": "box", "x": 140, "y": 180, "w": 120, "h": 60, "text": "Dentro"},
-        {"id": "z", "kind": "rect", "x": 700, "y": 180, "w": 120, "h": 60, "text": "Fuera"}]})
+    bid = _board(
+        api,
+        {
+            "nodes": [
+                {"id": "c", "kind": "container", "x": 100, "y": 100, "w": 400, "h": 300, "text": "Grupo"},
+                {"id": "a", "kind": "box", "x": 140, "y": 180, "w": 120, "h": 60, "text": "Dentro"},
+                {"id": "z", "kind": "rect", "x": 700, "y": 180, "w": 120, "h": 60, "text": "Fuera"},
+            ]
+        },
+    )
     _open(page, server, bid)
     # el rectángulo recto no tiene esquinas redondeadas; el contenedor tiene su franja de título
     assert page.locator("[data-id=a] .shape").get_attribute("rx") == "0"
@@ -118,7 +132,9 @@ def test_3_texto_escala_y_ajustar_a_la_caja(page, server, api):
     assert node_of(page, "a")["fitText"] is True
     big = page.locator("[data-id=a] .node-text").evaluate("e => parseFloat(e.style.fontSize)")
     assert big > 40
-    fits = page.locator("[data-id=a] .node-text").evaluate("e => e.scrollHeight <= e.clientHeight + 1 && e.scrollWidth <= e.clientWidth + 1")
+    fits = page.locator("[data-id=a] .node-text").evaluate(
+        "e => e.scrollHeight <= e.clientHeight + 1 && e.scrollWidth <= e.clientWidth + 1"
+    )
     assert fits
     # por un lado (sin esquina) con ajuste: la letra baja al estrechar
     drag(page, screen(page, 420, 180), screen(page, 260, 180))
@@ -130,11 +146,15 @@ def test_3_texto_escala_y_ajustar_a_la_caja(page, server, api):
 def test_4_tamano_normal_con_cualquier_zoom(page, server, api, zoom):
     bid = _board(api, {"nodes": []})
     _open(page, server, bid, zoom=zoom)
-    page.evaluate("__board.state.view.x = -4000; __board.state.view.y = -2500; __board.applyView()")  # vista lejos del origen
+    page.evaluate(
+        "__board.state.view.x = -4000; __board.state.view.y = -2500; __board.applyView()"
+    )  # vista lejos del origen
     page.locator("#paneTabPlantilla").click()
     page.locator(".shape-tile[data-shape=rect]").click()
     n = doc(page)["nodes"][-1]
-    assert abs(n["w"] * zoom - 180) < 1 and abs(n["fontSize"] * zoom - 16) < 0.2 and abs(n["strokeWidth"] * zoom - 2) < 0.1
+    assert (
+        abs(n["w"] * zoom - 180) < 1 and abs(n["fontSize"] * zoom - 16) < 0.2 and abs(n["strokeWidth"] * zoom - 2) < 0.1
+    )
     assert inside(n, view_rect(page))
     # en pantalla mide lo mismo que con zoom 100 %
     w = page.locator(f"[data-id={n['id']}] .shape").evaluate("e => e.getBoundingClientRect().width")
@@ -149,17 +169,26 @@ def test_4_tamano_normal_con_cualquier_zoom(page, server, api, zoom):
     assert t["kind"] == "text" and inside(t, view_rect(page))
     # un conector dibujado con este zoom tiene el grosor normal en pantalla
     page.keyboard.press("a")
-    a, b = screen(page, n["x"] + n["w"] / 2, n["y"] + n["h"] / 2), screen(page, n["x"] + n["w"] / 2, n["y"] + n["h"] * 3)
+    a, b = (
+        screen(page, n["x"] + n["w"] / 2, n["y"] + n["h"] / 2),
+        screen(page, n["x"] + n["w"] / 2, n["y"] + n["h"] * 3),
+    )
     drag(page, a, b)
     e = doc(page)["edges"][-1]
     assert abs(e["width"] * zoom - 2) < 0.1
 
 
 def test_5_conectores(page, server, api):
-    bid = _board(api, {"nodes": [
-        {"id": "a", "kind": "rect", "x": 100, "y": 100, "w": 160, "h": 80, "text": "A"},
-        {"id": "b", "kind": "rect", "x": 500, "y": 300, "w": 160, "h": 80, "text": "B"},
-        {"id": "c", "kind": "ellipse", "x": 100, "y": 450, "w": 160, "h": 90, "text": "C"}]})
+    bid = _board(
+        api,
+        {
+            "nodes": [
+                {"id": "a", "kind": "rect", "x": 100, "y": 100, "w": 160, "h": 80, "text": "A"},
+                {"id": "b", "kind": "rect", "x": 500, "y": 300, "w": 160, "h": 80, "text": "B"},
+                {"id": "c", "kind": "ellipse", "x": 100, "y": 450, "w": 160, "h": 90, "text": "C"},
+            ]
+        },
+    )
     _open(page, server, bid, props=True)
     # del punto de conexión derecho de A al izquierdo de B (lados fijos)
     page.mouse.move(*screen(page, 180, 140).values())
@@ -208,9 +237,15 @@ def test_5_conectores(page, server, api):
 
 
 def test_6_bloquear_guias_y_propiedades(page, server, api):
-    bid = _board(api, {"nodes": [
-        {"id": "a", "kind": "rect", "x": 113, "y": 97, "w": 160, "h": 80, "text": "Referencia"},
-        {"id": "b", "kind": "rect", "x": 500, "y": 400, "w": 160, "h": 80, "text": "Móvil"}]})
+    bid = _board(
+        api,
+        {
+            "nodes": [
+                {"id": "a", "kind": "rect", "x": 113, "y": 97, "w": 160, "h": 80, "text": "Referencia"},
+                {"id": "b", "kind": "rect", "x": 500, "y": 400, "w": 160, "h": 80, "text": "Móvil"},
+            ]
+        },
+    )
     _open(page, server, bid, props=True)
     # guía: al acercar el borde izquierdo de B al de A se alinea exactamente (113, fuera de la cuadrícula)
     seen = {}
@@ -237,7 +272,10 @@ def test_6_bloquear_guias_y_propiedades(page, server, api):
     # bloquear: no se mueve, no se redimensiona ni se borra
     props.locator("[data-act=lock]").click()
     assert node_of(page, "a")["locked"] is True
-    assert page.locator(".board-overlay [data-handle]").count() == 0 and page.locator(".board-overlay .lock-badge").count() == 1
+    assert (
+        page.locator(".board-overlay [data-handle]").count() == 0
+        and page.locator(".board-overlay .lock-badge").count() == 1
+    )
     page.locator(".board-svg").focus()
     drag(page, screen(page, 190, 137), screen(page, 400, 300))
     assert (node_of(page, "a")["x"], node_of(page, "a")["y"]) == (113, 97)
@@ -249,7 +287,24 @@ def test_6_bloquear_guias_y_propiedades(page, server, api):
 
 def test_7_inbox_en_los_dos_sentidos(page, server, api):
     iid = api.post("/api/inbox", json={"content": "Llamar al taller", "item_type": "tarea"}).json()["id"]
-    bid = _board(api, {"nodes": [{"id": "t", "kind": "inbox", "inboxId": iid, "itemType": "tarea", "x": 100, "y": 100, "w": 220, "h": 96, "text": "Llamar al taller"}]})
+    bid = _board(
+        api,
+        {
+            "nodes": [
+                {
+                    "id": "t",
+                    "kind": "inbox",
+                    "inboxId": iid,
+                    "itemType": "tarea",
+                    "x": 100,
+                    "y": 100,
+                    "w": 220,
+                    "h": 96,
+                    "text": "Llamar al taller",
+                }
+            ]
+        },
+    )
     _open(page, server, bid)
     page.wait_for_selector("[data-id=t] .node-check")
     # editar el texto desde el tablero cambia el elemento del Inbox (y su tarjeta en la lista)
@@ -273,9 +328,27 @@ def test_7_inbox_en_los_dos_sentidos(page, server, api):
 
 
 def test_historial_sin_limite_y_exportar_importar(page, server, api, tmp_path):
-    bid = _board(api, {"nodes": [{"id": "a", "kind": "rect", "x": 100, "y": 100, "w": 160, "h": 80, "text": "Exportar"},
-                                 {"id": "b", "kind": "diamond", "x": 400, "y": 100, "w": 160, "h": 100, "text": "Rombo"}],
-                       "edges": [{"id": "e", "from": "a", "to": "b", "route": "orthogonal", "label": "sí", "color": "#89b4fa", "width": 2, "endHead": "arrow"}]})
+    bid = _board(
+        api,
+        {
+            "nodes": [
+                {"id": "a", "kind": "rect", "x": 100, "y": 100, "w": 160, "h": 80, "text": "Exportar"},
+                {"id": "b", "kind": "diamond", "x": 400, "y": 100, "w": 160, "h": 100, "text": "Rombo"},
+            ],
+            "edges": [
+                {
+                    "id": "e",
+                    "from": "a",
+                    "to": "b",
+                    "route": "orthogonal",
+                    "label": "sí",
+                    "color": "#89b4fa",
+                    "width": 2,
+                    "endHead": "arrow",
+                }
+            ],
+        },
+    )
     _open(page, server, bid)
     page.mouse.click(*screen(page, 180, 140).values())
     for _ in range(200):  # más que el límite antiguo (120)
@@ -308,8 +381,29 @@ def test_historial_sin_limite_y_exportar_importar(page, server, api, tmp_path):
 
 
 def test_rendimiento_500_formas(page, server, api):
-    nodes = [{"id": f"n{i}", "kind": "rect", "x": (i % 25) * 220, "y": (i // 25) * 140, "w": 180, "h": 90, "text": f"Caja {i}"} for i in range(500)]
-    edges = [{"id": f"e{i}", "from": f"n{i}", "to": f"n{i + 1}", "color": "#89b4fa", "width": 2, "route": ["straight", "orthogonal", "curved"][i % 3]} for i in range(400)]
+    nodes = [
+        {
+            "id": f"n{i}",
+            "kind": "rect",
+            "x": (i % 25) * 220,
+            "y": (i // 25) * 140,
+            "w": 180,
+            "h": 90,
+            "text": f"Caja {i}",
+        }
+        for i in range(500)
+    ]
+    edges = [
+        {
+            "id": f"e{i}",
+            "from": f"n{i}",
+            "to": f"n{i + 1}",
+            "color": "#89b4fa",
+            "width": 2,
+            "route": ["straight", "orthogonal", "curved"][i % 3],
+        }
+        for i in range(400)
+    ]
     bid = _board(api, {"nodes": nodes, "edges": edges})
     _open(page, server, bid, zoom=0.25)
     assert page.locator(".board-world .node").count() == 500
@@ -333,39 +427,105 @@ def test_rendimiento_500_formas(page, server, api):
     assert node_of(page, "n0")["x"] != 0
 
 
-DEMO = {"nodes": [
-    {"id": "c", "kind": "container", "x": 0, "y": 0, "w": 420, "h": 300, "text": "Semana", "stroke": "#89b4fa", "fill": "#89b4fa1a"},
-    {"id": "s", "kind": "ellipse", "x": 40, "y": 60, "w": 150, "h": 70, "text": "Inicio", "stroke": "#a6e3a1", "fill": "#a6e3a133"},
-    {"id": "p", "kind": "box", "x": 230, "y": 60, "w": 160, "h": 70, "text": "Preparar informe"},
-    {"id": "d", "kind": "diamond", "x": 140, "y": 170, "w": 170, "h": 110, "text": "¿Listo?", "stroke": "#f9e2af", "fill": "#f9e2af33"},
-    {"id": "n", "kind": "sticky", "x": 480, "y": 20, "w": 170, "h": 140, "text": "Recordar adjuntar las cifras"},
-    {"id": "t", "kind": "text", "x": 480, "y": 200, "w": 220, "h": 44, "text": "Plan de la semana"}],
-    "edges": [{"id": "e1", "from": "s", "to": "p", "route": "straight", "color": "#89b4fa", "width": 2},
-              {"id": "e2", "from": "p", "to": "d", "route": "orthogonal", "fromSide": "s", "toSide": "e", "color": "#89b4fa", "width": 2, "label": "revisar"},
-              {"id": "e3", "from": "d", "to": "n", "route": "curved", "fromSide": "e", "toSide": "s", "color": "#cba6f7", "width": 2, "dash": "dashed", "label": "sí"}]}
+DEMO = {
+    "nodes": [
+        {
+            "id": "c",
+            "kind": "container",
+            "x": 0,
+            "y": 0,
+            "w": 420,
+            "h": 300,
+            "text": "Semana",
+            "stroke": "#89b4fa",
+            "fill": "#89b4fa1a",
+        },
+        {
+            "id": "s",
+            "kind": "ellipse",
+            "x": 40,
+            "y": 60,
+            "w": 150,
+            "h": 70,
+            "text": "Inicio",
+            "stroke": "#a6e3a1",
+            "fill": "#a6e3a133",
+        },
+        {"id": "p", "kind": "box", "x": 230, "y": 60, "w": 160, "h": 70, "text": "Preparar informe"},
+        {
+            "id": "d",
+            "kind": "diamond",
+            "x": 140,
+            "y": 170,
+            "w": 170,
+            "h": 110,
+            "text": "¿Listo?",
+            "stroke": "#f9e2af",
+            "fill": "#f9e2af33",
+        },
+        {"id": "n", "kind": "sticky", "x": 480, "y": 20, "w": 170, "h": 140, "text": "Recordar adjuntar las cifras"},
+        {"id": "t", "kind": "text", "x": 480, "y": 200, "w": 220, "h": 44, "text": "Plan de la semana"},
+    ],
+    "edges": [
+        {"id": "e1", "from": "s", "to": "p", "route": "straight", "color": "#89b4fa", "width": 2},
+        {
+            "id": "e2",
+            "from": "p",
+            "to": "d",
+            "route": "orthogonal",
+            "fromSide": "s",
+            "toSide": "e",
+            "color": "#89b4fa",
+            "width": 2,
+            "label": "revisar",
+        },
+        {
+            "id": "e3",
+            "from": "d",
+            "to": "n",
+            "route": "curved",
+            "fromSide": "e",
+            "toSide": "s",
+            "color": "#cba6f7",
+            "width": 2,
+            "dash": "dashed",
+            "label": "sí",
+        },
+    ],
+}
 
 
 @pytest.mark.parametrize("w,h", [(375, 812), (768, 1024), (1280, 800)])
 def test_capturas(browser, server, api, w, h):
     bid = _board(api, DEMO)
     mobile = w < 768
-    ctx = browser.new_context(viewport={"width": w, "height": h}, has_touch=mobile, is_mobile=mobile, service_workers="block")
+    ctx = browser.new_context(
+        viewport={"width": w, "height": h}, has_touch=mobile, is_mobile=mobile, service_workers="block"
+    )
     page = ctx.new_page()
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
     try:
-        page.add_init_script(f"localStorage.setItem('board-current', '{bid}'); localStorage.removeItem('board-view:{bid}'); localStorage.setItem('inbox-sidebar', 'open');")
+        page.add_init_script(
+            f"localStorage.setItem('board-current', '{bid}'); localStorage.removeItem('board-view:{bid}'); localStorage.setItem('inbox-sidebar', 'open');"
+        )
         page.goto(server + "/inbox")
         page.wait_for_load_state("networkidle")
         page.wait_for_function("window.__board && __board.state.boardId === %d" % bid)
         page.wait_for_timeout(400)
-        assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")  # sin desbordamiento horizontal
+        assert page.evaluate(
+            "document.documentElement.scrollWidth <= window.innerWidth"
+        )  # sin desbordamiento horizontal
         if mobile:  # el Inbox móvil empieza en la lista: se aparta para trabajar en el tablero
-            page.evaluate("document.getElementById('inboxLayout').classList.contains('sidebar-collapsed') || document.getElementById('btnSidebar').click()")
+            page.evaluate(
+                "document.getElementById('inboxLayout').classList.contains('sidebar-collapsed') || document.getElementById('btnSidebar').click()"
+            )
             page.wait_for_timeout(400)
         page.evaluate("__board.state.sel = new Set(['d', 'e2']); __board.renderAll()")
         page.wait_for_timeout(100)
-        if not page.locator("#boardProps").is_visible():  # tablero estrecho: el panel es una hoja que se abre a petición
+        if not page.locator(
+            "#boardProps"
+        ).is_visible():  # tablero estrecho: el panel es una hoja que se abre a petición
             assert page.evaluate("document.getElementById('boardArea').clientWidth") < 560
             page.click("#btnProps")
         page.wait_for_timeout(250)

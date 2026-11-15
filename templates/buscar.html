@@ -6,20 +6,27 @@
   <form class="search-big" id="searchForm" role="search">
     <label class="search grow">
       {{ icon('search') }}
-      <span class="sr-only">Buscar en notas e Inbox</span>
-      <input id="q" class="input" type="search" name="q" placeholder="Busca en todas tus notas…" autocomplete="off" autofocus enterkeyhint="search">
+      <span class="sr-only">Buscar en notas, tareas, el Baúl y el calendario</span>
+      <input id="q" class="input" type="search" name="q" placeholder="Busca en notas, tareas, Baúl y eventos…" autocomplete="off" autofocus enterkeyhint="search">
       <kbd class="hide-mobile">Ctrl K</kbd>
     </label>
   </form>
-  <div class="search-tools">
-    <label class="sr-only" for="fStatus">Estado</label>
+  <div class="chips chips-scroll search-kinds" id="kindChips" role="group" aria-label="Qué buscar">
+    <button type="button" class="chip" data-kind="" aria-pressed="true">Todo<span class="chip-count tabular" data-count=""></span></button>
+    <button type="button" class="chip" data-kind="nota" aria-pressed="false">{{ icon('notebook-pen', 'icon-sm') }}Notas<span class="chip-count tabular" data-count="nota"></span></button>
+    <button type="button" class="chip" data-kind="item" aria-pressed="false">{{ icon('square-check', 'icon-sm') }}Tareas<span class="chip-count tabular" data-count="item"></span></button>
+    <button type="button" class="chip" data-kind="recurso" aria-pressed="false">{{ icon('library', 'icon-sm') }}Baúl<span class="chip-count tabular" data-count="recurso"></span></button>
+    <button type="button" class="chip" data-kind="evento" aria-pressed="false">{{ icon('calendar', 'icon-sm') }}Eventos<span class="chip-count tabular" data-count="evento"></span></button>
+  </div>
+  <div class="search-tools" id="noteTools">
+    <label class="sr-only" for="fStatus">Estado de la nota</label>
     <select id="fStatus" class="select input-sm">
       <option value="">Cualquier estado</option>
       <option value="por-escribir">Por escribir</option>
       <option value="en-desarrollo">En desarrollo</option>
       <option value="consolidado">Consolidado</option>
     </select>
-    <label class="sr-only" for="fCategory">Área</label>
+    <label class="sr-only" for="fCategory">Área de la nota</label>
     <input id="fCategory" class="input input-sm" list="dlAreas" placeholder="Cualquier área" autocomplete="off">
     <datalist id="dlAreas"></datalist>
     <span class="grow"></span>
@@ -27,8 +34,9 @@
   </div>
   <div id="savedFilters" class="chips chips-scroll" role="group" aria-label="Búsquedas guardadas" hidden></div>
   <p class="small muted" id="resultInfo" aria-live="polite"></p>
+  <p class="ctx-note small" id="ctxNote" hidden></p>
   <div id="results" class="stack"></div>
-  <p class="tiny subtle">Sin tildes también vale. Varias palabras: tienen que aparecer todas. Entre comillas: frase exacta. Busca por el principio de la palabra («mioc» encuentra «miocardio»).</p>
+  <p class="tiny subtle">Busca a la vez en notas, tareas, ideas y rutinas, el Baúl y los eventos. Sin tildes también vale. Varias palabras: tienen que aparecer todas. Entre comillas: frase exacta. Busca por el principio de la palabra («mioc» encuentra «miocardio»). Las notas cifradas o sensibles solo se buscan por su título.</p>
 </div>
 {% endblock %}
 {% block scripts %}<script src="{{ asset('/static/js/buscar.js') }}"></script>{% endblock %}

@@ -13,11 +13,18 @@ Rehace las imágenes automáticas del Baúl (canales de YouTube) y de los platos
 
 Escribe en las BDs configuradas (.env / PANEL_*): haz antes una copia. Las fotos quedan en static/uploads/thumbs.
 """
+
 import argparse
 import re
 import time
 
-from app.scraper import _extract_channel_handle, _extract_youtube_id, cache_thumbnail, search_images, youtube_channel_info
+from app.scraper import (
+    _extract_channel_handle,
+    _extract_youtube_id,
+    cache_thumbnail,
+    search_images,
+    youtube_channel_info,
+)
 from core import config
 
 THUMBS = str(config.UPLOADS_DIR / "thumbs")
@@ -30,8 +37,12 @@ def _es_canal(url: str) -> bool:
 
 def reparar_baul(simular: bool) -> None:
     from app.database import get_db
+
     with get_db() as conn:
-        rows = [dict(r) for r in conn.execute("SELECT id, url, title, channel, image FROM resources WHERE url LIKE '%youtu%'")]
+        rows = [
+            dict(r)
+            for r in conn.execute("SELECT id, url, title, channel, image FROM resources WHERE url LIKE '%youtu%'")
+        ]
     cambios = sin_canal = 0
     for r in rows:
         nuevo = {}
@@ -61,15 +72,22 @@ def reparar_baul(simular: bool) -> None:
         print(f"  Baúl {r['id']:>3} {r['url'][:60]:<60} → {', '.join(f'{k}={str(v)[:50]}' for k, v in nuevo.items())}")
         if not simular:
             with get_db() as conn:
-                conn.execute(f"UPDATE resources SET {', '.join(f'{k}=?' for k in nuevo)} WHERE id=?", (*nuevo.values(), r["id"]))
+                conn.execute(
+                    f"UPDATE resources SET {', '.join(f'{k}=?' for k in nuevo)} WHERE id=?", (*nuevo.values(), r["id"])
+                )
     print(f"Baúl: {cambios} de {len(rows)} recursos de YouTube cambian ({sin_canal} canales ya no existen)")
 
 
 def reparar_platos(simular: bool, todos: bool) -> None:
     from comidas.database import get_db
+
     with get_db() as conn:
         rows = [dict(r) for r in conn.execute("SELECT id, nombre, image_url, image_source FROM meals ORDER BY id")]
-    pendientes = [r for r in rows if todos or (r["image_source"] or "") in AUTOMATICAS or not (r["image_url"] or "").startswith("/static/")]
+    pendientes = [
+        r
+        for r in rows
+        if todos or (r["image_source"] or "") in AUTOMATICAS or not (r["image_url"] or "").startswith("/static/")
+    ]
     hechos, fallidos = 0, []
     for i, r in enumerate(pendientes, 1):
         opciones = search_images(f"{r['nombre']} plato receta", n=6)
@@ -91,7 +109,10 @@ def reparar_platos(simular: bool, todos: bool) -> None:
             fallidos.append(r["nombre"])
             print(f"  [{i}/{len(pendientes)}] {r['nombre'][:40]:<40} → sin foto (se queda como estaba)")
         time.sleep(1.2)
-    print(f"Platos: {hechos} de {len(pendientes)} con foto nueva" + (f"; sin foto: {', '.join(fallidos)}" if fallidos else ""))
+    print(
+        f"Platos: {hechos} de {len(pendientes)} con foto nueva"
+        + (f"; sin foto: {', '.join(fallidos)}" if fallidos else "")
+    )
 
 
 def main() -> None:

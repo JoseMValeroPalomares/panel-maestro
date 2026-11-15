@@ -54,7 +54,8 @@
 
   function updateBadges() {
     if (!S.counts) return;
-    const n = S.counts.pendientes;
+    // Mismo criterio que ui.js (refreshInboxBadge): solo lo que está por procesar en el Inbox
+    const n = S.counts.inbox?.pendientes ?? S.counts.pendientes;
     document.querySelectorAll('[data-inbox-count]').forEach((el) => {
       el.textContent = n > 99 ? '99+' : String(n);
       el.hidden = n === 0;
@@ -62,7 +63,7 @@
   }
 
   // Otra pestaña (o una nota guardada aquí) cambió algo: se recarga si ya se estaba usando
-  onDataChange(/^\/api\/(items|inbox|notes|bulk\/notes)/, () => { if (S.loaded && !pending) load(); });
+  onDataChange(/^\/api\/(items|inbox|notes|bulk\/notes|capture)/, () => { if (S.loaded && !pending) load(); });
 
   /* ---------- Consultas ---------- */
   const get = (id) => S.byId[id];
@@ -99,7 +100,14 @@
   }
   async function after(result) { await load(); return result; }
 
+  // Lo nuevo va al contexto que se está viendo (si no dice otro): si no, desaparecería de la lista
+  function withContext(body) {
+    if (!window.Ctx || body.parent_id || body.note_id || 'contexto' in body || body.asignatura_id || body.proyecto_id) return body;
+    return { ...body, contexto: Ctx.forNew() };
+  }
+
   function create(body) {
+    body = withContext(body);
     return write(async () => {
       const res = await api('/api/items', { method: 'POST', body });
       return after(res.id);
@@ -175,15 +183,18 @@
   // Prefijos (los mismos que la captura del escritorio, app/capture.py): t: tarea · i: idea ·
   // r: rutina en castellano · e: evento en lenguaje natural (con vista previa antes de guardar)
   const PREFIX_RE = /^\s*([tireg])\s*:/i;  // g: gasto (Economía)
-  async function captureWithPrefix(text) {
+  async function captureWithPrefix(text, extra = {}) {
+    const where = { contexto: extra.contexto, asignatura_id: extra.asignatura_id, proyecto_id: extra.proyecto_id };
     if (/^\s*e\s*:/i.test(text)) {
       const prev = await api('/api/capture', { method: 'POST', body: { text, dry_run: true } });
+      if (prev.status === 'error') { toast(prev.message, { type: 'error' }); return null; }
       const ok = prev.kind === 'evento'
         ? await uiConfirm(prev.preview.title, prev.preview.when, { confirmLabel: 'Guardar el evento' })
         : await uiConfirm('No entiendo la fecha', `${prev.reason}. Se guardará en el Inbox marcado «Revisar fecha».`, { confirmLabel: 'Guardar en el Inbox' });
       if (!ok) return null;
     }
-    const res = await api('/api/capture', { method: 'POST', body: { text } });
+    const res = await api('/api/capture', { method: 'POST', body: { text, ...withContext(Object.fromEntries(Object.entries(where).filter(([, v]) => v != null))) } });
+    if (res.status === 'error') { toast(res.message, { type: 'error' }); return null; }  // p. ej. una @mención que no existe
     await load();
     toast(res.message, {
       type: res.revisar ? 'info' : 'success',
@@ -195,7 +206,7 @@
   async function capture(text, type, extra = {}) {
     const clean = (text || '').trim();
     if (!clean) return null;
-    if (PREFIX_RE.test(clean)) return write(() => captureWithPrefix(clean));
+    if (PREFIX_RE.test(clean)) return write(() => captureWithPrefix(clean, extra));
     rememberType(type);
     const id = await create({ text: clean, type, ...extra });
     toast({ idea: 'Idea guardada', rutina: 'Rutina creada' }[type] || 'Tarea guardada', {
@@ -204,7 +215,22 @@
     return id;
   }
 
-  /* Formulario de captura común (partial templates/_capture.html): texto + Tarea/Idea + Guardar */
+  /* Formulario de captura común (templates/_items.html): texto + Tarea/Idea/Rutina + Guardar (P-3)
+     Lo que se entiende del texto (fecha, hora, duración, «!alta», «+Categoría», @asignatura, #proyecto) se ve debajo;
+     «Más opciones» (plegado y recordado) fija día, hora, duración, prioridad y categoría, y manda sobre lo escrito.
+     Intro guarda, Mayús+Intro es salto de línea, Ctrl+Intro guarda y deja la captura abierta para otra, Esc la vacía. */
+  const SCREEN = 'tareas';
+  const pad2 = (n) => String(n).padStart(2, '0');
+  const isoDay = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  // Día: Hoy, Mañana y el próximo L…D (el de hoy es hoy; si no, el siguiente)
+  function dayChoices() {
+    const t = new Date(); t.setHours(12, 0, 0, 0);
+    const add = (n) => { const d = new Date(t); d.setDate(t.getDate() + n); return isoDay(d); };
+    const dow = (t.getDay() + 6) % 7;
+    const names = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+    return [['Hoy', add(0), 'Hoy'], ['Mañana', add(1), 'Mañana'],
+      ...['L', 'M', 'X', 'J', 'V', 'S', 'D'].map((l, i) => [l, add(((i - dow + 7) % 7) || 7), names[i]]).filter(([, d]) => d !== add(0) && d !== add(1))];
+  }
   function wireCaptureForm(form, { onSaved } = {}) {
     if (!form || form.dataset.wired) return;
     form.dataset.wired = '1';
@@ -212,39 +238,159 @@
     const typeBtns = [...form.querySelectorAll('[data-capture-type]')];
     const count = form.querySelector('[data-capture-count]');
     const repeatBox = form.querySelector('[data-capture-repeat]');
+    const prev = form.querySelector('[data-capture-preview]');
+    const more = form.querySelector('[data-capture-more]');
+    const inModal = !!form.closest('dialog');
+    const opt = {};          // lo elegido en «Más opciones» (undefined = lo que diga el texto)
+    let literal = false;     // «Sin fecha»: el texto tal cual
+    const curType = () => typeBtns.find((b) => b.getAttribute('aria-pressed') === 'true')?.dataset.captureType || 'tarea';
     const setType = (t) => {
       typeBtns.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.captureType === t)));
       if (repeatBox) repeatBox.hidden = t !== 'rutina';
+      form.querySelectorAll('[data-opt-when]').forEach((n) => { n.hidden = t === 'rutina'; });
+      runPreview();
     };
     const daysSlot = form.querySelector('[data-capture-days]');
     if (daysSlot) daysSlot.innerHTML = dayPicker({ legend: 'Se repite', hideLegend: true });
+    const daysBox = form.querySelector('[data-opt-days]');
+    if (daysBox) {
+      daysBox.innerHTML = dayChoices().map(([l, d, n]) => `<button type="button" class="chip chip-sm" data-opt-day="${d}" aria-pressed="false" title="${n} ${Number(d.slice(8))}"${l.length === 1 ? ` aria-label="${n} ${Number(d.slice(8))}"` : ''}>${l}</button>`).join('')
+        + '<button type="button" class="chip chip-sm" data-opt-day="" aria-pressed="false">Sin fecha</button>';
+    }
+    if (more && window.Rapido) Rapido.more(more, SCREEN);
+    const catList = form.querySelector('datalist');
+    more?.addEventListener('toggle', () => {
+      if (more.open && catList) catList.innerHTML = [...new Set(S.items.map((i) => i.category).filter(Boolean))].sort().map((c) => `<option value="${escapeHtml(c)}">`).join('');
+    });
+    const paintOpts = () => {
+      form.querySelectorAll('[data-opt-day]').forEach((b) => b.setAttribute('aria-pressed', String(opt.due_date !== undefined && b.dataset.optDay === opt.due_date)));
+      form.querySelectorAll('[data-opt-dur]').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.optDur) === opt.duration_min)));
+      form.querySelectorAll('[data-opt-prio]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.optPrio === opt.priority)));
+    };
+    const toggleOpt = (key, value) => { opt[key] = opt[key] === value ? undefined : value; paintOpts(); runPreview(); };
+    form.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-opt-day], [data-opt-dur], [data-opt-prio], [data-capture-literal]');
+      if (!b) return;
+      if (b.dataset.captureLiteral !== undefined) { literal = !literal; runPreview(); ta.focus(); return; }
+      if (b.dataset.optDay !== undefined) toggleOpt('due_date', b.dataset.optDay);
+      else if (b.dataset.optDur) toggleOpt('duration_min', Number(b.dataset.optDur));
+      else toggleOpt('priority', b.dataset.optPrio);
+    });
+    const timeIn = form.querySelector('[data-opt-time]');
+    const catIn = form.querySelector('[data-opt-cat]');
+    timeIn?.addEventListener('input', () => { const t = parseTime(timeIn.value); opt.due_time = timeIn.value.trim() ? (t || undefined) : undefined; runPreview(); });
+    catIn?.addEventListener('input', () => { opt.category = catIn.value.trim() || undefined; runPreview(); });
+
+    // Lo que va al servidor: las opciones elegidas (más la duración recordada si se pone hora sin duración)
+    function opciones() {
+      const o = Object.fromEntries(Object.entries(opt).filter(([, v]) => v !== undefined));
+      if (o.due_time && o.duration_min === undefined && window.Rapido) { const d = Rapido.defaults.get(SCREEN, 'dur'); if (d) o.duration_min = d; }
+      if (literal || curType() === 'idea') o.literal = true;  // las ideas, tal cual
+      return o;
+    }
+    const PREFIX = /^\s*[tiregTIREG]\s*:/;
+    const where = () => (form.dataset.where && window.Ctx ? Ctx.whereToPatch(form.dataset.where) : {});
+    const bodyFor = (dry) => {
+      const type = curType();
+      return withContext({ text: `${type === 'idea' ? 'i' : 't'}: ${ta.value.trim()}`, opciones: opciones(), dry_run: dry, ...where() });
+    };
+    const runPreview = window.Rapido ? Rapido.preview(async () => {
+      const t = ta.value.trim();
+      if (!t || curType() === 'rutina' || PREFIX.test(t)) return null;
+      return api('/api/capture', { method: 'POST', body: bodyFor(true), quiet: true });
+    }, (res) => {
+      if (!prev) return;
+      if (!res || res.status !== 'success') {
+        prev.hidden = !(res && res.message);
+        prev.innerHTML = res?.message ? Rapido.chips([{ icon: 'triangle-alert', text: res.message, kind: 'warn' }]) : '';
+        return;
+      }
+      const p = res.preview;
+      const chips = Rapido.chips([
+        p.when && { icon: p.due_time ? 'calendar-clock' : 'calendar', text: p.when },
+        p.priority && { icon: 'flag', text: PRIO[p.priority] || p.priority },
+        p.category && { icon: 'tag', text: p.category, kind: 'plain' },
+        p.donde && { icon: 'map-pin', text: p.donde, kind: 'plain' },
+        literal && { icon: 'calendar-off', text: 'Sin leer la fecha', kind: 'plain' },
+      ]);
+      prev.hidden = !chips;
+      prev.innerHTML = chips + (p.fecha_leida || literal ? `<button type="button" class="link-btn" data-capture-literal>${literal ? 'Leer la fecha' : 'No es una fecha'}</button>` : '');
+    }, 250) : () => {};
+    if (!runPreview.cancel) runPreview.cancel = () => {};
+
     setType(lastType());
     typeBtns.forEach((b) => b.addEventListener('click', () => { setType(b.dataset.captureType); rememberType(b.dataset.captureType); }));
     const sync = () => { if (count) count.textContent = ta.value.length > 400 ? `${ta.value.length}/${ta.maxLength}` : ''; };
-    ta.addEventListener('input', sync);
-    async function submit(e) {
+    ta.addEventListener('input', () => { sync(); if (!ta.value.trim()) literal = false; runPreview(); });
+    function reset() {
+      ta.value = '';
+      Object.keys(opt).forEach((k) => { opt[k] = undefined; });
+      literal = false;
+      if (timeIn) timeIn.value = '';
+      if (catIn) catIn.value = '';
+      repeatBox?.querySelectorAll('[data-day]').forEach((c) => { c.checked = true; });
+      paintOpts();
+      runPreview.cancel();
+      if (prev) { prev.hidden = true; prev.innerHTML = ''; }
+      sync();
+    }
+    async function submit(e, again = false) {
       e?.preventDefault();
-      const type = typeBtns.find((b) => b.getAttribute('aria-pressed') === 'true')?.dataset.captureType || 'tarea';
+      const type = curType();
       if (!ta.value.trim()) { ta.focus(); return; }
+      if (timeIn?.value.trim() && parseTime(timeIn.value) === null) { toast('Escribe la hora como 17:30', { type: 'info' }); timeIn.focus(); return; }
       const btn = form.querySelector('[type=submit]');
       btn?.classList.add('is-loading');
       try {
-        const repeat = type === 'rutina' && repeatBox ? repeatFromDays(repeatBox) : null;
-        if (type === 'rutina' && repeatBox && !repeat) { toast('Elige al menos un día', { type: 'info' }); return; }
-        const time = form.querySelector('[data-repeat-time]')?.value;
-        const extra = repeat ? { repeat, ...(time ? { due_time: time } : {}) } : {};
-        const id = await capture(ta.value, type, extra);
-        ta.value = '';
-        repeatBox?.querySelectorAll('[data-day]').forEach((c) => { c.checked = true; });
-        sync();
-        onSaved?.(id);
+        let id;
+        if (type === 'rutina' || PREFIX.test(ta.value)) {
+          const repeat = type === 'rutina' && repeatBox ? repeatFromDays(repeatBox) : null;
+          if (type === 'rutina' && repeatBox && !repeat) { toast('Elige al menos un día', { type: 'info' }); return; }
+          const time = form.querySelector('[data-repeat-time]')?.value;
+          const extra = repeat ? { repeat, ...(time ? { due_time: time } : {}) } : {};
+          if (form.dataset.where && window.Ctx) Object.assign(extra, Ctx.whereToPatch(form.dataset.where));
+          id = await capture(ta.value, type, extra);
+        } else {
+          rememberType(type);
+          const body = bodyFor(false);
+          const res = await write(async () => after(await api('/api/capture', { method: 'POST', body })));
+          if (res.status === 'error') { toast(res.message, { type: 'error' }); return; }
+          id = res.id;
+          if (body.opciones.duration_min && opt.duration_min !== undefined && window.Rapido) Rapido.defaults.set(SCREEN, 'dur', body.opciones.duration_min);
+          toast(res.message, {
+            action: ['/inbox', '/tareas'].includes(location.pathname) ? null : { label: 'Ver', onClick: () => { location.href = '/tareas'; } },
+          });
+        }
+        reset();
+        if (id) form.setWhere?.('');
+        if (again) ta.focus(); else onSaved?.(id);
       } finally { btn?.classList.remove('is-loading'); }
     }
-    form.addEventListener('submit', submit);
-    ta.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey || (!e.shiftKey && ta.rows <= 1))) submit(e);
+    form.addEventListener('submit', (e) => submit(e));
+    form.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' || e.isComposing || e.shiftKey || e.altKey) return;
+      if (e.target.matches('button, summary, select') && !(e.ctrlKey || e.metaKey)) return;
+      if (!e.target.matches('textarea, input')) return;
+      if (e.target.matches('[data-repeat-time]') && !(e.ctrlKey || e.metaKey)) { submit(e); return; }
+      submit(e, (e.ctrlKey || e.metaKey) && inModal);
     });
+    // Esc vacía la captura de la página (en el diálogo la cierra el propio diálogo)
+    if (!inModal) {
+      form.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape' || !ta.value.trim() || e.defaultPrevented) return;
+        e.preventDefault();
+        reset();
+        ta.focus();
+      });
+    }
     form.setType = setType;
+    // «+» de un subgrupo (una asignatura o un proyecto): lo siguiente que se guarde va ahí
+    form.setWhere = (where) => {
+      form.dataset.where = where || '';
+      const name = !where ? '' : where.startsWith('a:') ? Ctx.asig(Number(where.slice(2)))?.codigo : where.startsWith('p:') ? '#' + (Ctx.proy(Number(where.slice(2)))?.slug || '') : Ctx.label(where);
+      ta.placeholder = name ? `Nueva en ${name}…` : ta.dataset.ph;
+    };
+    ta.dataset.ph = ta.placeholder;
   }
 
   // Todos los formularios de captura de la página (el del FAB cierra su diálogo al guardar)

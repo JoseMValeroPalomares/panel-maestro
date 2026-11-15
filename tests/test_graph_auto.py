@@ -1,9 +1,15 @@
 """API del grafo automático: guarda posiciones, respeta fijados y se deshace (nada de esto toca las notas)."""
+
 import math
 
 
 def crear(client, nid, cat):
-    assert client.post(f"/api/notes/{nid}", json={"title": nid, "category": cat, "content": "x", "status": "en-desarrollo"}).status_code == 200
+    assert (
+        client.post(
+            f"/api/notes/{nid}", json={"title": nid, "category": cat, "content": "x", "status": "en-desarrollo"}
+        ).status_code
+        == 200
+    )
 
 
 def pos_guardadas(client):

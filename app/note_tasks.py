@@ -14,6 +14,7 @@ un nieto cuelga del antepasado de primer nivel.
 NoteDoc edita el archivo línea a línea (frontmatter y resto del texto quedan
 byte a byte iguales). Sin dependencias de app.main: lo usa el indexador.
 """
+
 import re
 import sqlite3
 
@@ -41,7 +42,14 @@ def parse_tasks(content: str) -> list[dict]:
             continue
         m = None if fence else TASK_RE.match(raw)
         if m:
-            t = {"k": len(tasks), "line": i, "indent": _indent(raw), "text": m.group(4), "done": m.group(3) != " ", "parent": None}
+            t = {
+                "k": len(tasks),
+                "line": i,
+                "indent": _indent(raw),
+                "text": m.group(4),
+                "done": m.group(3) != " ",
+                "parent": None,
+            }
             tasks.append(t)
             by_line[i] = t
     for t in tasks:
@@ -64,19 +72,24 @@ def parse_tasks(content: str) -> list[dict]:
 # Filas de la tabla inbox
 # ─────────────────────────────────────────────
 
-def sync_note_items(conn: sqlite3.Connection, note_id: str, content: str | None, pins: dict[int, int] | None = None) -> None:
+
+def sync_note_items(
+    conn: sqlite3.Connection, note_id: str, content: str | None, pins: dict[int, int] | None = None
+) -> None:
     """Rehace las filas de las casillas de una nota (content=None: la nota ya no tiene casillas visibles).
     pins = {posición: id} fija filas que se acaban de escribir (si hay textos repetidos, el texto no basta)."""
     tasks = parse_tasks(content) if content is not None else []
-    rows = conn.execute("SELECT id, note_task, note_index FROM inbox WHERE note_id=? AND note_task IS NOT NULL ORDER BY note_index, id",
-                        (note_id,)).fetchall()
+    rows = conn.execute(
+        "SELECT id, note_task, note_index FROM inbox WHERE note_id=? AND note_task IS NOT NULL ORDER BY note_index, id",
+        (note_id,),
+    ).fetchall()
     free = {r["id"]: r for r in rows}
     match: dict[int, int] = {}
     for k, rid in (pins or {}).items():
         if rid in free and k < len(tasks):
             match[k] = rid
             del free[rid]
-    far = 10 ** 6
+    far = 10**6
     for t in tasks:
         if t["k"] in match:
             continue
@@ -94,27 +107,54 @@ def sync_note_items(conn: sqlite3.Connection, note_id: str, content: str | None,
     n = len(tasks)
     for t in tasks:
         if t["k"] not in match:
-            cur = conn.execute("INSERT INTO inbox (content, item_type, status, note_id, note_task, note_index, sort_order) "
-                               "VALUES (?, 'tarea', 'pending', ?, ?, ?, 0)", (t["text"], note_id, t["text"], t["k"]))
+            cur = conn.execute(
+                "INSERT INTO inbox (content, item_type, status, note_id, note_task, note_index, sort_order) "
+                "VALUES (?, 'tarea', 'pending', ?, ?, ?, 0)",
+                (t["text"], note_id, t["text"], t["k"]),
+            )
             match[t["k"]] = cur.lastrowid
     # Casillas marcadas o desmarcadas en el .md: al historial de completados (revisión semanal)
-    before = {r["id"]: r["status"] for r in conn.execute(
-        f"SELECT id, status FROM inbox WHERE id IN ({','.join('?' * len(match)) or 'NULL'})", list(match.values()))}
+    before = {
+        r["id"]: r["status"]
+        for r in conn.execute(
+            f"SELECT id, status FROM inbox WHERE id IN ({','.join('?' * len(match)) or 'NULL'})", list(match.values())
+        )
+    }
     for t in tasks:
         rid, new_status = match[t["k"]], "processed" if t["done"] else "pending"
         if rid in before and before[rid] != new_status:
             from app.routines import log
+
             log(conn, {"id": rid, "content": t["text"], "item_type": "tarea"}, "done" if t["done"] else "reopen")
     for t in tasks:
-        conn.execute("UPDATE inbox SET content=?, note_task=?, note_index=?, status=?, item_type='tarea', sort_order=?, parent_id=? WHERE id=?",
-                     (t["text"], t["text"], t["k"], "processed" if t["done"] else "pending", float(n - t["k"]),
-                      match[t["parent"]] if t["parent"] is not None else None, match[t["k"]]))
+        conn.execute(
+            "UPDATE inbox SET content=?, note_task=?, note_index=?, status=?, item_type='tarea', sort_order=?, parent_id=? WHERE id=?",
+            (
+                t["text"],
+                t["text"],
+                t["k"],
+                "processed" if t["done"] else "pending",
+                float(n - t["k"]),
+                match[t["parent"]] if t["parent"] is not None else None,
+                match[t["k"]],
+            ),
+        )
     for rid in free:  # casillas que ya no están; sus hijos sueltos no se pierden
         conn.execute("UPDATE inbox SET parent_id=NULL WHERE parent_id=?", (rid,))
         conn.execute("DELETE FROM inbox WHERE id=?", (rid,))
     # Enlaces [[tarea:N]] de la nota (app/links.py): el mismo .md manda
     from app.links import sync_note_links
+
     sync_note_links(conn, note_id, content)
+    # Contexto y asignatura o proyecto: los de su nota (frontmatter → caché notes, app/indexer.py)
+    try:
+        conn.execute(
+            "UPDATE inbox SET contexto=n.contexto, asignatura_id=n.asignatura_id, proyecto_id=n.proyecto_id "
+            "FROM notes n WHERE n.id=inbox.note_id AND inbox.note_id=? AND inbox.note_task IS NOT NULL",
+            (note_id,),
+        )
+    except sqlite3.OperationalError:  # BD sin la migración 22
+        pass
 
 
 def note_has_items(row) -> bool:
@@ -135,6 +175,7 @@ def sync_all_note_items(conn: sqlite3.Connection) -> None:
 # Edición del .md
 # ─────────────────────────────────────────────
 
+
 class TaskMissing(Exception):
     """La casilla ya no está donde se esperaba (la nota cambió por otro lado)."""
 
@@ -144,11 +185,11 @@ class NoteDoc:
 
     def __init__(self, path: str):
         self.path = path
-        with open(path, "r", encoding="utf-8", newline="") as f:
+        with open(path, encoding="utf-8", newline="") as f:
             raw = f.read()
         m = FRONTMATTER_RE.match(raw)
         self.head = m.group(0) if m else ""
-        self.lines = raw[len(self.head):].splitlines(keepends=True)
+        self.lines = raw[len(self.head) :].splitlines(keepends=True)
         self.eol = "\r\n" if "\r\n" in raw else "\n"
 
     def text(self) -> str:
@@ -168,10 +209,13 @@ class NoteDoc:
 
     def _set(self, i: int, fn) -> None:
         body = self.lines[i].rstrip("\r\n")
-        self.lines[i] = fn(body) + self.lines[i][len(body):]
+        self.lines[i] = fn(body) + self.lines[i][len(body) :]
 
     def set_done(self, t: dict, done: bool) -> None:
-        self._set(t["line"], lambda s: TASK_RE.sub(lambda m: f"{m.group(1)}{m.group(2)} [{'x' if done else ' '}] {m.group(4)}", s))
+        self._set(
+            t["line"],
+            lambda s: TASK_RE.sub(lambda m: f"{m.group(1)}{m.group(2)} [{'x' if done else ' '}] {m.group(4)}", s),
+        )
 
     def set_text(self, t: dict, text: str) -> None:
         self._set(t["line"], lambda s: TASK_RE.sub(lambda m: f"{m.group(1)}{m.group(2)} [{m.group(3)}] {text}", s))
@@ -219,7 +263,7 @@ class NoteDoc:
         for ln in lines:
             body = ln.rstrip("\r\n")
             if body.strip():
-                body = " " * indent + body.expandtabs(4)[min(base, _indent(body)):]
+                body = " " * indent + body.expandtabs(4)[min(base, _indent(body)) :]
             out.append(body + self.eol)
         if at >= len(self.lines) and self.lines and not self.lines[-1].endswith(("\n", "\r")):
             self.lines[-1] += self.eol

@@ -27,7 +27,7 @@
       return `<li class="hoy-row${past ? ' is-past' : ''}${curr ? ' is-now' : ''}" data-type="${esc(e.type)}">
         <span class="hoy-time tabular">${e.all_day ? 'Todo el día' : `${e.start.slice(11, 16)}–${(e.end || '').slice(11, 16)}`}</span>
         ${e.kind === 'task' ? check(e) : `<span class="hoy-dot" aria-hidden="true"></span>`}
-        <a class="hoy-title" href="${e.kind === 'event' ? `/calendario?dia=${data.date}` : `/tareas?item=${e.item_id}`}">${esc(e.title)}</a>
+        <a class="hoy-title" href="${e.kind === 'event' ? `/calendario?dia=${data.date}` : `/tareas?item=${e.item_id}`}">${esc(e.title)}</a>${window.Ctx ? Ctx.chip(e, { link: false }) : ''}
         ${curr ? '<span class="tag">Ahora</span>' : ''}</li>`;
     }).join('')}</ul>` : empty('Sin eventos ni bloques hoy.');
 
@@ -43,10 +43,11 @@
 
     const tareas = data.tareas.filter((t) => t.all_day);
     $('hoyTareas').innerHTML = (tareas.length || data.atrasadas.length) ? `
-      ${tareas.length ? `<ul class="hoy-list">${tareas.map((t) => `<li class="hoy-row${t.done ? ' is-done' : ''}">${check(t)}<a class="hoy-title" href="/tareas?item=${t.item_id}">${esc(t.title)}</a></li>`).join('')}</ul>` : ''}
-      ${data.atrasadas.length ? `<h3 class="hoy-h3">Atrasadas</h3><ul class="hoy-list">${data.atrasadas.map((t) => `<li class="hoy-row">${check({ key: 't' + t.id, id: t.id, title: t.title, done: false })}
-        <a class="hoy-title" href="/tareas?item=${t.id}">${esc(t.title)}</a><span class="tiny hoy-late tabular">${new Date(t.due_date + 'T00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}</span></li>`).join('')}</ul>` : ''}`
+      ${tareas.length ? `<ul class="hoy-list">${tareas.map((t) => `<li class="hoy-row${t.done ? ' is-done' : ''}">${check(t)}<a class="hoy-title" href="/tareas?item=${t.item_id}">${esc(t.title)}</a>${window.Ctx ? Ctx.chip(t, { link: false }) : ''}</li>`).join('')}</ul>` : ''}
+      ${data.atrasadas.length ? `<h3 class="hoy-h3" id="hoyLateH">Atrasadas <span class="tabular">${data.atrasadas.length}</span></h3><ul class="late-list hoy-late-list" aria-labelledby="hoyLateH">${Atrasadas.rows(data.atrasadas)}</ul>` : ''}`
       : empty('Nada con fecha de hoy.');
+    const lateRow = $('hoyTareas').querySelector('.late-row');
+    if (lateRow) { Atrasadas.current(lateRow); Atrasadas.wire($('hoyTareas')); }
 
     const c = data.comida;
     if (!c) $('hoyComida').innerHTML = empty('No se pudo leer el plan de comidas.');
@@ -74,6 +75,18 @@
       nx.href = next.href;
       nx.innerHTML = `${icon('clock', 'icon-sm')}<span>A continuación: <b>${esc(next.title)}</b>${next.sub ? ` <span class="muted">· ${esc(next.sub)}</span>` : ''}</span>
         <span class="tabular muted">${next.at} · ${falta}</span>`;
+    }
+
+    // Copias: solo cuando no están al día (antigua, error o ninguna)
+    const cp = data.copias, box = $('hoyCopias');
+    box.hidden = !cp;
+    if (cp) {
+      const text = cp.health === 'sin-copias' ? 'Todavía no hay ninguna copia de seguridad.'
+        : cp.health === 'error' ? `Falló la última copia${cp.error ? `: ${cp.error}` : '.'}`
+          : `La última copia de seguridad tiene ${Math.round(cp.age_h / 24) >= 2 ? `${Math.round(cp.age_h / 24)} días` : `${Math.round(cp.age_h)} horas`}.`;
+      box.innerHTML = `${icon('triangle-alert', 'icon-sm')}<span class="hoy-alert-text">${esc(text)}</span>
+        <span class="hoy-alert-actions"><button type="button" class="btn btn-sm" data-backup-now>Hacer copia ahora</button>
+        <a class="btn btn-sm btn-ghost" href="/backups">Ver copias</a></span>`;
     }
 
     // Dinero (si se usa Economía): lo gastado hoy y en el mes
@@ -123,7 +136,7 @@
 
   async function load() {
     loadRend();
-    try { data = await api('/api/today', { quiet: true }); } catch {
+    try { data = await api(`/api/today?contexto=${encodeURIComponent(window.Ctx ? Ctx.active() : 'todo')}`, { quiet: true }); } catch {
       // Sin el resumen del día no hay agenda, rutinas, tareas ni comida: lo dice una vez y ofrece reintentar
       ['hoyRutinas', 'hoyTareas', 'hoyComida'].forEach((id) => { $(id).innerHTML = ''; });
       showState($('hoyAgenda'), loadFailed('No se pudo cargar el día', true), load);
@@ -132,8 +145,21 @@
     render();
   }
 
+  document.addEventListener('contexto:changed', () => load());
+  document.addEventListener('atrasadas:changed', () => { if (data) load(); });  // una acción sobre una atrasada (aquí o en la hoja)
+  window.Prefs?.ready?.then(() => { if (data && data.contexto !== Ctx.active()) load(); }).catch(() => {});
+
   document.querySelector('.hoy').addEventListener('click', async (e) => {
-    if (e.target.closest('[data-rt-templates]')) { Routines.openTemplates(); return; }
+    if (e.target.closest('[data-rt-templates]')) { Plantillas.open({ tab: 'rutina' }); return; }
+    const bk = e.target.closest('[data-backup-now]');
+    if (bk) {
+      bk.disabled = true;
+      bk.classList.add('is-loading');
+      try { await api('/api/backups/run', { method: 'POST' }); toast('Copia hecha'); window.Status?.refresh?.(); } catch { bk.disabled = false; }
+      bk.classList.remove('is-loading');
+      load();
+      return;
+    }
     const run = e.target.closest('[data-run]');
     if (run) { await Items.ready(); Routines.run(Number(run.dataset.run)); return; }
     const b = e.target.closest('[data-check]');
@@ -152,7 +178,7 @@
     await Items.load().catch(() => {});
     load();
   });
-  onDataChange(/^\/api\/(items|calendar|routines|notes)|^\/comidas\/api/, load);
+  onDataChange(/^\/api\/(items|calendar|routines|notes|capture)|^\/comidas\/api/, load);
   Items.ready().then(render).catch(() => {});
   load();
 })();

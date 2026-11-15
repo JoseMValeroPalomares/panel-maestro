@@ -11,7 +11,11 @@
 {% endblock %}
 {% block content %}
 <div class="tareas stack">
-  <section class="capture-panel" aria-label="Nueva tarea o idea">{{ capture_form('tareasCapture', rows=1, compact=True) }}</section>
+  <div class="ctx-bar" data-ctx-switch aria-label="Contexto"></div>
+  {# En el móvil, con tareas en la lista, la captura se queda en un botón que la abre (el FAB también captura) #}
+  <section class="capture-panel" aria-label="Nueva tarea o idea">
+    <button type="button" class="capture-open" id="captureOpen" aria-expanded="false" aria-controls="tareasCapture">{{ icon('plus', 'icon-sm') }}Nueva tarea o idea</button>
+    {{ capture_form('tareasCapture', rows=1, compact=True) }}</section>
 
   {# Una sola barra de filtros. En el móvil quedan a la vista el estado y la búsqueda; tipo y categoría, en «Filtros» #}
   <div class="task-filters" role="search" aria-label="Filtros de tareas">

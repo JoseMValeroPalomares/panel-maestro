@@ -169,5 +169,105 @@ self.PANEL_THEMES = [
       "accent": "#1f5f6b",
       "text": "#3b3226"
     }
+  },
+  {
+    "key": "frappe",
+    "label": "Catppuccin Frappé",
+    "preview": {
+      "bg": "#292c3c",
+      "elev": "#303446",
+      "accent": "#8caaee",
+      "text": "#c6d0f5"
+    }
+  },
+  {
+    "key": "onedark",
+    "label": "One Dark",
+    "preview": {
+      "bg": "#21252b",
+      "elev": "#282c34",
+      "accent": "#61afef",
+      "text": "#dcdfe4"
+    }
+  },
+  {
+    "key": "ayumirage",
+    "label": "Ayu Mirage",
+    "preview": {
+      "bg": "#1f2430",
+      "elev": "#242936",
+      "accent": "#ffcc66",
+      "text": "#cccac2"
+    }
+  },
+  {
+    "key": "ayuclaro",
+    "label": "Ayu Claro",
+    "preview": {
+      "bg": "#f3f4f5",
+      "elev": "#fcfcfc",
+      "accent": "#1f6bad",
+      "text": "#41464b"
+    }
+  },
+  {
+    "key": "monokaipro",
+    "label": "Monokai Pro",
+    "preview": {
+      "bg": "#221f22",
+      "elev": "#2d2a2e",
+      "accent": "#78dce8",
+      "text": "#fcfcfa"
+    }
+  },
+  {
+    "key": "nightowl",
+    "label": "Night Owl",
+    "preview": {
+      "bg": "#011627",
+      "elev": "#0b2942",
+      "accent": "#82aaff",
+      "text": "#d6deeb"
+    }
+  },
+  {
+    "key": "materialoceano",
+    "label": "Material Océano",
+    "preview": {
+      "bg": "#0f111a",
+      "elev": "#151824",
+      "accent": "#82aaff",
+      "text": "#c8cde8"
+    }
+  },
+  {
+    "key": "githuboscuro",
+    "label": "GitHub Oscuro",
+    "preview": {
+      "bg": "#0d1117",
+      "elev": "#161b22",
+      "accent": "#58a6ff",
+      "text": "#e6edf3"
+    }
+  },
+  {
+    "key": "githubclaro",
+    "label": "GitHub Claro",
+    "preview": {
+      "bg": "#f6f8fa",
+      "elev": "#ffffff",
+      "accent": "#0969da",
+      "text": "#1f2328"
+    }
+  },
+  {
+    "key": "gruvboxclaro",
+    "label": "Gruvbox Claro",
+    "preview": {
+      "bg": "#f2e5bc",
+      "elev": "#fbf1c7",
+      "accent": "#076678",
+      "text": "#3c3836"
+    }
   }
 ];

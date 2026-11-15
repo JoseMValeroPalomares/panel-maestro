@@ -76,6 +76,8 @@
     sel: new Set(), tool: 'select', snap: true, minimap: true, propsOpen: true, propsMode: 'float', sheetOpen: false,
     past: [], future: [], clipboard: null, style: null, pasteCount: 0, lineDefaults: { ...LINE_DEFAULTS },
     editing: null, gesture: null, pointers: new Map(), space: false, dirty: false, saveTimer: null, hover: null, version: 0,
+    // Conflictos entre dispositivos (app/boards.py): revisión del lienzo con que se cargó o que devolvió el último guardado
+    rev: null, conflict: null, forceNext: false, hasPrev: false,
   };
   try { S.propsOpen = localStorage.getItem('board-props') !== 'closed'; } catch {}
 
@@ -698,20 +700,148 @@
     clearTimeout(S.saveTimer);
     S.saveTimer = setTimeout(save, 700);
   }
-  async function save() {
+  // En cola: un guardado detrás de otro, cada uno con la revisión del anterior (una sola pestaña nunca ve un 409)
+  let saveChain = Promise.resolve();
+  function save() {
+    const run = saveChain.then(doSave);
+    saveChain = run.catch(() => {});
+    return run;
+  }
+  async function doSave() {
     if (!S.boardId || !S.dirty) return;
+    if (S.conflict) { paintConflictStatus(); return; }
+    const id = S.boardId;
+    const body = { data: JSON.stringify(S.doc) };
+    if (S.rev !== null) body.base_rev = S.rev;
+    if (S.forceNext) body.force = true;
     S.dirty = false;
     try {
-      await api(`/api/boards/${S.boardId}/canvas`, { method: 'POST', quiet: true, body: { data: JSON.stringify(S.doc) } });
+      const r = await api(`/api/boards/${id}/canvas`, { method: 'POST', quiet: true, body });
+      S.forceNext = false;
+      if (S.boardId !== id) return;
+      if (Number.isInteger(r?.rev)) S.rev = r.rev;
+      if (typeof r?.has_prev === 'boolean') S.hasPrev = r.has_prev;
+      if (S.dirty) return;  // ya hay otro cambio esperando: su guardado pondrá el estado
       statusEl.textContent = 'Guardado';
       setTimeout(() => { if (statusEl.textContent === 'Guardado') statusEl.textContent = ''; }, 1500);
     } catch (err) {
       S.dirty = true;
+      if (err.status === 409 && err.data?.conflict && S.boardId === id) {
+        S.conflict = err.data.current;
+        clearTimeout(S.saveTimer);
+        paintConflictStatus();
+        resolveConflict();
+        return;
+      }
       statusEl.textContent = 'Sin guardar';
       toast(err?.message || 'No se pudo guardar el tablero', { type: 'error' });
     }
   }
-  window.addEventListener('beforeunload', (e) => { if (S.dirty) { save(); e.preventDefault(); } });
+
+  /* ---------- Conflicto: otro dispositivo guardó este tablero después de que lo abrieras ---------- */
+  function paintConflictStatus() {
+    statusEl.innerHTML = `Cambió en otro dispositivo <button type="button" class="btn btn-sm btn-tinted" data-resolve>Elegir</button>`;
+    statusEl.querySelector('[data-resolve]').addEventListener('click', resolveConflict);
+  }
+  const docOf = (raw) => { let d; try { d = JSON.parse(raw || '{}'); } catch { d = {}; } return d.format === 2 ? d : emptyDoc(); };
+  const KIND_LABEL = { inbox: 'Tarjeta', text: 'Texto', sticky: 'Nota adhesiva', container: 'Contenedor' };
+  function describe(x, isEdge) {
+    if (isEdge) return `Flecha${x.label ? ` «${x.label}»` : ''}`;
+    if (!x.kind) return 'Trazo a mano';
+    const t = cleanText(x.text || '').split('\n')[0].slice(0, 80);
+    return `${KIND_LABEL[x.kind] || 'Forma'}${t ? ` «${t}»` : ''}`;
+  }
+  // Diferencias por elemento: lo que solo está en uno de los dos y lo que cambió (por id)
+  function boardDiffHtml(mine, theirs) {
+    const ops = [];
+    let changed = 0;
+    for (const key of ['nodes', 'edges', 'strokes']) {
+      const a = new Map((mine[key] || []).map((x) => [x.id, x])), b = new Map((theirs[key] || []).map((x) => [x.id, x]));
+      for (const [id, x] of a) {
+        if (!b.has(id)) ops.push({ t: 'mine', text: describe(x, key === 'edges') });
+        else if (JSON.stringify(x) !== JSON.stringify(b.get(id))) { changed++; ops.push({ t: 'mine', text: `${describe(x, key === 'edges')} (cambiado)` }); }
+      }
+      for (const [id, x] of b) if (!a.has(id)) ops.push({ t: 'theirs', text: describe(x, key === 'edges') });
+    }
+    const n = (d) => (d.nodes || []).length + (d.edges || []).length + (d.strokes || []).length;
+    return `<p class="tiny conflict-meta">Aquí: ${n(mine)} elementos · En el otro: ${n(theirs)} elementos${changed ? ` · ${changed} cambiados en los dos` : ''}.</p>`
+      + (ops.length ? Conflict.renderDiff(ops) : '<p class="muted">Los mismos elementos en los dos; solo cambia el orden.</p>');
+  }
+  let asking = false;
+  async function resolveConflict() {
+    if (!S.conflict || asking) return;
+    asking = true;
+    const id = S.boardId, current = S.conflict;
+    const theirs = docOf(current.data);
+    const choice = await Conflict.ask({
+      title: 'Este tablero cambió en otro dispositivo',
+      message: 'Se guardó en otro sitio después de que lo abrieras. Lo que has hecho aquí sigue en pantalla; el que no elijas se guarda como copia y vuelve con «Deshacer último guardado».',
+      mineLabel: 'Quedarme con lo mío', theirsLabel: 'Recargar el otro',
+      diff: () => boardDiffHtml(S.doc, theirs),
+    });
+    asking = false;
+    if (S.boardId !== id || S.conflict !== current) return;
+    if (choice === 'mine') {
+      S.conflict = null;
+      S.rev = current.rev;
+      S.forceNext = true;  // el servidor deja lo del otro en la copia previa
+      S.dirty = true;
+      await save();
+      if (!S.conflict && !S.dirty) toast('Guardado lo tuyo; el otro queda en «Deshacer último guardado»');
+    } else if (choice === 'theirs') {
+      try {
+        await api(`/api/boards/${id}/canvas/prev`, { method: 'POST', quiet: true, body: { data: JSON.stringify(S.doc) } });
+      } catch {
+        toast('No se pudo guardar tu versión como copia: sigue en pantalla', { type: 'error' });
+        return;
+      }
+      record();  // Ctrl+Z también vuelve a lo tuyo mientras no cierres la página
+      applyServerDoc(theirs, current.rev);
+      S.hasPrev = true;
+      toast('Cargado el otro; el tuyo vuelve con «Deshacer último guardado»', { duration: 6000 });
+    } else {
+      paintConflictStatus();
+    }
+  }
+  // Pone el lienzo del servidor sin volver a guardarlo
+  function applyServerDoc(doc, rev) {
+    S.conflict = null;
+    S.dirty = false;
+    clearTimeout(S.saveTimer);
+    S.doc = { format: 2, nodes: doc.nodes || [], edges: doc.edges || [], strokes: doc.strokes || [] };
+    S.rev = rev;
+    alive();
+    renderAll();
+    statusEl.textContent = '';
+  }
+  async function undoLastSave() {
+    if (!S.boardId) return;
+    if (S.conflict) { resolveConflict(); return; }
+    if (!S.hasPrev) { toast('Este tablero aún no tiene ningún guardado anterior', { type: 'info' }); return; }
+    if (!(await uiConfirm('¿Deshacer el último guardado?', 'El tablero vuelve a la copia anterior. Lo de ahora pasa a ser la copia: puedes volver a él repitiendo esto.', { confirmLabel: 'Deshacer guardado' }))) return;
+    await save();
+    if (S.conflict) return;
+    const id = S.boardId;
+    let r;
+    try { r = await api(`/api/boards/${id}/canvas/undo-save`, { method: 'POST' }); } catch { return; }
+    if (S.boardId !== id) return;
+    record();
+    applyServerDoc(docOf(r.data), r.rev);
+    toast('Vuelto al guardado anterior');
+  }
+  // Al volver a la pestaña: si nada está pendiente y otro dispositivo guardó, se recoge su lienzo
+  async function refreshFromServer() {
+    const id = S.boardId;
+    if (!id || S.dirty || S.conflict || S.gesture || S.editing) return;
+    await saveChain;
+    let b;
+    try { b = await api(`/api/boards/${id}`, { quiet: true }); } catch { return; }
+    if (S.boardId !== id || S.dirty || S.conflict || S.gesture || S.editing || b.rev === S.rev) return;
+    S.hasPrev = !!b.has_prev;
+    applyServerDoc(docOf(b.data), b.rev);
+  }
+  onDataChange?.(/^\/api\/boards/, refreshFromServer);
+  window.addEventListener('beforeunload', (e) => { if (S.conflict) { e.preventDefault(); return; } if (S.dirty) { save(); e.preventDefault(); } });
 
   /* ---------- Crear (a tamaño normal en pantalla con cualquier zoom, y siempre a la vista) ---------- */
   function scaled(kind) {
@@ -1571,29 +1701,17 @@
   const propsOpenNow = () => (S.propsMode === 'sheet' ? S.sheetOpen : S.propsOpen);
 
   /* ---------- Paleta («Plantilla» en el panel lateral) y plantillas ---------- */
+  // De serie: el catálogo compartido con la galería (plantillas-catalogo.js, clave «c:…») y, aparte, las que se
+  // construyen para una tarea (también como tablero de una tarea, desde su menú)
+  const CATALOGO = window.PlantillasCatalogo?.tablero || [];
   const BUILTIN = [
-    { name: 'Tarea con pasos', build: () => tpl([['rect', 0, 0, 220, 60, 'Objetivo', '#94e2d5'], ['rect', 0, 100, 220, 50, 'Paso 1'], ['rect', 0, 170, 220, 50, 'Paso 2'], ['rect', 0, 240, 220, 50, 'Paso 3']], [[0, 1], [1, 2], [2, 3]]) },
-    { name: 'Pros y contras', build: () => tpl([['rect', 0, 0, 220, 50, 'Pros', '#a6e3a1'], ['rect', 260, 0, 220, 50, 'Contras', '#f38ba8'], ['sticky', 0, 70, 220, 160, ''], ['sticky', 260, 70, 220, 160, '']], []) },
-    { name: 'Decisión', build: () => tpl([['diamond', 120, 0, 200, 110, '¿Decisión?', '#cba6f7'], ['rect', 0, 180, 180, 70, 'Sí', '#a6e3a1'], ['rect', 260, 180, 180, 70, 'No', '#f38ba8']], [[0, 1, 'Sí'], [0, 2, 'No']], 'orthogonal') },
-    { name: 'Columnas Por hacer / Haciendo / Hecho', build: () => tpl([['container', 0, 0, 220, 320, 'Por hacer', '#89b4fa'], ['container', 240, 0, 220, 320, 'Haciendo', '#f9e2af'], ['container', 480, 0, 220, 320, 'Hecho', '#a6e3a1']], []) },
-    { name: 'Diagrama de flujo', build: () => tpl([['ellipse', 40, 0, 160, 70, 'Inicio', '#a6e3a1'], ['box', 30, 120, 180, 70, 'Proceso'], ['diamond', 30, 240, 180, 110, '¿Condición?', '#f9e2af'], ['ellipse', 40, 410, 160, 70, 'Fin', '#f38ba8']], [[0, 1], [1, 2], [2, 3, 'Sí']], 'orthogonal') },
-    { name: 'Nota adhesiva', build: () => tpl([['sticky', 0, 0, 180, 160, '']], []) },
-    // Para desarrollar (también como tablero de una tarea, desde su menú)
     { name: 'Proyecto (versiones y estado)', build: () => buildItemDoc(null, 'proyecto') },
     { name: 'Plan de ejecución', build: () => buildItemDoc(null, 'plan') },
-    { name: 'Estudio de un tema', build: () => buildItemDoc(null, 'estudio') },
-    // Rutinas: un flujo con hora y duraciones, y un día repartido en mañana, tarde y noche
-    { name: 'Rutina por pasos', build: () => tpl([['ellipse', 20, 0, 180, 64, 'Empieza · 07:30', '#cba6f7'], ['rect', 0, 110, 220, 56, 'Paso 1 · 10 min'],
-      ['rect', 0, 196, 220, 56, 'Paso 2 · 15 min'], ['rect', 0, 282, 220, 56, 'Paso 3 · 5 min'], ['ellipse', 20, 384, 180, 64, 'Hecha', '#a6e3a1']],
-    [[0, 1], [1, 2], [2, 3], [3, 4]]) },
-    { name: 'Día por rutinas (mañana, tarde y noche)', build: () => tpl([['container', 0, 0, 230, 300, 'Mañana', '#f9e2af'], ['rect', 15, 50, 200, 50, '07:30 · Despertar'],
-      ['rect', 15, 115, 200, 50, '08:00 · Desayuno'], ['container', 250, 0, 230, 300, 'Tarde', '#fab387'], ['rect', 265, 50, 200, 50, '17:00 · Estudio'],
-      ['rect', 265, 115, 200, 50, '19:00 · Gimnasio'], ['container', 500, 0, 230, 300, 'Noche', '#cba6f7'], ['rect', 515, 50, 200, 50, '21:00 · Cena'],
-      ['rect', 515, 115, 200, 50, '23:00 · Leer']], []) },
+    { name: 'Estudio de un tema (de una tarea)', build: () => buildItemDoc(null, 'estudio') },
   ];
   function tpl(nodes, links, route) {
-    const ns = nodes.map(([kind, x, y, w, h, text, color]) => {
-      const n = { id: uid('n'), kind, x, y, w, h, text };
+    const ns = nodes.map(([kind, x, y, w, h, text, color, extra]) => {
+      const n = { id: uid('n'), kind, x, y, w, h, text, ...(extra || {}) };
       if (color) { n.stroke = color; n.fill = kind === 'sticky' ? color : color + '33'; }
       return n;
     });
@@ -1605,6 +1723,7 @@
     renderTemplateList();
   }
   function templatePayload(key) {
+    if (key.startsWith('c:')) { const t = CATALOGO.find((x) => x.key === key.slice(2)); return t && tpl(t.nodes, t.links, t.route); }
     if (key.startsWith('b')) return BUILTIN[+key.slice(1)]?.build();
     const t = myTemplates.find((x) => String(x.id) === key.slice(1));
     try { return t && JSON.parse(t.data); } catch { return null; }
@@ -1774,7 +1893,7 @@
     $('#templateSave')?.addEventListener('click', saveTemplate);
     $('#routineToBoard')?.addEventListener('click', insertRoutine);
     $('#routineFromSel')?.addEventListener('click', routineFromSelection);
-    for (const list of [pal, $('#templateList')]) {
+    for (const list of [pal]) {  // las plantillas: la galería atiende su clic y su teclado (plantillas.js)
       if (!list) continue;
       list.addEventListener('click', (ev) => {
         const del = ev.target.closest('[data-del-template]');
@@ -1791,36 +1910,44 @@
     if (t.dataset.shape) insertShape(t.dataset.shape);
     else if (t.dataset.template) insertTemplate(t.dataset.template);
   }
+  // La pestaña «Plantilla» del panel lateral enseña la galería común (plantillas.js) en su pestaña Tablero: clic para
+  // ponerla en el centro, o arrastrarla al sitio (las tarjetas son .tpl-tile con data-template, como las formas)
   function renderTemplateList() {
     const list = $('#templateList');
-    if (!list) return;
-    const row = (key, name, mine) => `<div class="tpl-tile" data-template="${key}" ${tileA11y.replace('forma', 'plantilla')} aria-label="Plantilla ${escapeHtml(name)}">
-      ${icon(mine ? 'bookmark' : 'layout-grid', 'icon-sm')}<span class="grow">${escapeHtml(name)}</span>
-      ${mine ? `<button type="button" class="btn btn-ghost btn-icon btn-sm tpl-del" data-del-template="${key.slice(1)}" aria-label="Borrar la plantilla ${escapeHtml(name)}" title="Borrar">${icon('trash-2', 'icon-sm')}</button>` : ''}</div>`;
-    list.innerHTML = myTemplates.map((t) => row('u' + t.id, t.name, true)).join('') + BUILTIN.map((t, i) => row('b' + i, t.name, false)).join('');
-    Sortable.create(list, { group: 'board-palette', items: '.tpl-tile', keyboard: false, label: 'Plantillas', accepts: () => 'Suelta la plantilla en el tablero', onDrop() {} });
+    if (!list || !window.Plantillas) return;
+    if (!list.dataset.mounted) {
+      list.dataset.mounted = '1';
+      Plantillas.mount(list, { tab: 'tablero', embedded: true, onTablero: (key) => insertTemplate(key) });
+    } else Plantillas.refresh(list);
   }
   function openTemplates(anchor) {
-    const items = BUILTIN.map((t, i) => ({ label: t.name, icon: 'layout-grid', onClick: () => insertTemplate('b' + i) }));
+    const items = [{ label: 'Galería de plantillas…', icon: 'layout-template', onClick: () => window.Plantillas?.open({ tab: 'tablero' }) }, { separator: true },
+      ...CATALOGO.map((t) => ({ label: t.name, icon: 'layout-grid', onClick: () => insertTemplate('c:' + t.key) })),
+      ...BUILTIN.map((t, i) => ({ label: t.name, icon: 'layout-grid', onClick: () => insertTemplate('b' + i) }))];
     if (myTemplates.length) items.push({ separator: true }, ...myTemplates.map((t) => ({ label: t.name, icon: 'bookmark', onClick: () => insertTemplate('u' + t.id) })));
     items.push({ separator: true }, { label: 'Poner una rutina en el tablero…', icon: 'repeat', onClick: insertRoutine },
       { label: 'Crear una rutina con la selección…', icon: 'list-checks', onClick: routineFromSelection },
-      { separator: true }, { label: 'Guardar la selección como plantilla', icon: 'save', onClick: saveTemplate });
+      { separator: true }, { label: 'Guardar la selección como plantilla', icon: 'save', onClick: saveTemplate },
+      { label: 'Guardar el tablero entero como plantilla', icon: 'save', onClick: () => saveTemplate(true) });
     openMenu(anchor, items, { align: 'start' });
   }
-  async function saveTemplate() {
-    if (!S.sel.size) { toast('Selecciona primero lo que quieres guardar', { type: 'info' }); return; }
-    const name = (await uiPrompt('Guardar como plantilla', { label: 'Nombre', confirmLabel: 'Guardar' }))?.trim();
+  async function saveTemplate(entero = false) {
+    entero = entero === true;
+    if (!entero && !S.sel.size) { toast('Selecciona primero lo que quieres guardar (o guarda el tablero entero desde el menú de plantillas)', { type: 'info' }); return; }
+    if (entero && !S.doc.nodes.length) { toast('El tablero está vacío', { type: 'info' }); return; }
+    const board = S.boards.find((x) => x.id === S.boardId);
+    const name = (await uiPrompt(entero ? 'Guardar el tablero como plantilla' : 'Guardar como plantilla', { label: 'Nombre', value: entero ? board?.name || '' : '', confirmLabel: 'Guardar' }))?.trim();
     if (!name) return;
-    await api('/api/board-templates', { method: 'POST', body: { name, data: JSON.stringify(selectionPayload()) } });
+    const payload = entero ? clone({ nodes: S.doc.nodes, strokes: S.doc.strokes, edges: S.doc.edges }) : selectionPayload();
+    await api('/api/board-templates', { method: 'POST', body: { name, data: JSON.stringify(payload) } });
     toast('Plantilla guardada en «Mis plantillas»');
     loadTemplates();
   }
   async function deleteTemplate(id) {
     const t = myTemplates.find((x) => x.id === id);
     if (!t || !(await uiConfirm(`¿Borrar la plantilla «${t.name}»?`, 'Lo que ya insertaste en los tableros no cambia.', { confirmLabel: 'Borrar', danger: true }))) return;
-    await api(`/api/board-templates/${id}`, { method: 'DELETE' });
-    toast('Plantilla borrada');
+    const res = await api(`/api/board-templates/${id}`, { method: 'DELETE' });
+    undoToast('Plantilla en la papelera', res, loadTemplates);
     loadTemplates();
   }
 
@@ -2019,26 +2146,75 @@
     const data = await api('/api/boards', { quiet: true });
     S.boards = data.boards;
     renderTabs();
-    let wanted = null;
-    try { wanted = Number(localStorage.getItem('board-current')); } catch {}
-    const target = S.boards.find((b) => b.id === wanted) || S.boards[0];
+    let wanted = Number(new URLSearchParams(location.search).get('esquema')) || null;  // /inbox?esquema=<id> (desde un proyecto)
+    if (!wanted) try { wanted = Number(localStorage.getItem('board-current')); } catch {}
+    const target = S.boards.find((b) => b.id === wanted) || inContext()[0] || S.boards[0];
     if (target) await switchBoard(target.id);
     else { S.boardId = null; S.doc = emptyDoc(); renderAll(); }
   }
+  // Esquemas del contexto activo (el abierto siempre se ve); con Proyectos, agrupados por proyecto
+  const inContext = () => S.boards.filter((b) => !window.Ctx || Ctx.match(b));
   function renderTabs() {
     const sel = $('#boardSelect');
-    sel.innerHTML = S.boards.length ? S.boards.map((b) => `<option value="${b.id}"${b.id === S.boardId ? ' selected' : ''}>${escapeHtml(b.name)}</option>`).join('')
-      : '<option value="">Sin tableros</option>';
-    sel.disabled = !S.boards.length;
+    const list = inContext();
+    const cur = S.boards.find((b) => b.id === S.boardId);
+    if (cur && !list.includes(cur)) list.unshift(cur);
+    const opt = (b) => `<option value="${b.id}"${b.id === S.boardId ? ' selected' : ''}>${escapeHtml(b.name)}</option>`;
+    const groups = new Map();
+    list.forEach((b) => {
+      const g = b.proyecto_nombre ? `#${b.proyecto}` : b.asignatura ? b.asignatura : '';
+      if (!groups.has(g)) groups.set(g, []);
+      groups.get(g).push(b);
+    });
+    sel.innerHTML = !list.length ? `<option value="">${S.boards.length ? 'Ninguno en este contexto' : 'Sin tableros'}</option>`
+      : groups.size === 1 && groups.has('') ? list.map(opt).join('')
+        : [...groups.entries()].map(([g, bs]) => (g ? `<optgroup label="${escapeHtml(g)}">${bs.map(opt).join('')}</optgroup>` : bs.map(opt).join(''))).join('');
+    sel.disabled = !list.length;
+  }
+  document.addEventListener('contexto:changed', () => {
+    renderTabs();
+    const list = inContext();
+    if (S.boardId && !list.some((b) => b.id === S.boardId) && list[0]) switchBoard(list[0].id);
+  });
+  async function setBoardContext() {
+    const b = S.boards.find((x) => x.id === S.boardId);
+    if (!b || !window.Ctx) return;
+    await Ctx.load();
+    const dlg = document.createElement('dialog');
+    dlg.className = 'modal modal-sm';
+    dlg.innerHTML = `<div class="modal-header"><h2>¿De qué es «${escapeHtml(b.name)}»?</h2>
+        <button type="button" class="btn btn-ghost btn-icon modal-close" data-close aria-label="Cerrar">${icon('x')}</button></div>
+      <form class="modal-body stack" id="bcForm"><label class="field"><span class="field-label">Contexto, asignatura o proyecto</span>
+        <select class="select" name="where">${Ctx.whereOptions(b)}</select></label></form>
+      <div class="modal-footer"><button type="button" class="btn" data-close>Cancelar</button><button type="submit" form="bcForm" class="btn btn-primary">Guardar</button></div>`;
+    document.body.appendChild(dlg);
+    wireAllDialogs?.();
+    dlg.querySelector('form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const w = Ctx.whereToPatch(e.target.where.value);
+      const r = await api(`/api/boards/${b.id}/contexto`, { method: 'PATCH', body: w.contexto ? { ...w, proyecto_id: 0, asignatura_id: 0 } : w });
+      closeModal(dlg);
+      const fresh = (await api('/api/boards', { quiet: true })).boards;
+      S.boards = fresh;
+      renderTabs();
+      toast(r.proyecto_id ? 'Esquema del proyecto' : r.asignatura_id ? 'Esquema de la asignatura' : `Esquema de ${Ctx.label(r.contexto)}`);
+    });
+    openModal(dlg, { focus: 'select', onClose: () => dlg.remove() });
   }
   async function switchBoard(id) {
+    if (S.conflict && S.boardId !== id) { renderTabs(); resolveConflict(); return; }  // antes, decidir qué versión queda
     if (S.dirty) await save();
+    if (S.conflict) { renderTabs(); return; }
     const data = await api(`/api/boards/${id}`);
     let doc;
     try { doc = JSON.parse(data.data || '{}'); } catch { doc = {}; }
     if (doc.format !== 2) doc = emptyDoc(); // el servidor ya convierte el formato antiguo al leer
     S.boardId = id;
     S.doc = { format: 2, nodes: doc.nodes || [], edges: doc.edges || [], strokes: doc.strokes || [] };
+    S.rev = Number.isInteger(data.rev) ? data.rev : null;
+    S.hasPrev = !!data.has_prev;
+    S.conflict = null; S.forceNext = false;
+    statusEl.textContent = '';
     paintItemLink(data.item_id);
     S.sel = new Set(); S.past = []; S.future = []; pool = new Map();
     try { localStorage.setItem('board-current', String(id)); } catch {}
@@ -2060,11 +2236,24 @@
     a.href = `/tareas?item=${it.id}`;
     a.querySelector('[data-item-title]').textContent = it.text.split('\n')[0];
   }
+  async function newBoardFrom(key) {
+    const payload = templatePayload(key);
+    if (!payload) { toast('Esa plantilla ya no existe', { type: 'info' }); return; }
+    const sugerido = key.startsWith('c:') ? CATALOGO.find((t) => t.key === key.slice(2))?.name : myTemplates.find((t) => 'u' + t.id === key)?.name;
+    const name = (await uiPrompt('Nuevo tablero con la plantilla', { label: 'Nombre del tablero', value: sugerido || '', confirmLabel: 'Crear' }))?.trim();
+    if (!name) return;
+    const where = window.Ctx ? { contexto: Ctx.forNew() } : {};
+    const r = await api('/api/boards', { method: 'POST', body: { name, ...where } });
+    S.boards.unshift({ id: r.id, name, contexto: where.contexto || 'puntual' });
+    await switchBoard(r.id);
+    insertTemplate(key);
+  }
   async function newBoard() {
     const name = (await uiPrompt('Nuevo tablero', { label: 'Nombre', confirmLabel: 'Crear' }))?.trim();
     if (!name) return;
-    const r = await api('/api/boards', { method: 'POST', body: { name } });
-    S.boards.unshift({ id: r.id, name });
+    const where = window.Ctx ? { contexto: Ctx.forNew() } : {};
+    const r = await api('/api/boards', { method: 'POST', body: { name, ...where } });
+    S.boards.unshift({ id: r.id, name, contexto: where.contexto || 'puntual' });
     await switchBoard(r.id);
   }
   function boardMenu(anchor) {
@@ -2077,23 +2266,28 @@
         await api(`/api/boards/${S.boardId}`, { method: 'PATCH', body: { name } });
         b.name = name; renderTabs();
       } },
+      { label: 'Contexto o proyecto…', icon: 'layers', onClick: setBoardContext },
       { separator: true },
       { label: 'Exportar como PNG', icon: 'image-down', onClick: () => exportAs('png') },
       { label: 'Exportar como SVG', icon: 'download', onClick: () => exportAs('svg') },
       { label: 'Exportar como JSON', icon: 'file-json', onClick: () => exportAs('json') },
       { label: 'Importar JSON…', icon: 'file-up', onClick: importJson },
       { separator: true },
+      { label: 'Deshacer último guardado', icon: 'history', onClick: undoLastSave },
       { label: 'Vaciar el tablero', icon: 'eraser', onClick: async () => {
         if (!(await uiConfirm('¿Vaciar el tablero?', 'Puedes deshacerlo con Ctrl+Z mientras no cierres la página.', { confirmLabel: 'Vaciar', danger: true }))) return;
         record(); S.doc = emptyDoc(); S.sel = new Set(); changed();
       } },
       { label: 'Eliminar tablero', icon: 'trash-2', danger: true, onClick: async () => {
         const b = S.boards.find((x) => x.id === S.boardId);
-        if (!(await uiConfirm(`¿Eliminar «${b?.name}»?`, 'Se borra el tablero y todo su contenido.', { confirmLabel: 'Eliminar', danger: true }))) return;
-        await api(`/api/boards/${S.boardId}`, { method: 'DELETE' });
+        if (!(await uiConfirm(`¿Eliminar «${b?.name}»?`, 'Irá a la papelera con todo su contenido: podrás restaurarlo durante 30 días.', { confirmLabel: 'Eliminar', danger: true }))) return;
+        const id = S.boardId;
+        const res = await api(`/api/boards/${id}`, { method: 'DELETE' });
         S.dirty = false;
+        S.conflict = null;
         S.boardId = null;
         await loadBoards();
+        undoToast('Tablero en la papelera', res, async () => { await loadBoards(); if (S.boards.some((x) => x.id === id)) await switchBoard(id); });
       } },
     ]);
   }
@@ -2218,9 +2412,12 @@
     // /inbox?tablero=<id de la tarea>: abre (o crea) el tablero de esa tarea
     const want = Number(new URLSearchParams(location.search).get('tablero'));
     if (want) { history.replaceState(null, '', '/inbox'); openForItem(want); }
+    // /inbox?plantilla=<clave>: desde la galería en otra página, un tablero nuevo con esa plantilla
+    const plantilla = new URLSearchParams(location.search).get('plantilla');
+    if (plantilla) { history.replaceState(null, '', '/inbox'); newBoardFrom(plantilla); }
   }).catch(() => { statusEl.textContent = 'No se pudo cargar'; });
   loadTemplates();
 
   // Para los tests de navegador
-  window.__board = { state: S, toWorld, fit, applyView, undo, redo, align, distribute, group, applyColor, setProp, renderAll, edgeGeom, exportSvg, insertShape, insertTemplate, openForItem, buildItemDoc };
+  window.__board = { state: S, newBoardFrom, save, undoLastSave, toWorld, fit, applyView, undo, redo, align, distribute, group, applyColor, setProp, renderAll, edgeGeom, exportSvg, insertShape, insertTemplate, openForItem, buildItemDoc };
 })();

@@ -1,4 +1,5 @@
 """Temas: un azulejo propio por sección, sin repetidos y con el glifo legible (≥ 3:1, contraste de gráfico)."""
+
 import re
 from pathlib import Path
 
@@ -11,7 +12,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def _lum(hex_: str) -> float:
-    c = [int(hex_[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+    c = [int(hex_[i : i + 2], 16) / 255 for i in (1, 3, 5)]
     c = [x / 12.92 if x <= 0.03928 else ((x + 0.055) / 1.055) ** 2.4 for x in c]
     return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
 
@@ -43,11 +44,12 @@ def test_ds_css_asigna_a_cada_seccion_su_propio_token():
 
 def test_themes_css_generado_al_dia():
     from scripts.themes import build
+
     assert (ROOT / "static" / "css" / "themes.css").read_text(encoding="utf-8") == build()
 
 
 def _lab(h: str):
-    c = [int(h[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+    c = [int(h[i : i + 2], 16) / 255 for i in (1, 3, 5)]
     c = [x / 12.92 if x <= 0.04045 else ((x + 0.055) / 1.055) ** 2.4 for x in c]
     x = (c[0] * 0.4124 + c[1] * 0.3576 + c[2] * 0.1805) / 0.95047
     y = c[0] * 0.2126 + c[1] * 0.7152 + c[2] * 0.0722
@@ -66,7 +68,7 @@ def test_azulejos_distinguibles(name):
     t = THEMES[name]["tiles"]
     keys = list(t)
     for i, a in enumerate(keys):
-        for b in keys[i + 1:]:
+        for b in keys[i + 1 :]:
             assert _delta_e(t[a], t[b]) >= 6, f"{name}: {a} y {b} casi iguales"
     for grupo, _, items in NAV_GROUPS:
         if grupo == "sistema":  # grises a propósito: utilidades, no destinos

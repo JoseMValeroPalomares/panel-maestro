@@ -23,6 +23,19 @@
   .capture-row .btn-primary { flex-shrink: 0; }
 }
 #captureModal .capture-form .textarea { min-height: 112px; }
+/* Tareas en el móvil: con tareas en la lista, la captura es un botón que la abre (tareas.js); el FAB también captura */
+.capture-open { display: none; }
+@media (max-width: 767px) {
+  .tareas.has-items .capture-panel:not(.is-open) { padding: 0; background: none; box-shadow: none; }
+  .tareas.has-items .capture-panel:not(.is-open) > .capture-form { display: none; }
+  .tareas.has-items .capture-panel:not(.is-open) > .capture-open {
+    display: flex; align-items: center; gap: var(--sp-2); width: 100%; min-height: var(--touch); padding: 0 var(--sp-3);
+    border-radius: var(--r-md); background: var(--bg-elev); box-shadow: var(--shadow-1), 0 0 0 0.5px var(--separator);
+    color: var(--text-2); font-size: var(--fs-15); text-align: left;
+  }
+  .capture-open .icon { color: var(--accent-text); }
+  .capture-open:active { background: var(--bg-elev-2); }
+}
 
 /* Grupos: Inbox · Notas · Ideas */
 .il { display: flex; flex-direction: column; gap: var(--sp-5); }
@@ -93,7 +106,9 @@
 .tag.prio[data-prio="media"] { background: transparent; color: var(--text-2); padding-inline: 2px; }
 .tag.prio[data-prio="baja"] { background: transparent; color: var(--text-3); padding-inline: 2px; }
 /* «hace 5 días» es ruido salvo cuando miras esa tarjeta (con ratón); en táctil se queda */
-@media (hover: hover) { .il-item:not(:hover):not(:focus-within) > .il-row .il-when { visibility: hidden; } }
+/* Sin alto mientras está oculto: en una tarjeta estrecha (Inbox junto al tablero) saltaba a su propia línea y
+   dejaba una fila en blanco entre las etiquetas y las notas */
+@media (hover: hover) { .il-item:not(:hover):not(:focus-within) > .il-row .il-when { visibility: hidden; height: 0; overflow: hidden; } }
 .card-link { display: inline-flex; align-items: center; gap: 3px; color: var(--accent-text); }
 .il-more { color: var(--text-3); margin-top: -2px; }
 .il-kids-fold { margin-top: -2px; }
@@ -111,7 +126,8 @@
 .il-details-md code { font-size: max(12px, 0.92em); background: var(--fill-strong); padding: 0 4px; border-radius: 4px; }
 .il-details-md a { color: var(--accent-text); }
 .il-details .btn { margin-top: var(--sp-1); margin-left: calc(var(--sp-2) * -1); }
-@media (pointer: coarse) { .il-chip-btn { min-height: 32px; padding: 4px 10px; } }
+.il-details-more { display: none; }
+@media (pointer: coarse) { .il-chip-btn { min-height: 28px; padding: 2px 10px; } }
 
 /* Pasos: debajo de su elemento, con sangría y línea guía */
 .il-children { list-style: none; padding: 0 0 0 var(--sp-2); margin: var(--sp-1) 0 0 37px; border-left: 2px solid color-mix(in srgb, var(--type-color) 40%, var(--separator)); }
@@ -212,6 +228,7 @@
 .il-ed.is-wide { flex-grow: 2; }
 .il-ed.is-time { flex: 1 1 88px; }
 .il-ed.is-short { flex: 1 1 66px; }
+.il-ed.is-where { flex: 0 1 220px; margin-left: auto; min-width: 150px; }
 .il-ed:hover { background: var(--fill-strong); }
 .il-ed:focus-within { outline: 2px solid var(--accent); outline-offset: -1px; }
 .il-ed .icon { flex-shrink: 0; }
@@ -322,6 +339,43 @@ body[data-resize="se"], body[data-resize="se"] * { cursor: nwse-resize !importan
   .capture-form.is-compact .capture-row { flex: 1 1 100%; }
   .status-seg button { padding-inline: var(--sp-2); }
 }
+/* U-1 · Tareas en el móvil: tarjeta compacta. Chips en una fila que se desplaza (en táctil también en tableta, así
+   cada chip conserva su zona de 44 px: U-2), notas visibles a dos líneas con «Más» (item-list.js: detailsHTML) y fuera de
+   la fila «copiar» (va en el menú). «Añadir un paso» se queda siempre a la vista (ronda 6). Nada de esto toca el escritorio */
+@media (max-width: 767px), (pointer: coarse) {
+  .il-meta { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; overscroll-behavior-x: contain; }
+  .il-meta::-webkit-scrollbar { display: none; }
+  .il-meta > * { flex-shrink: 0; white-space: nowrap; }
+  .il-meta.is-overflowing { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); }
+  .il-row > .il-copy { display: none; }
+}
+@media (max-width: 767px) {
+  .il-details:not(.is-open) { display: flex; align-items: flex-end; gap: var(--sp-2); }
+  .il-details:not(.is-open) > .il-details-md { flex: 1; min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+  .il-details:not(.is-open) > .il-details-edit { flex: none; margin: 0 -4px 0 0; }
+  .il-details:not(.is-open) > .il-details-edit > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .il-details.is-clamped:not(.is-open) > .il-details-edit { display: none; }
+  .il-details.is-clamped > .il-details-more, .il-details.is-open > .il-details-more {
+    display: inline-flex; align-items: center; justify-content: center; flex: none; position: relative; min-width: var(--touch); min-height: 20px;
+    color: var(--accent-text); font-size: var(--fs-13); font-weight: 600;
+  }
+  .il-details.is-open > .il-details-more { margin-left: var(--sp-1); vertical-align: middle; }
+  .il-details-more::after { content: ""; position: absolute; left: 50%; top: 50%; width: 100%; height: var(--touch); translate: -50% -50%; }
+}
+
+/* Móvil táctil: los botones de la derecha (añadir paso, desplegar, empezar, «…») solo ocupan la primera línea; lo que va
+   debajo del título (chips, notas, hábito) usa también ese ancho. El cuerpo se mete bajo ellos con margen negativo y un
+   hueco flotante del mismo ancho les guarda el sitio arriba (lo que no cabe a su lado, se estrecha: el título, y los chips
+   de un título de una línea). 52 px = botón de 44 + hueco de 8 */
+@media (max-width: 767px) and (pointer: coarse) {
+  .il-list > .il-item > .il-row { --il-a: 0; --il-b: 0; --il-c: 0; }
+  .il-list > .il-item > .il-row:has(> .il-addstep) { --il-a: 1; }
+  .il-list > .il-item > .il-row:has(> .il-kids-fold) { --il-b: 1; }
+  .il-list > .il-item > .il-row:has(> .il-run) { --il-c: 1; }
+  .il-list > .il-item > .il-row > .il-body { --il-side: calc((1 + var(--il-a) + var(--il-b) + var(--il-c)) * 52px); margin-right: calc(-1 * var(--il-side)); }
+  .il-list > .il-item > .il-row > .il-body::before { content: ""; float: right; width: var(--il-side); height: 36px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .il-fold .icon, .card-check, .il-list > .il-item, .drag-handle { transition: none; }
   .il-bulkbar { animation: none; }
@@ -334,6 +388,25 @@ body[data-resize="se"], body[data-resize="se"] * { cursor: nwse-resize !importan
   .il-list > .il-item > .il-row > .drag-handle { margin-top: 8px; }
   .il-list > .il-item > .il-row > .il-select { margin-top: 12px; }
   .il-list > .il-item { padding-top: var(--sp-1); padding-bottom: var(--sp-1); }
+
+  /* U-2 · Zonas de toque de 44 px sin cambiar el aspecto. Asa y casilla, una al lado de la otra: la zona del asa sale
+     hacia la izquierda (el margen de la página o la línea de los pasos) y la casilla se aparta lo justo para la suya */
+  .il-row > .drag-handle { position: relative; margin-right: 15px; }
+  .il-row > .drag-handle::after { content: ""; position: absolute; left: -14px; right: -10px; top: 50%; height: var(--touch); translate: 0 -50%; }
+  .card-check::after { inset: auto; left: 50%; top: 50%; width: var(--touch); height: var(--touch); translate: -50% -50%; }
+  .il-row > .card-check { margin-right: 2px; }  /* su zona sobresale 10 px: que no la pise la de un chip del texto */
+  .il-child .il-row { min-height: var(--touch); }
+  /* Chips con enlace o botón (fecha, «Notas», nota enlazada…): la fila que se desplaza deja dentro su zona entera */
+  .il-meta { min-height: var(--touch); padding-block: 8px; margin-block: -4px -8px; }
+  .il-meta > :is(a, button) { position: relative; min-width: var(--touch); justify-content: center; }
+  .il-meta > :is(a, button)::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: var(--touch); translate: 0 -50%; }
+  /* Cabeceras: título de la nota a toda la altura, botones sin encoger; un evento se abre tocando su tarjeta */
+  .il-note-head { min-height: var(--touch); }
+  .il-note-title { align-self: stretch; }
+  .il-group-head > .btn { flex-shrink: 0; }
+  .il-group-head h2 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .il-event { position: relative; min-height: var(--touch); }
+  .il-evlink::after { content: ""; position: absolute; inset: 0; }
 }
 
 /* Elemento al que se llega desde un enlace (?item=N) */
@@ -363,8 +436,13 @@ body[data-resize="se"], body[data-resize="se"] * { cursor: nwse-resize !importan
 .il-event[data-type="entrega"] .il-evdot { color: var(--warning); }
 .il-evlink { color: var(--text); text-decoration: none; }
 .il-evlink:hover { color: var(--accent-text); }
-a.il-due { color: inherit; text-decoration: none; }
-a.il-due:hover { color: var(--accent-text); }
+a.il-due, button.il-due { color: inherit; text-decoration: none; }
+button.il-due, button.tag.prio { font: inherit; font-size: inherit; border: 0; cursor: pointer; min-height: 0; border-radius: var(--r-xs); }
+button.il-due { background: none; padding: 0 2px; margin: 0 -2px; }
+a.il-due:hover, button.il-due:hover { color: var(--accent-text); }
+button.tag.prio { font-size: var(--fs-12); }
+button.tag.prio:hover { background: var(--fill-strong); }
+@media (pointer: coarse) { button.il-due, button.tag.prio { min-height: 28px; } }
 .col-icon[data-kind="rutinas"] { color: var(--c-routine); }
 .col-icon[data-kind="calendario"] { color: var(--c-event); }
 
@@ -385,3 +463,19 @@ a.il-due:hover { color: var(--accent-text); }
 .copy-modal .check { display: flex; gap: var(--sp-2); align-items: flex-start; cursor: pointer; }
 .copy-modal .check .checkbox { margin-top: 2px; }
 .copy-modal .copy-preview { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-13); white-space: pre; overflow: auto; min-height: 9rem; }
+
+/* Captura rápida (P-3): lo entendido debajo y «Más opciones» plegado */
+.capture-form.is-compact .capture-preview, .capture-form.is-compact .capture-more, .capture-form.is-compact .capture-repeat { flex: 1 0 100%; }
+.capture-preview[hidden] { display: none; }
+.capture-preview .link-btn { font-size: var(--fs-12); margin-left: 2px; }
+.capture-more { padding-top: var(--sp-1); }
+.capture-opts { display: flex; flex-direction: column; gap: var(--sp-2); padding-top: var(--sp-1); }
+.capture-opt { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.capture-opt-row { display: flex; flex-wrap: wrap; gap: var(--sp-3); align-items: flex-start; }
+.capture-opt-row > .capture-opt { flex: 0 1 auto; }
+.capture-opt-row > label.capture-opt:last-child { flex: 1 1 140px; }
+.capture-days { flex-wrap: wrap; }
+.capture-time { width: 6.5em; }
+.capture-tokens { margin: 0; }
+.capture-tokens code { font-size: 0.6875rem; }
+.inbox-sidebar .capture-opt-row { gap: var(--sp-2); }

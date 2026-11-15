@@ -10,8 +10,10 @@
 {% endblock %}
 {% block content %}
 <div class="hoy">
+  <div class="ctx-bar" data-ctx-switch></div>
   <p class="hoy-sub small muted" id="hoySub" aria-live="polite"></p>
   <a class="hoy-next" id="hoyNext" hidden></a>
+  <div class="hoy-alert" id="hoyCopias" role="status" hidden></div>
   <section class="capture-panel hoy-capture" aria-label="Captura rápida">{{ capture_form('hoyCapture', rows=1, compact=True) }}</section>
   <div class="hoy-grid">
     <section class="panel hoy-card" aria-labelledby="hAgenda"><div class="panel-header"><h2 id="hAgenda">{{ icon('calendar', 'icon-sm') }}Agenda</h2><span class="grow"></span><a class="tiny" href="/calendario?vista=day">Ver el día</a></div>

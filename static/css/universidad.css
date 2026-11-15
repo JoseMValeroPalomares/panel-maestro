@@ -1,0 +1,135 @@
+/* Universidad (/universidad): las categorías del Baúl, una por asignatura, con sus temas debajo.
+   Usa vault.css (controles, chips, .cat-header, .group-toggle) y los tokens de ds.css/themes.css. */
+.uni { --subj: var(--tile-universidad); }
+
+/* Resumen de arriba */
+.uni-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: var(--sp-4); margin-bottom: var(--sp-6); }
+.uni-sum-card .panel-header h2 { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-15); }
+.uni-mini-list { display: flex; flex-direction: column; gap: var(--sp-2); }
+.uni-mini-list li { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; font-size: var(--fs-13); }
+.uni-mini-list .tag { flex-shrink: 0; }
+.uni-time { color: var(--text-2); font-size: var(--fs-12); flex-shrink: 0; }
+.uni-count { color: var(--text-2); flex-shrink: 0; min-width: 4.5em; text-align: right; }
+.is-soon .uni-count, .uni-count.is-soon { color: var(--danger-text); font-weight: 600; }
+.tag.uni-exam { color: var(--danger-text); }
+.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
+/* Una asignatura = una categoría del Baúl con su color */
+.uni-subject { position: relative; padding: var(--sp-2) var(--sp-4) var(--sp-4); margin-bottom: var(--sp-5);
+  border-radius: var(--r-lg); background: var(--bg-elev); box-shadow: 0 0 0 0.5px var(--separator); }
+.uni-subject-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "title actions" "meta meta"; column-gap: var(--sp-3); align-items: center; }
+.uni-subject-head .cat-header { grid-area: title; margin: 0; min-width: 0; }
+.uni-subject-head .group-toggle { min-width: 0; }
+.uni-code { font-weight: 700; letter-spacing: 0.01em; }
+.uni-name { color: var(--text-2); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.uni-subject .cat-header .dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+.uni-actions { grid-area: actions; display: flex; align-items: center; gap: 2px; }
+.uni-meta { grid-area: meta; display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-4); color: var(--text-2); padding: 0 0 var(--sp-2) 28px; }
+.uni-meta > * { display: inline-flex; align-items: center; gap: 4px; }
+.uni-prox { color: var(--text); font-weight: 500; }
+.uni-prox.is-exam .icon { color: var(--danger-text); }
+.uni-link { color: var(--accent-text); }
+.uni-subject-body { padding-left: 28px; }
+.uni-hint { margin: var(--sp-2) 0; }
+
+/* Temas por grupos (Teoría, Prácticas, Otros) en rejilla de tarjetas */
+.uni-group + .uni-group { margin-top: var(--sp-4); }
+.uni-group-title { font-size: var(--fs-12); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); margin: var(--sp-3) 0 var(--sp-2); display: flex; gap: 6px; }
+.uni-group-title .count { font-weight: 500; }
+.uni-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr)); gap: var(--sp-2) var(--sp-3); min-height: 12px; }
+.uni-tema {
+  display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: var(--sp-2) var(--sp-2) var(--sp-1) var(--sp-3);
+  border-radius: var(--r-md); background: var(--bg-elev-2); box-shadow: 0 0 0 0.5px var(--separator);
+  transition: box-shadow var(--dur-fast), transform var(--dur-fast);
+}
+.uni-tema:hover { box-shadow: 0 0 0 1px color-mix(in srgb, var(--subj) 55%, transparent); }
+.uni-tema[data-estado="repasado"] { background: color-mix(in srgb, var(--subj) 10%, var(--bg-elev-2)); }
+.uni-tema.is-missing { opacity: 0.62; }
+.uni-tema-top { display: flex; align-items: flex-start; gap: 6px; min-width: 0; }
+.uni-tema-top .drag-handle { margin-left: -8px; color: var(--text-3); }
+.uni-tema-kind { color: var(--subj); display: inline-flex; padding-top: 2px; flex-shrink: 0; }
+.uni-tema-title { font-weight: 600; font-size: var(--fs-13); line-height: 1.35; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.uni-tema-meta { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; flex-wrap: wrap; }
+.uni-tema-meta .btn-icon { color: var(--text-3); }
+.uni-missing { color: var(--danger-text); display: inline-flex; gap: 4px; align-items: center; }
+.uni-estado {
+  display: inline-flex; align-items: center; gap: 4px; min-height: 26px; padding: 0 8px; border-radius: var(--r-pill);
+  border: 0; background: var(--fill); color: var(--text-2); font: inherit; font-size: var(--fs-12); font-weight: 600; cursor: pointer;
+}
+.uni-estado:hover { background: var(--fill-strong); color: var(--text); }
+[data-estado="estudiando"] > .uni-tema-meta .uni-estado { background: var(--accent-soft); color: var(--accent-text); }
+[data-estado="repasado"] > .uni-tema-meta .uni-estado { background: color-mix(in srgb, var(--success) 18%, transparent); color: var(--text); }
+[data-estado="repasado"] > .uni-tema-meta .uni-estado .icon { color: var(--success); }
+.uni-add-tema { margin-top: var(--sp-2); color: var(--text-2); }
+
+/* Entregas y exámenes */
+.uni-toolbar { gap: var(--sp-3); margin-bottom: var(--sp-4); flex-wrap: wrap; }
+.uni-entregas .list-row { gap: var(--sp-3); }
+.uni-entregas .is-done .row-title { text-decoration: line-through; color: var(--text-3); }
+.uni-ev-ico { display: inline-flex; width: 22px; justify-content: center; color: var(--subj); }
+.uni-nota { min-width: 2.5em; text-align: right; font-weight: 700; }
+.uni-media { color: var(--text-2); font-weight: 500; display: inline-flex; gap: 4px; align-items: center; }
+.uni-temas-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 4px var(--sp-3); max-height: 220px; overflow: auto; }
+
+/* Horario semanal */
+.uni-convert { margin-bottom: var(--sp-4); background: color-mix(in srgb, var(--tile-universidad) 10%, var(--bg-elev)); }
+.uni-convert .row { flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-2); }
+.uni-week { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--sp-3); }
+.uni-week.has-weekend { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.uni-day { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; }
+.uni-day-name { font-size: var(--fs-13); font-weight: 700; color: var(--text-2); }
+.uni-class {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: var(--sp-2) var(--sp-3); min-width: 0; text-align: left;
+  border: 0; border-radius: var(--r-sm); background: color-mix(in srgb, var(--subj) 14%, var(--bg-elev)); color: var(--text); font: inherit; cursor: pointer;
+}
+.uni-class:hover { background: color-mix(in srgb, var(--subj) 24%, var(--bg-elev)); }
+.uni-class:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.uni-class-name { font-weight: 650; font-size: var(--fs-13); overflow-wrap: anywhere; display: inline-flex; align-items: center; gap: 6px; }
+.uni-class-name::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--subj); flex-shrink: 0; }
+
+/* Tareas */
+.uni-capture { display: flex; gap: var(--sp-2); align-items: center; margin-bottom: var(--sp-4); }
+.uni-capture .input { flex: 1; min-width: 0; }
+
+/* Diálogos */
+.uni-wizard { max-height: 52vh; overflow: auto; }
+.uni-wizard .list-row { gap: var(--sp-2); }
+.uni-wizard label { display: inline-flex; align-items: center; gap: 6px; }
+.uni-code-input { width: 7.5em; text-transform: uppercase; }
+.uni-res { max-height: 50vh; overflow: auto; }
+.uni-res .list-row { gap: var(--sp-2); }
+
+@media (max-width: 767px) {
+  .uni-subject { padding: var(--sp-1) var(--sp-3) var(--sp-3); }
+  .uni-meta, .uni-subject-body { padding-left: 0; }
+  .uni-name { display: none; }
+  .uni-grid { grid-template-columns: minmax(0, 1fr); }
+  .uni-week, .uni-week.has-weekend { grid-template-columns: minmax(0, 1fr); }
+  .uni-day { flex-direction: row; flex-wrap: wrap; align-items: center; }
+  .uni-day-name { width: 100%; }
+  .uni-class { flex: 1 1 140px; }
+  .uni-capture { flex-wrap: wrap; }
+  .uni-capture .input { flex-basis: 100%; }
+  .uni-wizard .list-row { flex-wrap: wrap; }
+}
+@media (prefers-reduced-motion: reduce) { .uni-tema { transition: none; } }
+.uni-tema-meta .link-btn, .uni-tema-meta .card-link { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; font-size: var(--fs-12); }
+.uni-tema-top .drag-handle { opacity: 0; transition: opacity var(--dur-fast); }
+.uni-tema:hover .drag-handle, .uni-tema:focus-within .drag-handle { opacity: 1; }
+@media (pointer: coarse) { .uni-tema-top .drag-handle { opacity: 1; } }
+.uni-mini-list { list-style: none; margin: 0; padding: 0; }
+/* Pestañas: en estrecho se desplazan en horizontal (como los chips) en vez de desbordar la página */
+.uni .vault-controls > .segmented { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.uni .vault-controls > .segmented::-webkit-scrollbar { display: none; }
+.uni .vault-controls > .segmented > button { flex-shrink: 0; white-space: nowrap; }
+@media (max-width: 767px) {
+  .uni .vault-controls > .segmented > button { flex: 0 0 auto; }
+  .uni #uniEstado { overflow-x: auto; scrollbar-width: none; }
+  .uni #uniEstado > button { flex: 1 0 auto; }
+}
+.uni-grid, .uni-entregas, .uni-res, .uni-wizard { list-style: none; margin: 0; padding: 0; }
+.uni-capture.capture-panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(120px, 220px) auto; gap: var(--sp-2); align-items: center; }
+.uni-summary { align-items: start; }
+@media (max-width: 767px) { .uni-capture.capture-panel { grid-template-columns: minmax(0, 1fr) auto; } .uni-capture .input { grid-column: 1 / -1; } }
+.uni-hint, .uni-toolbar > .tiny, .uni-convert p, .uni-sum-card p { max-width: 72ch; }

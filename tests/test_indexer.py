@@ -12,7 +12,9 @@ def _write(tmp_root, name, body):
 
 
 def test_sync_incremental_conserva_last_reviewed(client, tmp_root):
-    path = _write(tmp_root, "idx-a", "---\ntitle: Idx A\ncategory: Idx\nstatus: en-desarrollo\ntags: [uno, dos]\n---\nCuerpo\n")
+    path = _write(
+        tmp_root, "idx-a", "---\ntitle: Idx A\ncategory: Idx\nstatus: en-desarrollo\ntags: [uno, dos]\n---\nCuerpo\n"
+    )
     sync_notes_to_db()
     with get_db() as conn:
         conn.execute("UPDATE notes SET last_reviewed = 12345 WHERE id = 'idx-a'")

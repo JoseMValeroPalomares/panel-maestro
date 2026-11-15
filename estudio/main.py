@@ -30,23 +30,21 @@ import time
 from pathlib import Path
 
 import aiohttp
+from colorthief import ColorThief
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps
-from colorthief import ColorThief
-
-from core.templating import render
-
-from .esp32_link import LINK, keep_connected
-from .calendar_sync import CalendarSyncBridge
-from .note_review import NoteReviewBridge
-
 
 # =====================================================================
 # CONFIGURACION
 # =====================================================================
 from core import config
+from core.templating import render
+
+from .calendar_sync import CalendarSyncBridge
+from .esp32_link import LINK, keep_connected
+from .note_review import NoteReviewBridge
 
 ESP32_HOST = config.ESP32_HOST
 ESP32_WS_URL = f"ws://{ESP32_HOST}/ws" if ESP32_HOST else ""  # sin placa, vacío: nadie intenta conectar
@@ -66,10 +64,7 @@ FIELD_SEP = "\x1f"
 
 def run_playerctl(args, timeout=2):
     try:
-        result = subprocess.run(
-            ["playerctl"] + args,
-            capture_output=True, text=True, timeout=timeout
-        )
+        result = subprocess.run(["playerctl"] + args, capture_output=True, text=True, timeout=timeout)
         if result.returncode != 0:
             return None
         return result.stdout.strip()
@@ -78,10 +73,9 @@ def run_playerctl(args, timeout=2):
 
 
 def get_metadata():
-    fmt = FIELD_SEP.join([
-        "{{status}}", "{{mpris:trackid}}", "{{title}}",
-        "{{artist}}", "{{mpris:length}}", "{{mpris:artUrl}}"
-    ])
+    fmt = FIELD_SEP.join(
+        ["{{status}}", "{{mpris:trackid}}", "{{title}}", "{{artist}}", "{{mpris:length}}", "{{mpris:artUrl}}"]
+    )
     raw = run_playerctl(["metadata", "--format", fmt])
     if not raw:
         return None
@@ -141,7 +135,7 @@ async def fetch_art_bytes(session: aiohttp.ClientSession, art_url: str):
         return None
     try:
         if art_url.startswith("file://"):
-            path = art_url[len("file://"):]
+            path = art_url[len("file://") :]
             return await asyncio.to_thread(Path(path).read_bytes)
         if art_url.startswith("http://") or art_url.startswith("https://"):
             async with session.get(art_url, timeout=aiohttp.ClientTimeout(total=4)) as resp:
@@ -247,8 +241,9 @@ class SpotifyBridge:
                 self.cached_accent = None
 
         pos = await asyncio.to_thread(get_position_sec)
-        if pos is None or (pos == 0 and status == "playing" and
-                            time.monotonic() - (self.track_start_monotonic or 0) > 3):
+        if pos is None or (
+            pos == 0 and status == "playing" and time.monotonic() - (self.track_start_monotonic or 0) > 3
+        ):
             pos = time.monotonic() - (self.track_start_monotonic or time.monotonic())
         pos = max(0, int(pos))
 
@@ -297,6 +292,7 @@ async def lifespan(app: FastAPI):
         task.cancel()
     await app.state.http_session.close()
 
+
 app = FastAPI(title="Panel ESP32 - Estudio", lifespan=lifespan)
 
 
@@ -312,7 +308,7 @@ async def _tcp_check() -> bool:
         _, writer = await asyncio.wait_for(asyncio.open_connection(ESP32_HOST, 80), timeout=1.5)
         writer.close()
         return True
-    except (OSError, asyncio.TimeoutError):
+    except (TimeoutError, OSError):
         return False
 
 

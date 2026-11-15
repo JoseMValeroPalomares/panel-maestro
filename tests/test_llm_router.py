@@ -1,5 +1,6 @@
 """Router de LLM (app/llm_router.py): orden, respaldo ante 429/timeout/5xx/JSON no válido, enfriamiento, cuotas y registro.
 Todo con httpx.MockTransport: ningún test sale a la red."""
+
 import itertools
 import json
 
@@ -16,19 +17,40 @@ _ids = itertools.count()
 @pytest.fixture()
 def modelos(tmp_path, monkeypatch, client):
     """Escribe una lista de modelos de prueba (ids únicos por test) y devuelve sus ids."""
+
     def hacer(*specs, **cfg):
         n = next(_ids)
         lista = []
         for i, spec in enumerate(specs):
-            m = {"id": f"t{n}-{i}", "proveedor": f"P{i}", "base_url": f"https://p{i}.test/v1", "modelo": f"m{i}",
-                 "clave_env": f"CLAVE_TEST_{i}", "limite_dia": 0, "timeout_s": 5, "json_mode": True, **spec}
+            m = {
+                "id": f"t{n}-{i}",
+                "proveedor": f"P{i}",
+                "base_url": f"https://p{i}.test/v1",
+                "modelo": f"m{i}",
+                "clave_env": f"CLAVE_TEST_{i}",
+                "limite_dia": 0,
+                "timeout_s": 5,
+                "json_mode": True,
+                **spec,
+            }
             lista.append(m)
             if (m.get("clave_env") or "").startswith("CLAVE_TEST_"):  # las demás se dejan sin valor a propósito
                 monkeypatch.setenv(m["clave_env"], f"secreto-{i}")
         f = tmp_path / f"modelos-{n}.json"
-        f.write_text(json.dumps({"max_intentos_total": 8, "reintentos_por_modelo": 2, "enfriamiento_429_s": 600, **cfg, "modelos": lista}))
+        f.write_text(
+            json.dumps(
+                {
+                    "max_intentos_total": 8,
+                    "reintentos_por_modelo": 2,
+                    "enfriamiento_429_s": 600,
+                    **cfg,
+                    "modelos": lista,
+                }
+            )
+        )
         monkeypatch.setattr(config, "LLM_MODELS_FILE", f)
         return [m["id"] for m in lista]
+
     return hacer
 
 
@@ -47,6 +69,7 @@ def transporte(respuestas: dict[str, list]):
         if isinstance(r, Exception):
             raise r
         return r
+
     return httpx.MockTransport(handler), llamadas
 
 
@@ -63,7 +86,9 @@ def test_primer_modelo_que_responde(modelos):
 
 def test_429_enfria_el_modelo_y_pasa_al_siguiente(modelos):
     ids = modelos({}, {})
-    t, llamadas = transporte({"p0.test": [httpx.Response(429, headers={"Retry-After": "120"})], "p1.test": [ok('{"ok": true}')]})
+    t, llamadas = transporte(
+        {"p0.test": [httpx.Response(429, headers={"Retry-After": "120"})], "p1.test": [ok('{"ok": true}')]}
+    )
     ahora = 1_000_000.0
     r = llm_router.completar([], transport=t, reloj=lambda: ahora, dormir=lambda s: None)
     assert r.modelo_id == ids[1] and r.intentos == [{"modelo": ids[0], "error": "429 límite"}]
@@ -90,7 +115,9 @@ def test_429_sin_retry_after_usa_el_enfriamiento_por_defecto(modelos):
 def test_timeout_y_5xx_se_reintentan_con_backoff(modelos):
     ids = modelos({}, {}, reintentos_por_modelo=3)
     esperas = []
-    t, llamadas = transporte({"p0.test": [httpx.ReadTimeout("lento"), httpx.Response(503), ok('{"v": 1}')], "p1.test": [ok("{}")]})
+    t, llamadas = transporte(
+        {"p0.test": [httpx.ReadTimeout("lento"), httpx.Response(503), ok('{"v": 1}')], "p1.test": [ok("{}")]}
+    )
     r = llm_router.completar([], transport=t, dormir=esperas.append)
     assert r.modelo_id == ids[0] and esperas == [1.0, 2.0] and len(llamadas) == 3
     assert [i["error"] for i in r.intentos] == ["timeout", "503 error del servidor"]
@@ -105,13 +132,20 @@ def test_timeout_agotado_pasa_al_siguiente(modelos):
 
 def test_json_no_valido_vacio_o_esquema_malo_pasan_al_siguiente(modelos):
     ids = modelos({}, {}, {}, {})
-    t, _ = transporte({"p0.test": [ok("esto no es json")], "p1.test": [ok("")], "p2.test": [ok('{"capas": 3}')],
-                       "p3.test": [ok('```json\n{"capas": {}}\n```')]})
+    t, _ = transporte(
+        {
+            "p0.test": [ok("esto no es json")],
+            "p1.test": [ok("")],
+            "p2.test": [ok('{"capas": 3}')],
+            "p3.test": [ok('```json\n{"capas": {}}\n```')],
+        }
+    )
 
     def validar(d):
         if not isinstance(d.get("capas"), dict):
             raise ValueError("falta capas")
         return d
+
     r = llm_router.completar([], validar, transport=t)
     assert r.modelo_id == ids[3] and r.datos == {"capas": {}}  # el JSON entre ``` también vale
     assert [i["error"] for i in r.intentos] == ["JSON no válido", "respuesta vacía", "esquema no válido: falta capas"]
@@ -161,7 +195,9 @@ def test_cuota_diaria_compartida(modelos):
 
 
 def test_extra_del_proveedor_y_modelo_local_sin_clave(modelos):
-    ids = modelos({"extra": {"provider": {"data_collection": "deny"}}, "json_mode": False}, {"clave_env": None, "local": True})
+    ids = modelos(
+        {"extra": {"provider": {"data_collection": "deny"}}, "json_mode": False}, {"clave_env": None, "local": True}
+    )
     t, llamadas = transporte({"p0.test": [httpx.Response(404)], "p1.test": [ok("{}")]})
     r = llm_router.completar([], transport=t)
     body = json.loads(llamadas[0].content)
@@ -175,7 +211,9 @@ def test_registro_y_estado_sin_contenido(modelos):
     llm_router.completar([{"role": "user", "content": "dato sensible"}], transport=t, dormir=lambda s: None)
     with get_db() as conn:
         filas = [dict(r) for r in conn.execute("SELECT * FROM llm_registro WHERE modelo IN (?, ?)", ids)]
-    assert {f["ok"] for f in filas} == {0, 1} and not any("sensible" in json.dumps(f) or "secreto" in json.dumps(f) for f in filas)
+    assert {f["ok"] for f in filas} == {0, 1} and not any(
+        "sensible" in json.dumps(f) or "secreto" in json.dumps(f) for f in filas
+    )
     e = {m["id"]: m for m in llm_router.estado()["modelos"]}
     assert e[ids[1]]["clave"] and e[ids[1]]["ultima"]["ok"] == 1 and e[ids[0]]["uso_hoy"] == 2
 
@@ -191,4 +229,6 @@ def test_config_por_defecto_sin_claves_en_el_repo():
     assert cfg["modelos"] and not any(k in m for m in cfg["modelos"] for k in ("api_key", "clave", "key"))
     proveedores = {m["proveedor"] for m in cfg["modelos"]}
     assert {"OpenRouter", "Groq", "Google AI Studio", "GitHub Models"} <= proveedores
-    assert all(m["extra"]["provider"]["data_collection"] == "deny" for m in cfg["modelos"] if m["proveedor"] == "OpenRouter")
+    assert all(
+        m["extra"]["provider"]["data_collection"] == "deny" for m in cfg["modelos"] if m["proveedor"] == "OpenRouter"
+    )

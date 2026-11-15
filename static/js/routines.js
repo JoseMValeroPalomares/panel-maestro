@@ -5,7 +5,8 @@
      Routines.saveTemplate(id)  guardar una rutina (con sus pasos) como plantilla
      Routines.run(id)           hacerla paso a paso: el paso actual con su temporizador,
                                 Intro = hecho, S = saltar, Espacio = pausa. Si el siguiente tiene una
-                                hora que aún no ha llegado, no empieza solo: hasta entonces hay tiempo libre
+                                hora que aún no ha llegado, no empieza solo: hasta entonces hay tiempo libre.
+                                Cada paso pone en marcha el contador (timer.js) y su tiempo queda en el paso
    Datos: /api/routine-templates (app/routine_templates.py); los pasos se marcan con Items.setDone
    (marcar el último marca la rutina, app/routines.py).
    ========================================================================== */
@@ -26,7 +27,8 @@
   }
 
   /* ---------- Plantillas ---------- */
-  async function openTemplates() {
+  // `key`: abrir directamente el formulario de esa plantilla (desde la galería común, plantillas.js)
+  async function openTemplates({ key } = {}) {
     let list;
     try { list = (await api('/api/routine-templates', { quiet: true })).plantillas; } catch { toast('No se pudieron cargar las plantillas', { type: 'error' }); return; }
     const dlg = dialog('rt-dialog', `<div class="modal-header"><h2>Nueva rutina desde una plantilla</h2>
@@ -133,15 +135,19 @@
       const del = e.target.closest('[data-del]');
       if (del) {
         if (!(await uiConfirm('¿Borrar esta plantilla?', 'Las rutinas que ya creaste con ella no cambian.', { confirmLabel: 'Borrar', danger: true }))) return;
-        await api(`/api/routine-templates/${del.dataset.del}`, { method: 'DELETE' });
+        const res = await api(`/api/routine-templates/${del.dataset.del}`, { method: 'DELETE' });
         list = list.filter((t) => String(t.id) !== del.dataset.del || t.builtin);
         paintList();
+        undoToast('Plantilla en la papelera', res, async () => {
+          try { list = (await api('/api/routine-templates', { quiet: true })).plantillas; paintList(); } catch {}
+        });
         return;
       }
       const card = e.target.closest('[data-key]');
       if (card) paintForm(list.find((t) => t.key === card.dataset.key));
     });
-    paintList();
+    const elegida = key && list.find((t) => t.key === key);
+    if (elegida) paintForm(elegida); else paintList();
     openModal(dlg, { onClose: () => dlg.remove() });
   }
 
@@ -185,7 +191,10 @@
       left = !waiting && s?.duration_min ? s.duration_min * 60 : null;
       paused = false;
       if (left) timer = setInterval(tick, 1000);
+      // El contador en marcha (timer.js) sigue al paso actual: se ve en la barra aunque se cierre este diálogo
+      if (!waiting && s && !s.done && window.Timer && Timer.current?.item_id !== s.id) Timer.start({ item_id: s.id, prevista_min: s.duration_min || null });
     };
+    const timerOnStep = () => !!window.Timer && Timer.current?.item_id === steps[cur]?.id;
 
     const paint = () => {
       const done = steps.filter((s) => s.done).length;
@@ -227,7 +236,9 @@
       if (busy) return;
       busy = true;
       const s = steps[cur];
+      const counting = timerOnStep();
       try { await Items.setDone(s.id, true); } catch { busy = false; return; }
+      if (counting) await Timer.complete({ marcar: false, quiet: true });  // su tiempo queda en el paso
       steps = Items.children(id).filter((x) => x.today !== false);  // tras recargar: el estado real (y la rutina, si era el último)
       cur = nextOpen(cur);
       busy = false;
@@ -242,13 +253,13 @@
       if (act === 'done') markDone();
       if (act === 'now') { startTimer(true); paint(); }
       if (act === 'skip') { cur = nextOpen(cur); startTimer(); paint(); }
-      if (act === 'pause') { paused = !paused; paint(); }
+      if (act === 'pause') { paused = !paused; if (timerOnStep()) (paused ? Timer.pause() : Timer.resume()); paint(); }
     });
     dlg.addEventListener('keydown', (e) => {
       if (e.target.closest('input, textarea, select') || e.ctrlKey || e.metaKey || e.altKey) return;
       if (e.key === 'Enter' && !e.target.closest('[data-go], [data-close], [data-run-act="skip"], [data-run-act="pause"], [data-run-act="now"]')) { e.preventDefault(); markDone(); }
       else if (e.key === 's' || e.key === 'S') { e.preventDefault(); cur = nextOpen(cur); startTimer(); paint(); }
-      else if (e.key === ' ' && left != null && !e.target.closest('button')) { e.preventDefault(); paused = !paused; paint(); }
+      else if (e.key === ' ' && left != null && !e.target.closest('button')) { e.preventDefault(); paused = !paused; if (timerOnStep()) (paused ? Timer.pause() : Timer.resume()); paint(); }
     });
     startTimer();
     paint();

@@ -7,6 +7,7 @@ Genera el token de los scripts del escritorio (captura rápida con rofi y módul
 El token nunca entra en el repositorio: solo su hash (PANEL_DESKTOP_TOKEN_HASH, en .env). Es
 independiente del de la extensión (PANEL_API_TOKEN_HASH). Hay que reiniciar el panel para que lo lea.
 """
+
 import argparse
 import os
 import secrets

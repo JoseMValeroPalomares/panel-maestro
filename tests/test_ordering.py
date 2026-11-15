@@ -3,6 +3,7 @@
 
 def _res(client, monkeypatch, url, category="Orden", **kw):
     import app.vault as m
+
     monkeypatch.setattr(m, "do_scrape_and_save", lambda *a, **k: None)
     assert client.post("/api/resources", json={"url": url, "category": category, **kw}).status_code == 200
     return next(r["id"] for r in client.get("/api/resources").json()["resources"] if r["url"] == url)
@@ -31,6 +32,7 @@ def test_baul_no_mezcla_videos_y_webs(client, monkeypatch):
     web = _res(client, monkeypatch, "https://orden.example/web", category="Mixta")
     yt = _res(client, monkeypatch, "https://www.youtube.com/watch?v=orden123", category="Mixta")
     from app.database import get_db
+
     with get_db() as conn:  # el tipo lo pone el scraper, desactivado en el test
         conn.execute("UPDATE resources SET resource_type='youtube' WHERE id=?", (yt,))
     tipos = {r["id"]: r["resource_type"] for r in client.get("/api/resources").json()["resources"]}
@@ -40,7 +42,10 @@ def test_baul_no_mezcla_videos_y_webs(client, monkeypatch):
 
 
 def _nota(client, note_id, title, category):
-    assert client.post(f"/api/notes/{note_id}", json={"title": title, "category": category, "content": "x"}).status_code == 200
+    assert (
+        client.post(f"/api/notes/{note_id}", json={"title": title, "category": category, "content": "x"}).status_code
+        == 200
+    )
 
 
 def _orden_notas(client, category):
@@ -63,6 +68,7 @@ def test_notas_orden_dentro_de_su_categoria(client):
     assert client.post("/api/notes/ord-a/move", json={"before_id": "ord-x"}).status_code == 422
     # el .md no cambia
     from core import config
+
     assert "position" not in (config.NOTES_DIR / "ord-c.md").read_text(encoding="utf-8")
     # al cambiar de categoría deja de tener posición
     client.patch("/api/notes/ord-c/meta", json={"category": "Otra categoría"})

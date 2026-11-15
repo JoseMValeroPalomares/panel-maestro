@@ -1,4 +1,5 @@
 """/rutinas: cada bloque a la hora que quieras, en la propia línea, con huecos y sin solaparse."""
+
 from datetime import datetime, timedelta
 
 from playwright.sync_api import expect
@@ -126,7 +127,7 @@ def test_plantilla_con_horas_editables(page, server, api):
     _limpiar(api)
     page.goto(f"{server}/rutinas")
     page.click("#rtTemplates")
-    page.locator(".rt-card", has_text="Rutina de mañana").click()
+    page.locator(".tg-card", has_text="Rutina de mañana").click()  # la galería común (P-4), pestaña Rutina
     # cambiar la hora de la rutina desplaza todos los pasos; uno se puede mover a mano
     page.fill("#rtForm [name=due_time]", "08:00")
     page.locator("#rtForm [name=due_time]").blur()
@@ -221,8 +222,9 @@ def test_anadir_con_inicio_y_fin_y_dialogo_del_bloque(page, server, api):
     page.locator(".rp-step", has_text="Comer").wait_for()
     nuevo = next(i for i in _items(api).values() if i["text"] == "Comer")
     assert nuevo["due_time"] == "14:00" and nuevo["duration_min"] == 90
-    # en el diálogo los tres campos van juntos
-    page.locator(f"[data-step='{nuevo['id']}'] .rp-step-title").click()
+    # en el diálogo (⋯ → Editar el bloque) los tres campos van juntos; el clic en el nombre solo lo cambia en el sitio
+    page.locator(f"[data-step='{nuevo['id']}'] [data-act=step-menu]").click()
+    page.get_by_role("menuitem", name="Editar el bloque").click()
     page.locator("#rpStepEnd").wait_for()
     assert page.input_value("#rpStepEnd") == "15:30" and page.input_value("#rpStepDur") == "90"
     page.locator("dialog[open] [data-dur='30']").click()

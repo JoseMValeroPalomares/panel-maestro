@@ -1,14 +1,18 @@
 """Ronda 2 · fase 3: tablero SVG — encuadre, zoom, flechas ancladas, texto en caja, colores, productividad."""
-import json
 
-import pytest
+import json
 
 from tests.e2e.helpers import touch_drag  # noqa: F401  (táctil: ver test_tactil_pan_y_mover)
 
 
 def _board(api, doc):
     bid = api.post("/api/boards", json={"name": "E2E tablero"}).json()["id"]
-    assert api.post(f"/api/boards/{bid}/canvas", json={"data": json.dumps({"format": 2, "edges": [], "strokes": [], **doc})}).status_code == 200
+    assert (
+        api.post(
+            f"/api/boards/{bid}/canvas", json={"data": json.dumps({"format": 2, "edges": [], "strokes": [], **doc})}
+        ).status_code
+        == 200
+    )
     return bid
 
 
@@ -26,8 +30,11 @@ def _open(page, server, bid, zoom=1, props=False):
 
 
 def screen(page, x, y):
-    return page.evaluate("""([x, y]) => { const r = document.querySelector('.board-svg').getBoundingClientRect(), v = __board.state.view;
-        return { x: r.left + v.x + x * v.zoom, y: r.top + v.y + y * v.zoom }; }""", [x, y])
+    return page.evaluate(
+        """([x, y]) => { const r = document.querySelector('.board-svg').getBoundingClientRect(), v = __board.state.view;
+        return { x: r.left + v.x + x * v.zoom, y: r.top + v.y + y * v.zoom }; }""",
+        [x, y],
+    )
 
 
 def doc(page):
@@ -50,14 +57,21 @@ def drag(page, a, b, steps=12, mid=None):
 
 def edge_line(page, eid):
     """Primer y último punto del conector tal y como está pintado."""
-    return page.evaluate("""id => { const p = document.querySelector(`[data-id="${id}"] .edge-line`);
+    return page.evaluate(
+        """id => { const p = document.querySelector(`[data-id="${id}"] .edge-line`);
         const a = p.getPointAtLength(0), b = p.getPointAtLength(p.getTotalLength());
-        return [a.x, a.y, b.x, b.y]; }""", eid)
+        return [a.x, a.y, b.x, b.y]; }""",
+        eid,
+    )
 
 
-TWO = {"nodes": [{"id": "a", "kind": "rect", "x": 100, "y": 100, "w": 160, "h": 80, "text": "Caja A"},
-                 {"id": "b", "kind": "rect", "x": 500, "y": 100, "w": 160, "h": 80, "text": "Caja B"}],
-       "edges": [{"id": "e1", "from": "a", "to": "b", "color": "#89b4fa", "width": 2, "head": "arrow"}]}
+TWO = {
+    "nodes": [
+        {"id": "a", "kind": "rect", "x": 100, "y": 100, "w": 160, "h": 80, "text": "Caja A"},
+        {"id": "b", "kind": "rect", "x": 500, "y": 100, "w": 160, "h": 80, "text": "Caja B"},
+    ],
+    "edges": [{"id": "e1", "from": "a", "to": "b", "color": "#89b4fa", "width": 2, "head": "arrow"}],
+}
 
 
 def test_crear_caja_y_texto_dentro(page, server, api):
@@ -73,7 +87,10 @@ def test_crear_caja_y_texto_dentro(page, server, api):
     assert len(d["nodes"]) == 1 and d["nodes"][0]["text"] == "Texto de la caja"
     n = d["nodes"][0]
     # el texto es parte de la caja: va dentro de su foreignObject, que mide la caja menos el margen
-    fo = page.evaluate("id => { const f = document.querySelector(`[data-id='${id}'] .node-fo`); return [+f.getAttribute('width'), +f.getAttribute('height')]; }", n["id"])
+    fo = page.evaluate(
+        "id => { const f = document.querySelector(`[data-id='${id}'] .node-fo`); return [+f.getAttribute('width'), +f.getAttribute('height')]; }",
+        n["id"],
+    )
     assert fo == [n["w"] - 20, n["h"] - 20]
     # doble clic para editar
     c = screen(page, n["x"] + n["w"] / 2, n["y"] + n["h"] / 2)
@@ -110,7 +127,11 @@ def test_flechas_ancladas_en_tiempo_real(page, server, api):
     nb = next(n for n in doc(page)["nodes"] if n["id"] == "b")
     page.mouse.click(*screen(page, nb["x"] + nb["w"] / 2, nb["y"] + nb["h"] / 2).values())
     antes_resize = edge_line(page, "e1")
-    drag(page, screen(page, nb["x"] + nb["w"], nb["y"] + nb["h"]), screen(page, nb["x"] + nb["w"] + 200, nb["y"] + nb["h"] + 100))
+    drag(
+        page,
+        screen(page, nb["x"] + nb["w"], nb["y"] + nb["h"]),
+        screen(page, nb["x"] + nb["w"] + 200, nb["y"] + nb["h"] + 100),
+    )
     nb2 = next(n for n in doc(page)["nodes"] if n["id"] == "b")
     assert nb2["w"] > nb["w"] + 150
     assert edge_line(page, "e1") != antes_resize
@@ -127,8 +148,15 @@ def test_flechas_ancladas_en_tiempo_real(page, server, api):
 
 
 def test_zoom_mantiene_el_punto_y_ajustar(page, server, api):
-    bid = _board(api, {"nodes": [{"id": "a", "kind": "rect", "x": 0, "y": 0, "w": 100, "h": 60, "text": ""},
-                                 {"id": "z", "kind": "rect", "x": 3000, "y": 2000, "w": 100, "h": 60, "text": ""}]})
+    bid = _board(
+        api,
+        {
+            "nodes": [
+                {"id": "a", "kind": "rect", "x": 0, "y": 0, "w": 100, "h": 60, "text": ""},
+                {"id": "z", "kind": "rect", "x": 3000, "y": 2000, "w": 100, "h": 60, "text": ""},
+            ]
+        },
+    )
     _open(page, server, bid)
     p = screen(page, 50, 30)
     page.mouse.move(p["x"], p["y"])
@@ -174,7 +202,23 @@ def test_colores_estilo_y_seleccion(page, server, api):
 
 
 def test_productividad(page, server, api):
-    bid = _board(api, {"nodes": [{"id": f"n{i}", "kind": "rect", "x": 100 + i * 200 + (i * 13), "y": 100 + i * 30, "w": 120, "h": 60, "text": str(i)} for i in range(3)]})
+    bid = _board(
+        api,
+        {
+            "nodes": [
+                {
+                    "id": f"n{i}",
+                    "kind": "rect",
+                    "x": 100 + i * 200 + (i * 13),
+                    "y": 100 + i * 30,
+                    "w": 120,
+                    "h": 60,
+                    "text": str(i),
+                }
+                for i in range(3)
+            ]
+        },
+    )
     _open(page, server, bid)
     page.keyboard.press("Control+a")
     page.click("#btnArrange")
@@ -223,7 +267,9 @@ def test_soltar_tarea_donde_se_suelta(page, server, api):
 
 def test_movil_panel_deslizable_y_tactil(browser, server, api):
     bid = _board(api, TWO)
-    ctx = browser.new_context(viewport={"width": 375, "height": 812}, has_touch=True, is_mobile=True, service_workers="block")
+    ctx = browser.new_context(
+        viewport={"width": 375, "height": 812}, has_touch=True, is_mobile=True, service_workers="block"
+    )
     page = ctx.new_page()
     try:
         _open(page, server, bid)
@@ -246,7 +292,9 @@ def test_movil_panel_deslizable_y_tactil(browser, server, api):
         x, y = r["x"] + 40, r["y"] + r["height"] - 60
         cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x, "y": y}]})
         for i in range(1, 9):
-            cdp.send("Input.dispatchTouchEvent", {"type": "touchMove", "touchPoints": [{"x": x + i * 10, "y": y - i * 5}]})
+            cdp.send(
+                "Input.dispatchTouchEvent", {"type": "touchMove", "touchPoints": [{"x": x + i * 10, "y": y - i * 5}]}
+            )
         cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
         v1 = page.evaluate("({...__board.state.view})")
         assert abs(v1["x"] - v0["x"] - 80) < 2 and abs(v1["y"] - v0["y"] + 40) < 2
@@ -256,7 +304,10 @@ def test_movil_panel_deslizable_y_tactil(browser, server, api):
 
 def _tarea_con_pasos(api, nombre, n=3, **extra):
     tid = api.post("/api/items", json={"text": nombre, "type": "tarea", **extra}).json()["id"]
-    pasos = [api.post("/api/items", json={"text": f"Paso {i} de {nombre}", "type": "tarea", "parent_id": tid}).json()["id"] for i in range(n)]
+    pasos = [
+        api.post("/api/items", json={"text": f"Paso {i} de {nombre}", "type": "tarea", "parent_id": tid}).json()["id"]
+        for i in range(n)
+    ]
     return tid, pasos
 
 
@@ -316,9 +367,35 @@ def test_quitar_pasos_de_la_tarjeta_no_los_borra(page, server, api):
 
 def test_un_paso_con_tarjeta_propia_no_se_repite(page, server, api):
     tid, pasos = _tarea_con_pasos(api, "Sin repetir", n=2)
-    bid = _board(api, {"nodes": [
-        {"id": "a", "kind": "inbox", "x": 0, "y": 0, "w": 260, "h": 96, "text": "Sin repetir", "inboxId": tid, "itemType": "tarea"},
-        {"id": "b", "kind": "inbox", "x": 0, "y": 300, "w": 220, "h": 96, "text": "Paso", "inboxId": pasos[0], "itemType": "tarea"}]})
+    bid = _board(
+        api,
+        {
+            "nodes": [
+                {
+                    "id": "a",
+                    "kind": "inbox",
+                    "x": 0,
+                    "y": 0,
+                    "w": 260,
+                    "h": 96,
+                    "text": "Sin repetir",
+                    "inboxId": tid,
+                    "itemType": "tarea",
+                },
+                {
+                    "id": "b",
+                    "kind": "inbox",
+                    "x": 0,
+                    "y": 300,
+                    "w": 220,
+                    "h": 96,
+                    "text": "Paso",
+                    "inboxId": pasos[0],
+                    "itemType": "tarea",
+                },
+            ]
+        },
+    )
     _open(page, server, bid)
     page.wait_for_timeout(300)
     assert page.locator(".node-step").count() == 1 and "Paso 1 de" in page.locator(".node-step").inner_text()

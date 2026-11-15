@@ -1,19 +1,20 @@
 /* ==========================================================================
    autologin.js — en la pantalla de acceso del Panel (solo en la dirección
-   configurada) escribe la contraseña guardada en las opciones y entra.
-   Si la página ya muestra un error (contraseña incorrecta, demasiados
-   intentos) no lo vuelve a intentar, para no entrar en bucle ni bloquearse.
+   configurada) entra con el token de la extensión: POST /api/ext/sesion
+   devuelve la cookie de sesión y se sigue a la página que se pedía.
+   La contraseña del Panel ya no se guarda en ningún sitio (desde la 2.9).
+   Lo registra background.js solo para el origen del Panel, y solo si se
+   dio permiso para él. Si la página muestra un error (o el token no vale)
+   no lo reintenta, para no entrar en bucle.
    ========================================================================== */
 'use strict';
 
 (async () => {
   const form = document.querySelector('form[action="/login"]');
-  const input = form?.querySelector('input[name="password"]');
-  if (!form || !input) return;
+  if (!form) return;
 
-  const { baseUrl = '', autoLogin = true, loginPassword = '' } =
-    await browser.storage.local.get(['baseUrl', 'autoLogin', 'loginPassword']);
-  if (!autoLogin || !loginPassword || !baseUrl) return;
+  const { baseUrl = '', token = '', autoLogin = true } = await browser.storage.local.get(['baseUrl', 'token', 'autoLogin']);
+  if (!autoLogin || !token || !baseUrl) return;
   let origin = '';
   try { origin = new URL(Panel.normalizeUrl(baseUrl)).origin; } catch { return; }
   if (location.origin !== origin) return;
@@ -26,7 +27,15 @@
     sessionStorage.setItem(KEY, String(Date.now()));
   } catch {}
 
-  input.value = loginPassword;
-  input.dispatchEvent(new Event('input', { bubbles: true }));
-  form.requestSubmit ? form.requestSubmit() : form.submit();
+  // content.fetch (Firefox): la petición sale de la propia página del Panel, así que la cookie que devuelve es suya.
+  // El token no pasa a la página: queda en este script (mundo aislado).
+  const init = { method: 'POST', credentials: 'same-origin', headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } };
+  const pageFetch = typeof content !== 'undefined' && content.fetch ? content.fetch.bind(content) : fetch;
+  try {
+    const res = await pageFetch('/api/ext/sesion', typeof cloneInto === 'function' ? cloneInto(init, window) : init);
+    if (!res.ok) return;
+  } catch { return; }
+
+  const next = new URLSearchParams(location.search).get('next') || form.querySelector('input[name="next"]')?.value || '/';
+  location.replace(next.startsWith('/') && !next.startsWith('//') ? next : '/');
 })();

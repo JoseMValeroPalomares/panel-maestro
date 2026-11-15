@@ -133,7 +133,9 @@ Formato: ruta · plantilla · JS/CSS · funciones · estados (carga / vacío / e
 Usado en Inbox, Tareas y (parcialmente) Hoy.
 - Grupos: Inbox · Notas (casillas de las notas) · Ideas · Rutinas · Próximos eventos (solo lectura).
 - Tarjeta: casilla, texto, prioridad (bandera), fecha/hora, duración, categoría, notas (visibles; ocultar por tarjeta en
-  `item-notes-hidden`), pasos (un nivel, plegables con progreso), enlaces a notas, racha (rutinas).
+  `item-notes-hidden`), pasos (un nivel, plegables con progreso), enlaces a notas, racha (rutinas). Botón de copiar el
+  texto junto a la casilla (en móvil y táctil, «Copiar el texto» en el menú). En el móvil: chips en una fila que se
+  desplaza y notas a dos líneas con «Más»/«Menos» (solo esa visita; ocultarlas sigue siendo `item-notes-hidden`).
 - Acciones (menú): editar en línea, añadir paso (E), prioridad, mover a otro grupo, convertir tarea↔idea↔rutina,
   llevar a una nota, enlazar con nota, ver en calendario, tablero de la tarea, hacer paso a paso (rutinas), eliminar
   (con deshacer). Selección múltiple (X, Mayús+clic) con barra de lote.
@@ -144,7 +146,8 @@ Usado en Inbox, Tareas y (parcialmente) Hoy.
 ### P-05 Tareas — `/tareas` (`tareas.html`, `tareas.js`, `tareas-grid.js`)
 - Vista Lista / Cuadrícula (R; `tareas-view`; cuadrícula solo ≥768 px) con tarjetas redimensionables (`tareas-sizes`,
   Mayús+flechas). Filtros: estado (Pendientes, Hechas, Todas), tipo (Todo, Tareas, Ideas, Rutinas), categoría,
-  búsqueda; recordados (`tareas-filters`). Captura «Nueva tarea o idea». Botón Seleccionar. `?item=<id>` revela una.
+  búsqueda; recordados (`tareas-filters`). Captura «Nueva tarea o idea» (en el móvil, con tareas, plegada en un botón que
+  la abre; Escape con el campo vacío la vuelve a plegar). Botón Seleccionar. `?item=<id>` revela una.
 
 ### P-06 Calendario — `/calendario` (`calendario.html`, `calendario.js`, `calendar.js`, `calendar.css`)
 - Vistas Día · 3 días · Semana · Mes · Agenda (`calendar-view`); Hoy, anterior/siguiente (flechas), mini-mes con puntos.

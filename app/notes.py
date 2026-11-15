@@ -3,10 +3,13 @@ API de las notas y sus categorías. La fuente de verdad son los .md de data/note
 
 Rutas fijas ANTES de /api/notes/{note_id}: FastAPI empareja en orden.
 """
+
+import hashlib
 import os
 import random
 import re
 import sqlite3
+import threading
 import time
 
 import frontmatter
@@ -18,14 +21,57 @@ from app.bulk import NotesSelection, bulk_delete
 from app.database import get_db
 from app.indexer import sync_notes_to_db, upsert_note, valid_category
 from app.note_tasks import sync_note_items
-from app.notes_core import (MAX_NOTE_CONTENT, MAX_TAGS, MAX_TITLE, extract_wiki_links, normalize_status, note_path, slugify,
-                            split_category_path, sync_flashcards, update_index_for_area)
+from app.notes_core import (
+    MAX_NOTE_CONTENT,
+    MAX_TAGS,
+    MAX_TITLE,
+    extract_wiki_links,
+    normalize_status,
+    note_path,
+    slugify,
+    split_category_path,
+    sync_flashcards,
+    update_index_for_area,
+)
 from app.ordering import category_key
 from app.study import register_study_day
 from app.versions import snapshot as snapshot_version
+from core import undo
 from core.files import atomic_write
 
 router = APIRouter()
+
+# Comprobar la versión y escribir tienen que ir juntos: dos guardados a la vez no pueden pasar los dos la comprobación
+_save_lock = threading.RLock()
+
+
+def note_version(path) -> str | None:
+    """Versión de una nota = hash de su .md entero (frontmatter incluido). None si no existe."""
+    try:
+        with open(path, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()[:16]
+    except FileNotFoundError:
+        return None
+
+
+def _current_note(path) -> dict | None:
+    """Lo que hay ahora en el .md, tal como lo edita el cliente, con su versión."""
+    try:
+        with open(path, "rb") as f:
+            raw = f.read()
+    except FileNotFoundError:
+        return None
+    post = frontmatter.loads(raw.decode("utf-8"))
+    tags = post.get("tags") or []
+    return {
+        "version": hashlib.sha256(raw).hexdigest()[:16],
+        "title": post.get("title") or "",
+        "category": post.get("category") or "",
+        "content": post.content,
+        "status": normalize_status(post.get("status") or "por-escribir"),
+        "tags": ",".join(tags) if isinstance(tags, list) else str(tags),
+        "encrypted": bool(post.get("encrypted")),
+    }
 
 
 class NoteData(BaseModel):
@@ -36,6 +82,10 @@ class NoteData(BaseModel):
     status: str = Field(default="por-escribir", max_length=30)
     tags: list[str] | None = Field(default=None, max_length=MAX_TAGS)
     encrypted: bool = False
+    # Versión (hash del .md) con la que el cliente cargó la nota: si otro dispositivo guardó después → 409.
+    # Sin el campo se guarda como siempre (extensión, scripts, la IA); "" = «la nota no existía».
+    base_version: str | None = Field(default=None, max_length=64)
+    overwrite: bool = False  # se guarda encima de lo de otro dispositivo a sabiendas: lo suyo va antes al historial
 
     @field_validator("tags")
     @classmethod
@@ -58,6 +108,7 @@ class CategoryIn(BaseModel):
 # API de Categorías
 # ─────────────────────────────────────────────
 
+
 @router.post("/api/categories")
 def create_category(payload: CategoryIn):
     with get_db() as conn:
@@ -71,7 +122,7 @@ def create_category(payload: CategoryIn):
             cursor = conn.cursor()
             cursor.execute(
                 "INSERT INTO categories (name, parent_id, slug) VALUES (?, ?, ?)",
-                (payload.name, payload.parent_id, slug)
+                (payload.name, payload.parent_id, slug),
             )
             conn.commit()
             new_id = cursor.lastrowid
@@ -89,10 +140,7 @@ def get_category_tree():
         by_parent.setdefault(r["parent_id"], []).append(dict(r))
 
     def build(parent_id=None):
-        return [
-            {**node, "children": build(node["id"])}
-            for node in by_parent.get(parent_id, [])
-        ]
+        return [{**node, "children": build(node["id"])} for node in by_parent.get(parent_id, [])]
 
     return {"tree": build(None)}
 
@@ -100,7 +148,8 @@ def get_category_tree():
 @router.get("/api/categories/{category_id}/notes")
 def get_notes_in_branch(category_id: int):
     with get_db() as conn:
-        rows = conn.execute('''
+        rows = conn.execute(
+            """
             WITH RECURSIVE branch(id) AS (
                 SELECT id FROM categories WHERE id = ?
                 UNION ALL
@@ -109,36 +158,75 @@ def get_notes_in_branch(category_id: int):
             SELECT n.id, n.title, n.category, n.category_id, n.status
             FROM notes n WHERE n.category_id IN (SELECT id FROM branch)
             ORDER BY n.last_modified DESC
-        ''', (category_id,)).fetchall()
+        """,
+            (category_id,),
+        ).fetchall()
     return {"notes": [dict(r) for r in rows]}
 
 
 @router.delete("/api/categories/{category_id}")
 def delete_category(category_id: int):
+    """La rama entera va a la papelera; al restaurarla, sus notas vuelven a colgar de ella."""
     with get_db() as conn:
+        branch = undo.rows_to_dicts(
+            conn.execute(
+                """
+            WITH RECURSIVE branch(id, depth) AS (
+                SELECT id, 0 FROM categories WHERE id = ?
+                UNION ALL
+                SELECT c.id, b.depth + 1 FROM categories c JOIN branch b ON c.parent_id = b.id
+            )
+            SELECT c.* FROM categories c JOIN branch b ON b.id = c.id ORDER BY b.depth
+        """,
+                (category_id,),
+            )
+        )
+        relink = [
+            (
+                "notes",
+                "category_id",
+                c["id"],
+                [r["id"] for r in conn.execute("SELECT id FROM notes WHERE category_id=?", (c["id"],))],
+            )
+            for c in branch
+        ]
+        token = (
+            undo.save_rows(
+                conn, "rows.categoria", [("categories", branch)], title=branch[0]["name"], relink=relink, count=1
+            )
+            if branch
+            else None
+        )
         # Las notas de la rama se quedan sin categoría del árbol: si no, la clave foránea impide borrar
-        conn.execute('''
+        conn.execute(
+            """
             WITH RECURSIVE branch(id) AS (
                 SELECT id FROM categories WHERE id = ?
                 UNION ALL
                 SELECT c.id FROM categories c JOIN branch b ON c.parent_id = b.id
             )
             UPDATE notes SET category_id = NULL WHERE category_id IN (SELECT id FROM branch)
-        ''', (category_id,))
+        """,
+            (category_id,),
+        )
         conn.execute("DELETE FROM categories WHERE id=?", (category_id,))
-        conn.commit()
-    return {"status": "success"}
+    return {"status": "success", "undo_token": token, "undo_db": "brain"}
 
 
 # ─────────────────────────────────────────────
 # API de Notas
 # ─────────────────────────────────────────────
 
+
 @router.get("/api/notes")
 def get_all_notes():
     with get_db() as conn:
-        notes = [dict(n) for n in conn.execute(
-            "SELECT id, title, category, category_id, status, tags, encrypted FROM notes ORDER BY last_modified DESC")]
+        notes = [
+            dict(n)
+            for n in conn.execute(
+                "SELECT id, title, category, category_id, status, tags, encrypted FROM notes ORDER BY last_modified DESC"
+            )
+        ]
         order = {r["note_id"]: (r["category_key"], r["position"]) for r in conn.execute("SELECT * FROM note_order")}
     for n in notes:  # orden manual dentro de su categoría (si la nota cambió de categoría, ya no vale)
         key, pos = order.get(n["id"], (None, None))
@@ -151,6 +239,7 @@ class NoteMetaUpdate(BaseModel):
     title: str | None = Field(default=None, max_length=MAX_TITLE)
     category: str | None = Field(default=None, max_length=MAX_TITLE)
     category_id: int | None = None
+
 
 class CategoryRename(BaseModel):
     old_category: str = Field(max_length=MAX_TITLE)
@@ -171,9 +260,9 @@ def get_recall_note():
     status_boost = {"consolidado": 3.0, "en-desarrollo": 1.5, "por-escribir": 0.5, "indice": 0.3}
     weighted = []
     for r in rows:
-        days_since = (now - (r['last_reviewed'] or 0)) / 86400
-        weight = max(days_since, 1) * status_boost.get(r['status'], 1.0)
-        weighted.append((r['id'], r['title'], weight))
+        days_since = (now - (r["last_reviewed"] or 0)) / 86400
+        weight = max(days_since, 1) * status_boost.get(r["status"], 1.0)
+        weighted.append((r["id"], r["title"], weight))
 
     total = sum(w for _, _, w in weighted)
     pick = random.uniform(0, total)
@@ -192,14 +281,16 @@ def rename_category_bulk(data: CategoryRename):
 
     new_category = data.new_category.strip()
     with get_db() as conn:
-        rows = conn.execute("SELECT id FROM notes WHERE category=? AND status != 'indice'", (data.old_category,)).fetchall()
+        rows = conn.execute(
+            "SELECT id FROM notes WHERE category=? AND status != 'indice'", (data.old_category,)
+        ).fetchall()
 
     for row in rows:
-        filepath = note_path(row['id'])
+        filepath = note_path(row["id"])
         if os.path.exists(filepath):
-            with open(filepath, 'r', encoding='utf-8') as f:
+            with open(filepath, encoding="utf-8") as f:
                 post = frontmatter.load(f)
-            post['category'] = new_category
+            post["category"] = new_category
             atomic_write(filepath, frontmatter.dumps(post))
 
     sync_notes_to_db()
@@ -207,69 +298,39 @@ def rename_category_bulk(data: CategoryRename):
         update_index_for_area(area)
     return {"status": "success", "updated": len(rows)}
 
+
 @router.get("/api/notes/{note_id}")
 def get_note(note_id: str):
     note_path(note_id)  # valida el identificador
     with get_db() as conn:
         note = conn.execute("SELECT * FROM notes WHERE id = ?", (note_id,)).fetchone()
-    if note:
-        return dict(note)
-    return JSONResponse(status_code=404, content={"error": "Nota no encontrada"})
+    if not note:
+        return JSONResponse(status_code=404, content={"error": "Nota no encontrada"})
+    out = dict(note)
+    # Lo que se edita tiene que ser lo que corresponde a `version`: se lee del .md (la caché puede ir por detrás)
+    cur = _current_note(note_path(note_id))
+    if cur:
+        for k in ("title", "category"):  # sin ellos en el frontmatter, los que puso el indexador
+            if not cur[k]:
+                cur[k] = out.get(k) or ""
+        out.update(cur)
+    else:
+        out["version"] = None
+    return out
 
 
 @router.post("/api/notes/{note_id}")
 def save_note(note_id: str, note_data: NoteData):
     filepath = note_path(note_id)
+    with _save_lock:  # entero: la versión que se devuelve tiene que ser la de este guardado
+        return _save_note(note_id, filepath, note_data)
 
-    old_area = None
-    if os.path.exists(filepath):
-        with open(filepath, 'r', encoding='utf-8') as f:
-            post = frontmatter.load(f)
-        old_area = split_category_path(post.get('category', ''))[0]
-    else:
-        post = frontmatter.Post("")
-        post['tags'] = []
 
-    # --- Blindaje: una nota índice no puede perder su status por un guardado normal ---
-    with get_db() as conn:
-        current = conn.execute("SELECT status FROM notes WHERE id = ?", (note_id,)).fetchone()
-        category_id = valid_category(conn, note_data.category_id)
-    incoming_status = normalize_status(note_data.status)
-    if current and current["status"] == "indice" and incoming_status != "indice":
-        status = "indice"
-    else:
-        status = incoming_status
-
-    tags = note_data.tags if note_data.tags is not None else post.get('tags', [])
-
-    post.content = note_data.content
-    post['title'] = note_data.title
-    post['category'] = note_data.category
-    post['category_id'] = category_id
-    post['status'] = status
-    post['tags'] = tags
-    post['encrypted'] = note_data.encrypted
-
-    snapshot_version(note_id)
-    atomic_write(filepath, frontmatter.dumps(post))
-
-    with get_db() as conn:
-        cursor = conn.cursor()
-        upsert_note(conn, {"id": note_id, "title": note_data.title, "category": note_data.category, "category_id": category_id,
-                           "tags": ",".join(tags), "content": note_data.content, "status": status,
-                           "encrypted": int(note_data.encrypted), "last_modified": os.path.getmtime(filepath)})
-
-        cursor.execute("DELETE FROM graph_edges WHERE source = ? AND type = 'auto'", (note_id,))
-        if note_data.encrypted:  # de lo cifrado no queda nada en claro en la caché
-            cursor.execute("DELETE FROM flashcards WHERE note_id = ?", (note_id,))
-        else:
-            for target in extract_wiki_links(note_data.content):
-                cursor.execute('''
-                    INSERT OR IGNORE INTO graph_edges (source, target, type)
-                    VALUES (?, ?, 'auto')
-                ''', (note_id, target))
-
-        conn.commit()
+def _save_note(note_id: str, filepath: str, note_data: NoteData):
+    result = _write_note(note_id, filepath, note_data)
+    if isinstance(result, JSONResponse):
+        return result
+    status, old_area = result
 
     if not note_data.encrypted:
         sync_flashcards(note_id, note_data.content)
@@ -284,7 +345,94 @@ def save_note(note_id: str, note_data: NoteData):
         if old_area and old_area != new_area:
             update_index_for_area(old_area)
 
-    return {"status": "success", "message": "Nota guardada"}
+    return {"status": "success", "message": "Nota guardada", "version": note_version(filepath)}
+
+
+def _write_note(note_id: str, filepath: str, note_data: NoteData):
+    """Comprueba la versión y escribe el .md y la caché. Devuelve (status, área anterior) o la respuesta 409."""
+    check = "base_version" in note_data.model_fields_set and note_data.base_version is not None
+    old_area = None
+    raw_before = None
+    if os.path.exists(filepath):
+        with open(filepath, "rb") as f:
+            raw_before = f.read()
+        post = frontmatter.loads(raw_before.decode("utf-8"))
+        old_area = split_category_path(post.get("category", ""))[0]
+    else:
+        post = frontmatter.Post("")
+        post["tags"] = []
+
+    # --- Blindaje: una nota índice no puede perder su status por un guardado normal ---
+    with get_db() as conn:
+        current = conn.execute("SELECT status FROM notes WHERE id = ?", (note_id,)).fetchone()
+        category_id = valid_category(conn, note_data.category_id)
+    incoming_status = normalize_status(note_data.status)
+    if current and current["status"] == "indice" and incoming_status != "indice":
+        status = "indice"
+    else:
+        status = incoming_status
+
+    tags = note_data.tags if note_data.tags is not None else post.get("tags", [])
+
+    post.content = note_data.content
+    post["title"] = note_data.title
+    post["category"] = note_data.category
+    post["category_id"] = category_id
+    post["status"] = status
+    post["tags"] = tags
+    post["encrypted"] = note_data.encrypted
+    raw_new = frontmatter.dumps(post)
+
+    current_version = hashlib.sha256(raw_before).hexdigest()[:16] if raw_before is not None else ""
+    # Mismo contenido que el que hay = no hay conflicto (p. ej. un reintento cuya respuesta se perdió)
+    same = raw_before is not None and raw_before.decode("utf-8") == raw_new
+    if check and note_data.base_version != current_version and not same:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error": "Esta nota cambió en otro dispositivo"
+                if raw_before is not None
+                else "Esta nota se eliminó en otro dispositivo",
+                "conflict": True,
+                "current": _current_note(filepath),
+            },
+        )
+    # «Quedarme con lo mío» tras un conflicto: lo del otro dispositivo queda siempre en el historial
+    snapshot_version(note_id, force=note_data.overwrite and not same)
+    atomic_write(filepath, raw_new)
+
+    with get_db() as conn:
+        cursor = conn.cursor()
+        upsert_note(
+            conn,
+            {
+                "id": note_id,
+                "title": note_data.title,
+                "category": note_data.category,
+                "category_id": category_id,
+                "tags": ",".join(tags),
+                "content": note_data.content,
+                "status": status,
+                "encrypted": int(note_data.encrypted),
+                "last_modified": os.path.getmtime(filepath),
+            },
+        )
+
+        cursor.execute("DELETE FROM graph_edges WHERE source = ? AND type = 'auto'", (note_id,))
+        if note_data.encrypted:  # de lo cifrado no queda nada en claro en la caché
+            cursor.execute("DELETE FROM flashcards WHERE note_id = ?", (note_id,))
+        else:
+            for target in extract_wiki_links(note_data.content):
+                cursor.execute(
+                    """
+                    INSERT OR IGNORE INTO graph_edges (source, target, type)
+                    VALUES (?, ?, 'auto')
+                """,
+                    (note_id, target),
+                )
+
+        conn.commit()
+    return status, old_area
 
 
 @router.patch("/api/notes/{note_id}/status")
@@ -293,18 +441,19 @@ def update_note_status(note_id: str, data: StatusUpdate):
     filepath = note_path(note_id)
     if not os.path.exists(filepath):
         return JSONResponse(status_code=404, content={"error": "Nota no encontrada"})
-    with open(filepath, 'r', encoding='utf-8') as f:
+    previous = note_version(filepath)  # el cliente adopta la versión nueva solo si la anterior era la suya
+    with open(filepath, encoding="utf-8") as f:
         post = frontmatter.load(f)
-    if post.get('status') == 'indice':  # igual que al guardar: una nota índice no pierde su estado
-        return {"status": "success", "new_status": "indice"}
-    post['status'] = status
+    if post.get("status") == "indice":  # igual que al guardar: una nota índice no pierde su estado
+        return {"status": "success", "new_status": "indice", "version": previous, "previous_version": previous}
+    post["status"] = status
     atomic_write(filepath, frontmatter.dumps(post))
 
     with get_db() as conn:
         conn.execute("UPDATE notes SET status = ? WHERE id = ?", (status, note_id))
         conn.commit()
-    update_index_for_area(split_category_path(post.get('category', ''))[0])  # el índice enseña el estado de cada nota
-    return {"status": "success", "new_status": status}
+    update_index_for_area(split_category_path(post.get("category", ""))[0])  # el índice enseña el estado de cada nota
+    return {"status": "success", "new_status": status, "version": note_version(filepath), "previous_version": previous}
 
 
 @router.patch("/api/notes/{note_id}/reviewed")
@@ -325,27 +474,37 @@ def get_related_notes(note_id: str):
         current = conn.execute("SELECT category FROM notes WHERE id=?", (note_id,)).fetchone()
         if not current:
             return {"related": []}
-        backlinks = conn.execute('''
+        backlinks = conn.execute(
+            """
             SELECT n.id, n.title FROM graph_edges e
             JOIN notes n ON n.id = e.source
             WHERE e.target=? AND n.id!=?
-        ''', (note_id, note_id)).fetchall()
-        outgoing = conn.execute('''
+        """,
+            (note_id, note_id),
+        ).fetchall()
+        outgoing = conn.execute(
+            """
             SELECT n.id, n.title FROM graph_edges e
             JOIN notes n ON n.id = e.target
             WHERE e.source=? AND n.id!=?
-        ''', (note_id, note_id)).fetchall()
-        same_category = conn.execute('''
+        """,
+            (note_id, note_id),
+        ).fetchall()
+        same_category = conn.execute(
+            """
             SELECT id, title FROM notes WHERE category=? AND id!=? LIMIT 8
-        ''', (current['category'], note_id)).fetchall()
+        """,
+            (current["category"], note_id),
+        ).fetchall()
 
     seen = set()
     combined = []
     for row in list(backlinks) + list(outgoing) + list(same_category):
-        if row['id'] not in seen:
-            seen.add(row['id'])
+        if row["id"] not in seen:
+            seen.add(row["id"])
             combined.append(dict(row))
     return {"related": combined[:8]}
+
 
 @router.get("/api/notes/{note_id}/wikilink-suggestions")
 def get_wikilink_suggestions(note_id: str):
@@ -360,67 +519,68 @@ def get_wikilink_suggestions(note_id: str):
         if not note:
             return JSONResponse(status_code=404, content={"error": "Nota no encontrada"})
 
-        if note['encrypted']:
+        if note["encrypted"]:
             return {"suggestions": []}  # no tiene sentido escanear contenido cifrado
 
-        content = note['content'] or ""
-        others = conn.execute(
-            "SELECT id, title FROM notes WHERE id != ? AND encrypted=0", (note_id,)
-        ).fetchall()
+        content = note["content"] or ""
+        others = conn.execute("SELECT id, title FROM notes WHERE id != ? AND encrypted=0", (note_id,)).fetchall()
 
     existing_links = set(extract_wiki_links(content))
     lowered = content.lower()
     suggestions = []
 
     for row in others:
-        title = (row['title'] or "").strip()
-        target_id = row['id']
+        title = (row["title"] or "").strip()
+        target_id = row["id"]
         if len(title) < 3 or target_id in existing_links or title.lower() not in lowered:
             continue
         # busca el título como palabra completa, pero ignora si ya está
         # dentro de un [[...]] (evita contar lo que ya es un wikilink)
-        pattern = re.compile(
-            r'(?<!\[\[)\b' + re.escape(title) + r'\b(?!\]\])',
-            re.IGNORECASE
-        )
+        pattern = re.compile(r"(?<!\[\[)\b" + re.escape(title) + r"\b(?!\]\])", re.IGNORECASE)
         matches = pattern.findall(content)
         if matches:
-            suggestions.append({
-                "note_id": target_id,
-                "title": row['title'],
-                "occurrences": len(matches),
-            })
+            suggestions.append(
+                {
+                    "note_id": target_id,
+                    "title": row["title"],
+                    "occurrences": len(matches),
+                }
+            )
 
     suggestions.sort(key=lambda s: -s["occurrences"])
     return {"suggestions": suggestions[:10]}  # máximo 10 para no saturar la UI
 
-ANNOTATION_PATTERN = re.compile(r'\{\{(resumir|entender|mal):([\s\S]+?)\}\}')
+
+ANNOTATION_PATTERN = re.compile(r"\{\{(resumir|entender|mal|duda|examen|importante):([\s\S]+?)\}\}")
+
 
 @router.get("/api/annotations")
 def get_all_annotations(tag: str = None):
     """
-    Devuelve todos los bloques marcados con {{resumir:...}}, {{entender:...}}
-    o {{mal:...}} en todas las notas no cifradas. Filtra opcionalmente por tag.
+    Devuelve todos los bloques marcados con {{resumir:...}}, {{entender:...}}, {{mal:...}} y, para la
+    universidad, {{duda:...}} (para el profe), {{examen:...}} (entra en examen) e {{importante:...}},
+    en todas las notas no cifradas. Filtra opcionalmente por tag.
     """
     with get_db() as conn:
-        rows = conn.execute(
-            "SELECT id, title, content FROM notes WHERE encrypted=0"
-        ).fetchall()
+        rows = conn.execute("SELECT id, title, content FROM notes WHERE encrypted=0").fetchall()
 
     results = []
     for row in rows:
-        content = row['content'] or ""
+        content = row["content"] or ""
         for match in ANNOTATION_PATTERN.finditer(content):
             found_tag, text = match.group(1), match.group(2).strip()
             if tag and found_tag != tag:
                 continue
-            results.append({
-                "note_id": row['id'],
-                "note_title": row['title'],
-                "tag": found_tag,
-                "text": text[:200],  # recorte para no saturar la respuesta
-            })
+            results.append(
+                {
+                    "note_id": row["id"],
+                    "note_title": row["title"],
+                    "tag": found_tag,
+                    "text": text[:200],  # recorte para no saturar la respuesta
+                }
+            )
     return {"annotations": results}
+
 
 @router.delete("/api/notes/{note_id}")
 def delete_note(note_id: str):
@@ -443,18 +603,19 @@ def update_note_meta(note_id: str, data: NoteMetaUpdate):
     if not os.path.exists(filepath):
         return JSONResponse(status_code=404, content={"error": "Nota no encontrada"})
 
-    with open(filepath, 'r', encoding='utf-8') as f:
+    previous = note_version(filepath)
+    with open(filepath, encoding="utf-8") as f:
         post = frontmatter.load(f)
-    old_area = split_category_path(post.get('category', ''))[0]
+    old_area = split_category_path(post.get("category", ""))[0]
 
     if data.title is not None and data.title.strip():
-        post['title'] = data.title.strip()
+        post["title"] = data.title.strip()
     if data.category is not None:
-        post['category'] = data.category.strip()
+        post["category"] = data.category.strip()
     with get_db() as conn:
         category_id = valid_category(conn, data.category_id)
     if category_id is not None:
-        post['category_id'] = category_id
+        post["category_id"] = category_id
 
     atomic_write(filepath, frontmatter.dumps(post))
 
@@ -477,7 +638,7 @@ def update_note_meta(note_id: str, data: NoteMetaUpdate):
             params.append(note_id)
             conn.execute(f"UPDATE notes SET {', '.join(updates)} WHERE id=?", params)
             conn.commit()
-    if post.get('status') != 'indice':
-        for area in {old_area, split_category_path(post.get('category', ''))[0]}:
+    if post.get("status") != "indice":
+        for area in {old_area, split_category_path(post.get("category", ""))[0]}:
             update_index_for_area(area)
-    return {"status": "success"}
+    return {"status": "success", "version": note_version(filepath), "previous_version": previous}

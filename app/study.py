@@ -1,4 +1,5 @@
 """Estudio: repaso de flashcards (SM-2), racha de días estudiados y salud del cerebro."""
+
 import time
 from datetime import datetime
 
@@ -19,6 +20,7 @@ class ReviewInput(BaseModel):
 # ─────────────────────────────────────────────
 # API de Flashcards (SM-2)
 # ─────────────────────────────────────────────
+
 
 def sm2_update(quality: int, repetitions: int, ease_factor: float, interval: float):
     """Algoritmo SM-2 clásico de SuperMemo. quality va de 0 (fallo total) a
@@ -44,19 +46,24 @@ def sm2_update(quality: int, repetitions: int, ease_factor: float, interval: flo
 def get_due_flashcards(limit: int = 20):
     limit = max(1, min(limit, 500))
     with get_db() as conn:
-        rows = conn.execute('''
+        rows = conn.execute(
+            """
             SELECT f.*, n.title as note_title FROM flashcards f
             JOIN notes n ON n.id = f.note_id
             WHERE f.next_review <= ? ORDER BY f.next_review ASC LIMIT ?
-        ''', (time.time(), limit)).fetchall()
+        """,
+            (time.time(), limit),
+        ).fetchall()
     return {"cards": [dict(r) for r in rows]}
 
 
 @router.get("/api/flashcards/stats")
 def get_flashcard_stats():
     with get_db() as conn:
-        total = conn.execute("SELECT COUNT(*) as n FROM flashcards").fetchone()['n']
-        due = conn.execute("SELECT COUNT(*) as n FROM flashcards WHERE next_review <= ?", (time.time(),)).fetchone()['n']
+        total = conn.execute("SELECT COUNT(*) as n FROM flashcards").fetchone()["n"]
+        due = conn.execute("SELECT COUNT(*) as n FROM flashcards WHERE next_review <= ?", (time.time(),)).fetchone()[
+            "n"
+        ]
     return {"total": total, "due": due}
 
 
@@ -67,11 +74,14 @@ def review_flashcard(card_id: int, data: ReviewInput):
         if not card:
             return JSONResponse(status_code=404, content={"error": "Tarjeta no encontrada"})
         quality = max(0, min(5, data.quality))
-        reps, ef, interval = sm2_update(quality, card['repetitions'], card['ease_factor'], card['interval_days'])
+        reps, ef, interval = sm2_update(quality, card["repetitions"], card["ease_factor"], card["interval_days"])
         next_review = time.time() + interval * 86400
-        conn.execute('''
+        conn.execute(
+            """
             UPDATE flashcards SET repetitions=?, ease_factor=?, interval_days=?, next_review=? WHERE id=?
-        ''', (reps, ef, interval, next_review, card_id))
+        """,
+            (reps, ef, interval, next_review, card_id),
+        )
         conn.commit()
     register_study_day()
     return {"status": "success", "next_review_in_days": interval}
@@ -80,6 +90,7 @@ def review_flashcard(card_id: int, data: ReviewInput):
 # ─────────────────────────────────────────────
 # Racha de estudio
 # ─────────────────────────────────────────────
+
 
 def register_study_day():
     with get_db() as conn:
@@ -91,10 +102,10 @@ def register_study_day():
 def get_streak():
     with get_db() as conn:
         rows = conn.execute("SELECT day FROM study_days ORDER BY day DESC").fetchall()
-    days = {r['day'] for r in rows}
+    days = {r["day"] for r in rows}
     streak = 0
     cursor_date = datetime.now().date()
-    while cursor_date.strftime('%Y-%m-%d') in days:
+    while cursor_date.strftime("%Y-%m-%d") in days:
         streak += 1
         cursor_date = cursor_date.fromordinal(cursor_date.toordinal() - 1)
     return {"streak": streak, "studied_today": today_str() in days, "total_days": len(days)}
@@ -104,23 +115,27 @@ def get_streak():
 # Panel de salud del cerebro
 # ─────────────────────────────────────────────
 
+
 @router.get("/api/brain-health")
 def brain_health():
     with get_db() as conn:
-        orphans = conn.execute('''
+        orphans = conn.execute("""
             SELECT id, title FROM notes n
             WHERE NOT EXISTS (SELECT 1 FROM graph_edges e WHERE e.source=n.id OR e.target=n.id)
             ORDER BY title
-        ''').fetchall()
-        stale = conn.execute('''
+        """).fetchall()
+        stale = conn.execute(
+            """
             SELECT id, title, last_modified FROM notes
             WHERE last_modified < ? ORDER BY last_modified ASC LIMIT 10
-        ''', (time.time() - 60 * 86400,)).fetchall()
-        pending_by_category = conn.execute('''
+        """,
+            (time.time() - 60 * 86400,),
+        ).fetchall()
+        pending_by_category = conn.execute("""
             SELECT category, COUNT(*) as n FROM notes
             WHERE status='por-escribir' GROUP BY category ORDER BY n DESC
-        ''').fetchall()
-        total_notes = conn.execute("SELECT COUNT(*) as n FROM notes").fetchone()['n']
+        """).fetchall()
+        total_notes = conn.execute("SELECT COUNT(*) as n FROM notes").fetchone()["n"]
     return {
         "orphans": [dict(r) for r in orphans],
         "stale": [dict(r) for r in stale],

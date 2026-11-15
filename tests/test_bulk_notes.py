@@ -1,4 +1,5 @@
 """Fase 6: gestión masiva de notas (lote, borrado con deshacer, duplicar, CSV/JSON)."""
+
 import frontmatter
 
 from core import config
@@ -7,7 +8,13 @@ BASE = "/api/bulk/notes"
 
 
 def _crear(client, note_id, **kw):
-    body = {"title": note_id.upper(), "category": "Lote - A", "tags": ["uno"], "content": f"Texto {note_id}\n¿P? >> R", **kw}
+    body = {
+        "title": note_id.upper(),
+        "category": "Lote - A",
+        "tags": ["uno"],
+        "content": f"Texto {note_id}\n¿P? >> R",
+        **kw,
+    }
     assert client.post(f"/api/notes/{note_id}", json=body).status_code == 200
 
 
@@ -18,8 +25,16 @@ def _fm(note_id):
 def test_editar_en_lote(client):
     _crear(client, "lote-1")
     _crear(client, "lote-2", tags=["uno", "dos"])
-    r = client.post(f"{BASE}/update", json={"ids": ["lote-1", "lote-2", "no-existe"], "category": "Lote - B",
-                                            "status": "consolidado", "tags_add": ["nuevo"], "tags_remove": ["uno"]})
+    r = client.post(
+        f"{BASE}/update",
+        json={
+            "ids": ["lote-1", "lote-2", "no-existe"],
+            "category": "Lote - B",
+            "status": "consolidado",
+            "tags_add": ["nuevo"],
+            "tags_remove": ["uno"],
+        },
+    )
     assert r.status_code == 200, r.text
     assert r.json()["updated"] == 2 and r.json()["skipped"] == ["no-existe"]
     post = _fm("lote-2")
@@ -71,11 +86,13 @@ def test_exportar(client):
 
 def test_importar_csv_con_vista_previa(client):
     _crear(client, "imp-existe")
-    csv_txt = ("id,title,category,status,tags,content\n"
-               "imp-nueva,Importada,Imp - X,consolidado,\"t1, t2\",Hola\n"
-               "imp-existe,Ya está,Imp,,,\n"
-               ",,,,,sin título\n"
-               ",Título Con Acentos Á,Imp,,,\n")
+    csv_txt = (
+        "id,title,category,status,tags,content\n"
+        'imp-nueva,Importada,Imp - X,consolidado,"t1, t2",Hola\n'
+        "imp-existe,Ya está,Imp,,,\n"
+        ",,,,,sin título\n"
+        ",Título Con Acentos Á,Imp,,,\n"
+    )
     files = {"file": ("notas.csv", csv_txt.encode(), "text/csv")}
     prev = client.post(f"{BASE}/import", files=files, data={"dry_run": "true"}).json()
     assert prev["status"] == "preview"
@@ -93,7 +110,9 @@ def test_importar_csv_con_vista_previa(client):
 def test_importar_json_sobrescribir(client):
     _crear(client, "imp-json")
     body = b'{"notes": [{"id": "imp-json", "title": "Nueva", "content": "x", "tags": ["z"]}]}'
-    res = client.post(f"{BASE}/import", files={"file": ("n.json", body, "application/json")}, data={"mode": "overwrite"}).json()
+    res = client.post(
+        f"{BASE}/import", files={"file": ("n.json", body, "application/json")}, data={"mode": "overwrite"}
+    ).json()
     assert res["sobrescribir"] == ["imp-json"]
     assert _fm("imp-json")["title"] == "Nueva"
     bad = client.post(f"{BASE}/import", files={"file": ("n.json", b"{roto", "application/json")})
@@ -103,6 +122,7 @@ def test_importar_json_sobrescribir(client):
 def test_papelera_caducada_se_purga(client):
     import os
     import time
+
     viejo = config.TRASH_DIR / "token-viejo"
     viejo.mkdir(parents=True, exist_ok=True)
     (viejo / "x.md").write_text("x")

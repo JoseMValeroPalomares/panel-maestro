@@ -250,6 +250,33 @@ function fillDatalist(id, values) {
   dl.replaceChildren(...values.map((v) => Object.assign(document.createElement('option'), { value: v })));
 }
 
+/* ---------- Dónde va: contexto, asignatura o proyecto (como en el Panel; la última elección por defecto) ---------- */
+const CTX_KEY = 'lastWhere';
+let lastWhere = 'puntual';
+function whereOptions(d) {
+  const opt = (v, l) => `<option value="${v}">${l.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))}</option>`;
+  return opt('puntual', 'Puntual')
+    + `<optgroup label="Universidad">${opt('universidad', 'Universidad (sin asignatura)')}${(d?.asignaturas || []).map((a) => opt(`a:${a.id}`, `${a.codigo} · ${a.nombre}`)).join('')}</optgroup>`
+    + `<optgroup label="Proyectos">${opt('proyectos', 'Proyectos (sin proyecto)')}${(d?.proyectos || []).filter((p) => p.estado !== 'terminado').map((p) => opt(`p:${p.id}`, p.nombre)).join('')}</optgroup>`;
+}
+function fillWhere(d) {
+  document.querySelectorAll('[data-where]').forEach((sel) => {
+    sel.innerHTML = whereOptions(d);
+    sel.value = [...sel.options].some((o) => o.value === lastWhere) ? lastWhere : 'puntual';
+  });
+}
+function wherePatch(sel) {
+  const v = sel.value || 'puntual';
+  if (v.startsWith('a:')) return { asignatura_id: Number(v.slice(2)) };
+  if (v.startsWith('p:')) return { proyecto_id: Number(v.slice(2)) };
+  return { contexto: v };
+}
+document.querySelectorAll('[data-where]').forEach((sel) => sel.addEventListener('change', () => {
+  lastWhere = sel.value;
+  browser.storage.local.set({ [CTX_KEY]: lastWhere });
+  document.querySelectorAll('[data-where]').forEach((o) => { if (o !== sel) o.value = sel.value; });
+}));
+
 async function loadStatus() {
   const queue = (await Panel.getQueue()).length;
   try {
@@ -266,15 +293,23 @@ async function loadStatus() {
     }).catch(() => {});
     if (queue) browser.runtime.sendMessage({ type: 'refresh' }).catch(() => {}); // que el fondo vacíe la cola
     Panel.request('/api/items').then((d) => { items = d.items || []; fillParents(); }).catch(() => {});
+    Panel.request('/api/contextos').then((d) => { fillWhere(d); browser.storage.local.set({ ctxCache: { asignaturas: d.asignaturas, proyectos: d.proyectos } }); }).catch(() => {});
   } catch (err) {
-    if (err.kind === 'config') { setStatus('idle', 'Sin configurar'); $('setup').hidden = false; return; }
+    if (err.kind === 'config') {
+      setStatus('idle', err.permission ? 'Falta el permiso' : 'Sin configurar');
+      if (err.permission) $('setupText').textContent = 'Falta el permiso para la dirección del Panel (desde la 2.9 se da una vez).';
+      $('setup').hidden = false;
+      return;
+    }
     if (err.kind === 'auth') { setStatus('error', 'Token no válido'); $('setup').hidden = false; return; }
     setStatus(queue ? 'queue' : 'error', 'Sin conexión' + (queue ? ` · ${queue} en cola` : ': se guardará en la cola'));
   }
 }
 
 async function init() {
-  const store = await browser.storage.local.get(['pending', 'lastTab', 'lastType', 'includeLink', 'lastVaultCat']);
+  const store = await browser.storage.local.get(['pending', 'lastTab', 'lastType', 'includeLink', 'lastVaultCat', CTX_KEY, 'ctxCache']);
+  lastWhere = store[CTX_KEY] || 'puntual';
+  fillWhere(store.ctxCache);  // sin conexión vale la última lista conocida
   let pending = store.pending && Date.now() - store.pending.at < 60_000 ? store.pending : null;
   if (store.pending) await browser.storage.local.remove('pending');
   page = pending?.page?.url ? pending.page : await currentPage();
@@ -322,19 +357,24 @@ async function submit(kind) {
     const content = Panel.composeInbox($('content').value, page, $('includeLink').checked && !$('includeLink').closest('label').hidden);
     if (!content) { showResult('error', 'Escribe algo o selecciona texto en la página'); $('content').focus(); return; }
     const parent = Number($('parent').value) || null;
-    if (!parent && PREFIX_RE.test(content)) { kind = 'capture'; body = { text: content }; }   // t: i: r: e: como en el Panel
-    else body = { text: content, type: itemType === 'nota' ? 'idea' : 'tarea', priority: getPriority() || null, category: $('inboxCategory').value.trim() || null, parent_id: parent };
+    const where = parent ? {} : wherePatch($('whereInbox'));   // un paso va con su elemento
+    if (!parent && PREFIX_RE.test(content)) { kind = 'capture'; body = { text: content, ...where }; }   // t: i: r: e: como en el Panel
+    else body = { text: content, type: itemType === 'nota' ? 'idea' : 'tarea', priority: getPriority() || null, category: $('inboxCategory').value.trim() || null, parent_id: parent, ...where };
   } else {
     const url = $('vaultUrl').value.trim();
     if (!Panel.isWebUrl(url)) { showResult('error', 'El enlace debe empezar por http:// o https://'); $('vaultUrl').focus(); return; }
     const category = $('vaultCategory').value.trim() || 'General';
-    body = { url, category, watch_later: vaultState === 'later', watched: vaultState === 'seen' };
+    body = { url, category, watch_later: vaultState === 'later', watched: vaultState === 'seen', ...wherePatch($('whereVault')) };
     browser.storage.local.set({ lastVaultCat: $('vaultCategory').value.trim() });
   }
   btn.disabled = true;
   try {
     const r = await Panel.send(kind, body);
     if (kind !== 'capture') rememberCategory(kind, kind === 'inbox' ? body.category : $('vaultCategory').value.trim());
+    if (r.sent && r.data?.status === 'error') {  // p. ej. una @mención que no existe: no se ha guardado nada
+      showResult('error', r.data.message || 'No se ha guardado');
+      return;
+    }
     if (r.sent) {
       showResult('ok', kind === 'capture' ? (r.data?.message || 'Guardado') : tab === 'inbox' ? (body.parent_id ? 'Añadido como paso' : `Enviado al Inbox como ${itemType === 'tarea' ? 'tarea' : 'idea'}`) : `Guardado en el Baúl${vaultState === 'seen' ? ' como visto' : vaultState === 'later' ? ' para más tarde' : Classify.isChannel(body.url) ? ' como canal de YouTube' : ''}`);
       setTimeout(() => window.close(), 900);

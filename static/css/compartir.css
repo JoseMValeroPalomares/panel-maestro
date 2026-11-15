@@ -1,0 +1,15 @@
+/* /compartir: destino de «Compartir» de la PWA (F-2) */
+.compartir { max-width: 640px; margin: 0 auto; width: 100%; }
+.compartir-panel .panel-body > p { margin: 0; }
+.share-received { display: flex; flex-direction: column; gap: 4px; padding: var(--sp-3); border-radius: var(--r-md); background: var(--fill); overflow-wrap: anywhere; }
+.share-received .row-sub { color: var(--text-2); font-size: var(--fs-13); }
+.share-actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.share-link { display: flex; align-items: flex-start; gap: var(--sp-3); padding: var(--sp-3); border-radius: var(--r-md); background: var(--fill); }
+.share-link .tile { flex: none; }
+.share-link .row-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.share-link .row-title { font-weight: 600; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
+.share-link .row-sub { color: var(--text-2); font-size: var(--fs-13); overflow-wrap: anywhere; }
+@media (max-width: 479px) {
+  #shareLinkModal .modal-footer { flex-direction: column-reverse; align-items: stretch; }
+  #shareLinkModal .modal-footer .grow { display: none; }
+}

@@ -27,7 +27,9 @@
   const DAY_MS = 86400000;
   const DOW = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
   const VIEW_LABEL = { day: 'Día', '3d': '3 días', week: 'Semana', month: 'Mes', agenda: 'Agenda' };
-  const KIND_LABEL = { evento: 'Evento', examen: 'Examen', entrega: 'Entrega', bloque: 'Bloque' };
+  const KIND_LABEL = { evento: 'Evento', examen: 'Examen', entrega: 'Entrega', bloque: 'Bloque', clase: 'Clase' };
+  // Color de su asignatura o proyecto (static/js/contexto.js); sin él, el del tipo (calendar.css)
+  const tint = (e) => (e.color && /^cat-\d$/.test(e.color) ? `--c: var(--${e.color});` : '');
   const esc = (s) => escapeHtml(s);
 
   /* ---------- Fechas (siempre locales, «AAAA-MM-DD» / «AAAA-MM-DDTHH:MM») ---------- */
@@ -59,6 +61,33 @@
     return out.length ? out : [iso(s)];
   }
 
+  /* ---------- Peticiones compartidas (V-2) ----------
+     Varios calendarios a la vez (Estudio: mes y agenda; la página y su minicalendario) pedían cada uno lo suyo. Si ya hay
+     en vuelo una petición del mismo contexto que cubre el rango, se reutiliza filtrando con las reglas del servidor
+     (app/calendar.py:entries). Nunca tras una escritura: api.writes o un cambio anunciado invalidan lo que ya volaba. */
+  const inflight = [];
+  let changes = 0;
+  document.addEventListener('panel:changed', () => { changes++; });
+  const generation = () => (window.api?.writes || 0) + changes;
+  function inRange(e, lo, hiEx) {
+    if (e.day) return e.day >= lo && e.day < hiEx;                        // rutinas y clases: una entrada por día
+    if (e.kind === 'task') return e.start.slice(0, 10) >= lo && e.start.slice(0, 10) < hiEx;
+    return e.start < hiEx && (e.end == null ? e.start >= lo : e.end > lo);  // eventos: fin exclusivo
+  }
+  function fetchEntries(a, b, ctx) {
+    const lo = iso(a), hi = iso(b), gen = generation();
+    const hit = inflight.find((r) => r.ctx === ctx && r.gen === gen && r.lo <= lo && r.hi >= hi);
+    if (hit) {
+      const hiEx = iso(addDays(b, 1));
+      return hit.p.then((d) => ({ ...d, from: lo, to: hi, entries: structuredClone(d.entries.filter((e) => inRange(e, lo, hiEx))) }));
+    }
+    const req = { ctx, lo, hi, gen };
+    req.p = api(`/api/calendar/entries?start=${lo}&end=${hi}&contexto=${encodeURIComponent(ctx)}`, { quiet: true })
+      .finally(() => inflight.splice(inflight.indexOf(req), 1));
+    inflight.push(req);
+    return req.p;
+  }
+
   /* ---------- Componente ---------- */
   const instances = new Set();
   let dragItem = null;  // tarea arrastrada desde una lista externa
@@ -73,6 +102,13 @@
       this.entries = [];
       this.onChange = opts.onChange;
       this.hide = new Set(opts.hide || []);
+      // Contexto: la página del calendario sigue al activo (Ctx); los bloques de las notas lo ven todo
+      this.followCtx = opts.contexto === undefined && !this.compact && !!window.Ctx;
+      this.ctx = opts.contexto || 'todo';
+      if (this.followCtx) {
+        this.ctx = Ctx.active();
+        document.addEventListener('contexto:changed', () => { this.ctx = Ctx.active(); this.load(); });
+      }
       el.classList.add('cal', `cal-${this.compact ? 'compact' : 'full'}`);
       el.innerHTML = `<div class="cal-body" aria-live="polite"><div class="skeleton skeleton-card"></div></div>`;
       el.addEventListener('click', (e) => this.onClick(e));
@@ -82,7 +118,13 @@
       el.addEventListener('keydown', (e) => this.onKey(e));
       if (!this.compact) this.swipe();
       instances.add(this);
-      this.load();
+      if (this.followCtx && Prefs.ready) {
+        const fresh = () => { if (this.ctx !== Ctx.active() || !this.requested) { this.ctx = Ctx.active(); this.load(); } };
+        // Con preferencias en caché se pinta ya y, si las del servidor traen otro contexto, se recarga. En la primera
+        // visita (sin caché) aún no se sabe el contexto: se espera a ellas para no pedirlo dos veces (V-2)
+        if (Prefs.cached) this.load();
+        Prefs.ready.catch(() => {}).then(fresh);
+      } else this.load();
     }
 
     /* ---------- Rango visible ---------- */
@@ -130,13 +172,15 @@
     }
 
     async load() {
+      this.requested = true;
       const [a, b] = this.range();
       try {
-        const data = await api(`/api/calendar/entries?start=${iso(a)}&end=${iso(b)}`, { quiet: true });
+        const data = await fetchEntries(a, b, this.ctx);
         const noRoutines = !this.compact && window.Prefs?.get(ROUTINES_KEY, true) === false;
         this.entries = data.entries.filter((e) => !this.hide.has(e.kind) && !(noRoutines && e.kind === 'routine'));
         // un pintado anterior (al llegar las preferencias) no sabía aún qué hay: la primera vez se coloca con los datos
         if (!this.placed) { this.placed = true; this.keepScroll = null; }
+        this.loads = (this.loads || 0) + 1;  // datos nuevos (calendario.js refresca entonces los puntos del minicalendario)
       } catch {
         showState(this.el.querySelector('.cal-body'), loadFailed('No se pudo cargar el calendario', true), () => this.load());
         return;
@@ -204,7 +248,7 @@
       const t = e.all_day ? '' : `<span class="cal-time tabular">${e.start.slice(11, 16)}${this.view === 'agenda' && e.end ? `–${e.end.slice(11, 16)}` : ''}</span>`;
       const loc = this.view === 'agenda' && e.location ? `<span class="cal-loc">${icon('map-pin', 'icon-sm')}${esc(e.location)}</span>` : '';
       const check = e.kind !== 'event' ? `<span class="cal-check" data-cal-check="${esc(e.key)}" role="checkbox" aria-checked="${e.done}" aria-label="${e.done ? 'Desmarcar' : 'Marcar'}: ${esc(e.title)}" tabindex="-1">${icon(e.done ? 'circle-check' : 'circle', 'icon-sm')}</span>` : '';
-      return `<button type="button" class="cal-chip${done}" data-key="${esc(e.key)}" data-kind="${e.kind}" data-type="${esc(e.type)}" ${extra}
+      return `<button type="button" class="cal-chip${done}" data-key="${esc(e.key)}" data-kind="${e.kind}" data-type="${esc(e.type)}" ${extra} style="${tint(e)}"
         aria-label="${esc(this.describe(e))}">${check}${t}<span class="cal-title">${esc(e.title)}</span>${loc}</button>`;
     }
 
@@ -244,7 +288,7 @@
             const top = this.y(s0);
             const h = Math.max(18, (endM - s0) / 60 * this.hour - 2);
             return `<div class="cal-ev${e.done ? ' is-done' : ''}${h < 40 ? ' is-short' : ''}${h < 26 ? ' is-tiny' : ''}${e.step ? ' is-step' : ''}" data-key="${esc(e.key)}" data-kind="${e.kind}" data-type="${esc(e.type)}"
-              style="top:${top}px;height:${h}px;left:calc(${col / n * 100}% + 2px);width:calc(${100 / n}% - 4px)">
+              style="${tint(e)}top:${top}px;height:${h}px;left:calc(${col / n * 100}% + 2px);width:calc(${100 / n}% - 4px)">
               <button type="button" class="cal-ev-main" data-key="${esc(e.key)}" aria-label="${esc(this.describe(e))}">
                 ${e.kind !== 'event' ? `<span class="cal-check" data-cal-check="${esc(e.key)}" role="checkbox" aria-checked="${e.done}" aria-label="${e.done ? 'Desmarcar' : 'Marcar'}" tabindex="-1">${icon(e.done ? 'circle-check' : 'circle', 'icon-sm')}</span>` : ''}
                 <span class="cal-title">${esc(e.title)}</span>
@@ -287,7 +331,7 @@
           html += `<button type="button" class="cal-mcell cal-mcell-dots${dt.getMonth() !== month ? ' is-out' : ''}${d === today ? ' is-today' : ''}${isWeekend(d) ? ' is-weekend' : ''}" data-goto="${d}"
             aria-label="${esc(fmtDay(dt, { weekday: 'long', day: 'numeric', month: 'long' }))}${list.length ? `: ${list.length} ${list.length === 1 ? 'cosa' : 'cosas'}` : ''}">
             <span class="cal-mnum tabular">${dt.getDate()}</span>
-            <span class="cal-mdots" aria-hidden="true">${list.slice(0, 4).map((e) => `<i data-kind="${e.kind}" data-type="${esc(e.type)}"${e.done ? ' class="is-done"' : ''}></i>`).join('')}${list.length > 4 ? `<b class="tiny">+${list.length - 4}</b>` : ''}</span></button>`;
+            <span class="cal-mdots" aria-hidden="true">${list.slice(0, 4).map((e) => `<i data-kind="${e.kind}" data-type="${esc(e.type)}" style="${tint(e)}"${e.done ? ' class="is-done"' : ''}></i>`).join('')}${list.length > 4 ? `<b class="tiny">+${list.length - 4}</b>` : ''}</span></button>`;
           continue;
         }
         html += `<div class="cal-mcell${dt.getMonth() !== month ? ' is-out' : ''}${d === today ? ' is-today' : ''}${isWeekend(d) ? ' is-weekend' : ''}" data-day="${d}" data-allday>
@@ -395,6 +439,7 @@
       const start = { x: ev.clientX, y: ev.clientY, t: Date.now() };
       let mode = null, timer = null, moved = false, ghost = null;
       const e = evEl || resize ? this.entry((resize || evEl).dataset.key || resize.dataset.resize) : null;
+      if (e?.recurring) return;  // una clase que se repite: se cambia en su editor (toda la serie), no arrastrando un día
       const begin = () => {
         if (resize) mode = 'resize';
         else if (e) mode = 'move';
@@ -591,7 +636,7 @@
     if (window.Items?.state?.loaded) Items.load();
   }
   // Cambios hechos en otra pestaña (o en la lista de tareas de esta página)
-  onDataChange(/^\/api\/(calendar|items|routines|inbox)/, refreshAll);
+  onDataChange(/^\/api\/(calendar|items|routines|inbox|capture)/, refreshAll);
 
   /* ---------- Programar una tarea (bloque de tiempo) ---------- */
   async function scheduleItem(id, day, time, dur = 60) {
@@ -632,7 +677,7 @@
           <div class="form-row-body stack-sm">
             <div class="form-line">
               <label class="sr-only" for="calEdDay">${e.kind === 'routine' ? 'Día (solo este)' : 'Día'}</label>
-              <input id="calEdDay" name="day" type="date" class="input input-sm" value="${day}" ${e.kind === 'routine' ? 'disabled' : ''}>
+              <input id="calEdDay" name="day" type="date" class="input input-sm" value="${e.recurring ? e.series_start.slice(0, 10) : day}" ${e.kind === 'routine' ? 'disabled' : ''} ${e.recurring ? 'title="Primer día de la serie"' : ''}>
               <span class="grow"></span>
               <label class="switch-row tiny"><input type="checkbox" class="switch" name="all_day" ${e.all_day ? 'checked' : ''}><span>Todo el día</span></label>
             </div>
@@ -647,19 +692,22 @@
             </div>
             ${isEvent ? `<div class="form-line" data-allday-only><label class="tiny muted" for="calEdDayEnd">Hasta el</label><input id="calEdDayEnd" name="day_end" type="date" class="input input-sm" value="${lastDay}"></div>` : ''}
           </div></div>
+        ${isEvent && window.Ctx ? `<div class="form-row"><span class="form-row-ico" aria-hidden="true">${icon('layers', 'icon-sm')}</span>
+          <div class="form-row-body"><label class="sr-only" for="calEdWhere">Dónde va</label><select id="calEdWhere" name="where" class="select input-sm">${Ctx.whereOptions(e.isNew && !e.contexto ? { contexto: Ctx.forNew() } : e)}</select></div></div>` : ''}
+        ${e.recurring ? `<p class="tiny muted">${icon('repeat', 'icon-sm')} ${esc(e.repeat_text || 'Se repite')}${e.repeat_until ? ` hasta el ${esc(e.repeat_until.split('-').reverse().join('/'))}` : ''}. Los cambios valen para todos los días.</p>` : ''}
         ${isEvent ? `<div class="form-row"><span class="form-row-ico" aria-hidden="true">${icon('map-pin', 'icon-sm')}</span>
           <div class="form-row-body"><label class="sr-only" for="calEdLoc">Lugar</label><input id="calEdLoc" name="location" class="input input-sm" maxlength="300" value="${esc(e.location || '')}" placeholder="Lugar (opcional)" autocomplete="off"></div></div>` : ''}
         <div class="form-row"><span class="form-row-ico" aria-hidden="true">${icon('bell', 'icon-sm')}</span>
           <div class="form-row-body"><div class="choice-chips choice-chips-sm" role="radiogroup" aria-label="Aviso">
             ${[[-1, 'Según su tipo'], [0, 'A la hora'], [15, '15 min antes'], [60, '1 h antes'], [1440, '1 día antes']]
-              .map(([v, l]) => `<label class="choice-chip"><input type="radio" name="reminder" value="${v}" ${(e.reminder_min ?? -1) === v || (v === -1 && ![0, 15, 60, 1440].includes(e.reminder_min ?? -1)) ? 'checked' : ''}><span>${l}</span></label>`).join('')}
+              .map(([v, l]) => `<label class="choice-chip"><input type="radio" name="reminder" value="${v}" ${(e.reminder_min ?? (e.isNew && isEvent && window.Rapido ? Rapido.defaults.get('eventos', 'aviso', -1) : -1)) === v || (v === -1 && ![0, 15, 60, 1440].includes(e.reminder_min ?? -1)) ? 'checked' : ''}><span>${l}</span></label>`).join('')}
           </div></div></div>
         ${isEvent ? `<details class="form-details" ${e.notes ? 'open' : ''}><summary>${icon('file-text', 'icon-sm')}Notas</summary>
           <label class="sr-only" for="calEdNotes">Notas</label><textarea id="calEdNotes" name="notes" class="textarea" rows="3" maxlength="20000">${esc(e.notes || '')}</textarea></details>` : ''}
         ${e.source && e.source !== 'panel' ? `<p class="tiny muted">${icon('refresh-cw', 'icon-sm')} Llegó desde ${e.source === 'icloud' ? 'iCloud' : 'el ESP32'}; los cambios se sincronizan.</p>` : ''}
       </form>
       <div class="modal-footer">
-        ${!e.isNew && isEvent ? `<button type="button" class="btn btn-danger" data-del>${icon('trash-2', 'icon-sm')}Borrar</button>
+        ${!e.isNew && isEvent ? `<button type="button" class="btn btn-danger" data-del>${icon('trash-2', 'icon-sm')}${e.recurring ? 'Borrar la serie' : 'Borrar'}</button>
           <button type="button" class="btn btn-ghost btn-icon" data-dup aria-label="Duplicar" title="Duplicar (crea una copia; puedes cambiarle el día)">${icon('copy', 'icon-sm')}</button>` : ''}
         ${!isEvent ? `<a class="btn" href="${e.step ? `/rutinas?dia=${e.day}` : `/tareas?item=${e.item_id}`}">${icon('external-link', 'icon-sm')}Abrir</a>
           <button type="button" class="btn" data-check>${icon(e.done ? 'rotate-ccw' : 'check', 'icon-sm')}${e.done ? 'Desmarcar' : 'Hecha'}</button>` : ''}
@@ -708,7 +756,15 @@
       try {
         if (isEvent) {
           const body = { title: f.title.value.trim(), start, end, all_day: allDay, kind: f.kind.value, notes: f.notes.value, location: f.location.value.trim(), reminder_min: reminder };
-          if (e.isNew) await api('/api/calendar/events', { method: 'POST', body: { ...body, reminder_min: reminder < 0 ? null : reminder } });
+          if (f.where && window.Ctx) {
+            const w = Ctx.whereToPatch(f.where.value);
+            if (e.isNew || f.where.value !== Ctx.whereOf(e)) Object.assign(body, w.contexto ? { contexto: w.contexto, asignatura_id: 0, proyecto_id: 0 } : w);
+            if (e.isNew) { delete body.asignatura_id; delete body.proyecto_id; Object.assign(body, w); }
+          }
+          if (e.isNew) {
+            await api('/api/calendar/events', { method: 'POST', body: { ...body, reminder_min: reminder < 0 ? null : reminder } });
+            window.Rapido?.defaults.set('eventos', 'aviso', reminder);  // el aviso de lo nuevo se recuerda (P-3)
+          }
           else await api(`/api/calendar/events/${e.id}`, { method: 'PATCH', body: { ...body, end: body.end ?? '' } });  // '' = fin por defecto
         } else {
           await cal.save(e, start, end, allDay);
@@ -729,7 +785,8 @@
       openEditor({ ...e, id: null, key: null, uid: null, source: 'panel', isNew: true, title: f.title.value }, cal);
     });
     dlg.querySelector('[data-check]')?.addEventListener('click', () => { closeModal(dlg); cal.toggle(e); });
-    openModal(dlg, { focus: isEvent ? 'input[name=title]' : 'input[name=t0]', onClose: () => dlg.remove() });
+    // Desde la línea rápida («Más opciones») el título ya está: el foco va al primer campo que falta (el lugar)
+    openModal(dlg, { focus: !isEvent ? 'input[name=t0]' : e.isNew && e.title && !e.location ? 'input[name=location]' : 'input[name=title]', onClose: () => dlg.remove() });
   }
 
   /* ---------- Bloques de código ```calendario en las notas ---------- */
@@ -772,7 +829,7 @@
   document.addEventListener('prefs:changed', () => instances.forEach((c) => { if (c.el.isConnected && c.view !== 'month' && c.view !== 'agenda') c.render(); }));
 
   window.Calendar = {
-    mount: (el, opts) => new Cal(el, opts), mountEmbeds, refreshAll, scheduleItem, openEditor,
+    mount: (el, opts) => new Cal(el, opts), mountEmbeds, refreshAll, scheduleItem, openEditor, fetchEntries,
     VIEW_LABEL, iso, parse, addDays, hours: hoursPref, setHours, setHourSize, setShowRoutines,
     get hourSize() { return window.Prefs?.get(SIZE_KEY, 'normal') || 'normal'; },
     get showRoutines() { return window.Prefs?.get(ROUTINES_KEY, true) !== false; },

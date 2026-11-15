@@ -1,0 +1,56 @@
+# Configuración de las herramientas de calidad (C-1). El panel no se instala como paquete: esto no tiene [project].
+# Uso: ruff check . · ruff format . · mypy (solo core/ por ahora) · pytest --cov (ver README, «Desarrollo»)
+
+[tool.ruff]
+# Medido sobre el código: no había un límite fijo; el 95 % de las líneas cabe en 116 caracteres y 120 es lo que usan
+# también los comentarios y los .md del proyecto.
+line-length = 120
+target-version = "py312"   # install.sh pide Python 3.12 o superior
+extend-exclude = ["static/vendor", "esp32_deskclock/build", "docs/historial"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+ignore = [
+    "E501",    # líneas largas: el formateador ya corta el código; lo que queda son textos y comentarios
+    "E731",    # lambda asignada a un nombre: se usa a propósito para atajos de una línea
+    "E741",    # nombres l/I/O: en este código son índices y líneas cortas, sin ambigüedad real
+    "B008",    # Depends()/Query() en los argumentos por defecto: es la forma de FastAPI
+    "B904",    # raise ... from err dentro de except: casi siempre es un HTTPException al cliente, sin traza que guardar
+    "B905",    # zip(strict=): añadirlo cambia el comportamiento; se revisa caso a caso, no en bloque
+    "SIM102",  # if anidados: a veces se leen mejor separados (comentario en cada nivel)
+    "SIM105",  # contextlib.suppress en vez de try/except/pass: discutible, no es un error
+    "SIM108",  # operador ternario en vez de if/else: discutible
+    "SIM118",  # «k in row.keys()»: casi siempre es un sqlite3.Row, donde «k in row» busca en los VALORES (sería un error)
+    "SIM116",  # diccionario en vez de if/elif: discutible
+    "SIM117",  # with anidados: discutible
+    "UP031",   # formato con %: se usa en los mensajes de log, que es lo que recomienda logging
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B011", "B017"]   # assert False y pytest.raises(Exception) valen en los tests
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "core", "comidas", "estudio", "scripts", "tests"]
+
+[tool.ruff.format]
+# Comillas dobles y sangría de 4 espacios: lo que ya usa casi todo el código
+quote-style = "double"
+
+[tool.mypy]
+# Poco estricto para empezar (C-1): solo core/, sin exigir anotaciones, pero comprobando el cuerpo de las funciones
+python_version = "3.12"
+files = ["core"]
+ignore_missing_imports = true
+follow_imports = "silent"
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+
+[tool.coverage.run]
+source = ["app", "core", "comidas", "estudio", "scripts"]
+omit = ["*/__pycache__/*", "tests/*"]
+
+[tool.coverage.report]
+skip_empty = true
+sort = "cover"

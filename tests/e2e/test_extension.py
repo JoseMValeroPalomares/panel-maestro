@@ -4,6 +4,7 @@ Firefox no se puede manejar aquí con la extensión cargada, así que se sirven 
 http://ext.test con una API `browser.*` simulada (almacenamiento, pestaña activa, selección, insignia) y
 Chromium sin la política de mismo origen (una extensión con permiso de host tampoco la tiene).
 """
+
 import glob
 import json
 import os
@@ -14,7 +15,13 @@ import pytest
 
 EXT = Path(__file__).resolve().parents[2] / "EXTENSION PANEL"
 SHOTS = os.environ.get("BOARD_SHOTS")
-TYPES = {".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".json": "application/json"}
+TYPES = {
+    ".html": "text/html",
+    ".js": "text/javascript",
+    ".css": "text/css",
+    ".svg": "image/svg+xml",
+    ".json": "application/json",
+}
 
 MOCK = """(() => {
   const KEY = '__ext_store';
@@ -25,8 +32,11 @@ MOCK = """(() => {
   window.__calls = [];
   window.__listeners = {};
   const ev = (name) => ({ addListener(f) { if (name) __listeners[name] = f; } });
+  // Permisos de host opcionales (2.9): init.perms = orígenes concedidos (por defecto, todos) y lo que se pide al pedir
+  const granted = new Set(init.perms || ['*']);
+  const has = (o) => granted.has('*') || granted.has(o);
   window.browser = {
-    storage: { local: {
+    storage: { onChanged: ev(), local: {
       async get(keys) { const s = read(); const ks = keys == null ? Object.keys(s) : [].concat(keys);
         return Object.fromEntries(ks.filter((k) => k in s).map((k) => [k, s[k]])); },
       async set(o) { write({ ...read(), ...JSON.parse(JSON.stringify(o)) }); },
@@ -34,7 +44,13 @@ MOCK = """(() => {
     } },
     tabs: { query: async () => [init.tab], executeScript: async (o) => [String((o && o.code) || '').includes('panel-progress') ? init.progress : init.selection], create: async (o) => __calls.push(['tab', o.url]) },
     runtime: { getURL: (p) => 'http://ext.test/' + p, sendMessage: async (m) => __calls.push(['msg', m.type]), openOptionsPage: async () => __calls.push(['options']),
-               onMessage: ev(), onStartup: ev(), onInstalled: ev() },
+               onMessage: ev(), onStartup: ev(), onInstalled: ev('installed') },
+    permissions: {
+      contains: async ({ origins }) => origins.every(has),
+      request: async ({ origins }) => { __calls.push(['perm', ...origins]); if (init.deny) return false; origins.forEach((o) => granted.add(o)); return true; },
+      onAdded: ev(), onRemoved: ev(),
+    },
+    contentScripts: { register: async (o) => { __calls.push(['cs', ...o.matches]); return { unregister: async () => {} }; } },
     contextMenus: { removeAll: async () => {}, create(o) { (window.__menus ||= []).push(o.id); }, onClicked: ev('menu') },
     notifications: { create: async (o) => { __calls.push(['notify', o.title, o.message]); } },
     commands: { onCommand: ev() },
@@ -49,8 +65,7 @@ MOCK = """(() => {
 @pytest.fixture(scope="module")
 def nocors(browser):
     """Otro Chromium del mismo Playwright (solo puede haber uno abierto), sin la política de mismo origen."""
-    b = browser.browser_type.launch(executable_path=_exe(), headless=True,
-                                    args=["--disable-web-security"])
+    b = browser.browser_type.launch(executable_path=_exe(), headless=True, args=["--disable-web-security"])
     yield b
     b.close()
 
@@ -60,7 +75,19 @@ def _exe():
     return os.environ.get("PLAYWRIGHT_CHROMIUM") or found[-1]
 
 
-def open_ext(nocors, page_name, store, tab=None, selection="", width=380, height=600, progress=None, start="inbox"):
+def open_ext(
+    nocors,
+    page_name,
+    store,
+    tab=None,
+    selection="",
+    width=380,
+    height=600,
+    progress=None,
+    start="inbox",
+    perms=None,
+    deny=False,
+):
     ctx = nocors.new_context(viewport={"width": width, "height": height})
     page = ctx.new_page()
     errors = []
@@ -69,17 +96,29 @@ def open_ext(nocors, page_name, store, tab=None, selection="", width=380, height
     def serve(route):
         name = route.request.url.split("http://ext.test/", 1)[1].split("?")[0]
         if name == "__bg.html":
-            return route.fulfill(body='<!doctype html><script src="lib/panel.js"></script><script src="background.js"></script>', content_type="text/html")
+            return route.fulfill(
+                body='<!doctype html><script src="lib/panel.js"></script><script src="background.js"></script>',
+                content_type="text/html",
+            )
         f = EXT / name
-        route.fulfill(body=f.read_bytes(), content_type=TYPES.get(f.suffix, "application/octet-stream")) if f.is_file() else route.fulfill(status=404)
+        route.fulfill(
+            body=f.read_bytes(), content_type=TYPES.get(f.suffix, "application/octet-stream")
+        ) if f.is_file() else route.fulfill(status=404)
 
     page.route("http://ext.test/**", serve)
-    init = {"store": store, "tab": tab or {"url": "https://ejemplo.org/articulo", "title": "Un artículo"}, "selection": selection, "progress": progress}
+    init = {
+        "store": store,
+        "tab": tab or {"url": "https://ejemplo.org/articulo", "title": "Un artículo"},
+        "selection": selection,
+        "progress": progress,
+        "perms": perms,
+        "deny": deny,
+    }
     page.add_init_script(MOCK % {"init": json.dumps(init)})
     page.goto(f"http://ext.test/{page_name}")
     page.wait_for_load_state("networkidle")
     if page_name == "popup.html" and start and not selection and not store.get("pending"):
-        page.click(f"#tab-{start}")   # el popup abre en el Baúl: estos tests parten de la pestaña que usan
+        page.click(f"#tab-{start}")  # el popup abre en el Baúl: estos tests parten de la pestaña que usan
     return ctx, page, errors
 
 
@@ -143,7 +182,7 @@ def test_el_popup_abre_siempre_en_el_baul(nocors, server):
     ctx, page, errors = open_ext(nocors, "popup.html", {"baseUrl": server, "token": "t", "lastTab": "cal"}, start=None)
     try:
         assert page.get_attribute("#tab-vault", "aria-selected") == "true" and page.is_visible("#panel-vault")
-        assert page.locator(".tabs [role=tab]").first.get_attribute("id") == "tab-vault"          # y es la primera pestaña
+        assert page.locator(".tabs [role=tab]").first.get_attribute("id") == "tab-vault"  # y es la primera pestaña
         assert not errors, errors
     finally:
         ctx.close()
@@ -151,13 +190,16 @@ def test_el_popup_abre_siempre_en_el_baul(nocors, server):
 
 def test_popup_baul_clasifica_solo_un_video_nuevo_como_ver_mas_tarde(nocors, server, api):
     url = "https://www.youtube.com/watch?v=extension12&list=PLabc&t=33s"
-    ctx, page, errors = open_ext(nocors, "popup.html", {"baseUrl": server, "token": "t"}, start=None,
-                                 tab={"url": url, "title": "Un vídeo"})
+    ctx, page, errors = open_ext(
+        nocors, "popup.html", {"baseUrl": server, "token": "t"}, start=None, tab={"url": url, "title": "Un vídeo"}
+    )
     try:
         page.wait_for_function("document.getElementById('detectedBadge').textContent !== 'Enlace web'")
         assert page.input_value("#vaultUrl") == url and "Vídeo de YouTube" in page.text_content("#kind")
-        assert page.text_content("#detectedBadge") == "Ver más tarde" and "nuevo" in page.text_content("#detectedReason")
-        assert not page.is_visible("#vaultState")                      # el selector está plegado: no hace falta tocarlo
+        assert page.text_content("#detectedBadge") == "Ver más tarde" and "nuevo" in page.text_content(
+            "#detectedReason"
+        )
+        assert not page.is_visible("#vaultState")  # el selector está plegado: no hace falta tocarlo
         page.fill("#vaultCategory", "Ver")
         if SHOTS:
             page.screenshot(path=f"{SHOTS}/ext-popup-baul.png", full_page=True)
@@ -165,7 +207,11 @@ def test_popup_baul_clasifica_solo_un_video_nuevo_como_ver_mas_tarde(nocors, ser
         page.wait_for_selector("#result[data-type=ok]")
         assert "para más tarde" in page.text_content("#result")
         res = next(r for r in api.get("/api/resources").json()["resources"] if "extension12" in r["url"])
-        assert res["category"] == "Ver" and res["watch_later"] == 1 and res["url"] == "https://www.youtube.com/watch?v=extension12"
+        assert (
+            res["category"] == "Ver"
+            and res["watch_later"] == 1
+            and res["url"] == "https://www.youtube.com/watch?v=extension12"
+        )
         # el mismo vídeo con otra URL (youtu.be, con tiempo): ya está en el Baúl → se detecta «visto» y se marca sin duplicar
         page.evaluate("localStorage.setItem('__ext_tab', 1)")
         page.reload()
@@ -189,8 +235,13 @@ def test_popup_baul_clasifica_solo_un_video_nuevo_como_ver_mas_tarde(nocors, ser
 
 def test_popup_baul_canal_y_umbral_de_visto(nocors, server, api):
     # página de un canal → se guarda como canal de YouTube, sin tocar el selector
-    ctx, page, errors = open_ext(nocors, "popup.html", {"baseUrl": server, "token": "t"}, start=None,
-                                 tab={"url": "https://www.youtube.com/@CanalDeExtension", "title": "Canal"})
+    ctx, page, errors = open_ext(
+        nocors,
+        "popup.html",
+        {"baseUrl": server, "token": "t"},
+        start=None,
+        tab={"url": "https://www.youtube.com/@CanalDeExtension", "title": "Canal"},
+    )
     try:
         page.wait_for_function("document.getElementById('detectedBadge').textContent === 'Canal de YouTube'")
         page.click("#saveVault")
@@ -202,8 +253,14 @@ def test_popup_baul_canal_y_umbral_de_visto(nocors, server, api):
         ctx.close()
     # vídeo nuevo con el 80 % reproducido (umbral por defecto 50 %) → visto; con el 10 % → ver más tarde
     for vid, played, esperado in (("extprogres1", 800, "Visto"), ("extprogres2", 100, "Ver más tarde")):
-        ctx, page, errors = open_ext(nocors, "popup.html", {"baseUrl": server, "token": "t"}, start=None,
-                                     tab={"url": f"https://www.youtube.com/watch?v={vid}", "title": "V"}, progress={"played": played, "duration": 1000})
+        ctx, page, errors = open_ext(
+            nocors,
+            "popup.html",
+            {"baseUrl": server, "token": "t"},
+            start=None,
+            tab={"url": f"https://www.youtube.com/watch?v={vid}", "title": "V"},
+            progress={"played": played, "duration": 1000},
+        )
         try:
             page.wait_for_function(f"document.getElementById('detectedBadge').textContent === '{esperado}'")
             if esperado == "Visto":
@@ -213,17 +270,24 @@ def test_popup_baul_canal_y_umbral_de_visto(nocors, server, api):
 
 
 def test_popup_baul_web_sin_clasificar_y_cambio_manual(nocors, server, api):
-    ctx, page, errors = open_ext(nocors, "popup.html", {"baseUrl": server, "token": "t", "lastVaultCat": "Lecturas"}, start=None)
+    ctx, page, errors = open_ext(
+        nocors, "popup.html", {"baseUrl": server, "token": "t", "lastVaultCat": "Lecturas"}, start=None
+    )
     try:
         page.wait_for_function("document.getElementById('detectedBadge').textContent !== ''")
         assert page.text_content("#detectedBadge") == "Enlace web"
-        assert page.input_value("#vaultCategory") == "Lecturas"           # la última categoría usada sigue de partida
-        page.click("#detectedChange")                                      # un clic para cambiarlo
+        assert page.input_value("#vaultCategory") == "Lecturas"  # la última categoría usada sigue de partida
+        page.click("#detectedChange")  # un clic para cambiarlo
         page.click("#vaultState [data-state=seen]")
-        assert page.text_content("#detectedBadge") == "Visto" and page.get_attribute("#vaultState [data-state=seen]", "aria-pressed") == "true"
+        assert (
+            page.text_content("#detectedBadge") == "Visto"
+            and page.get_attribute("#vaultState [data-state=seen]", "aria-pressed") == "true"
+        )
         page.click("#saveVault")
         page.wait_for_selector("#result[data-type=ok]")
-        res = next(r for r in api.get("/api/resources").json()["resources"] if r["url"] == "https://ejemplo.org/articulo")
+        res = next(
+            r for r in api.get("/api/resources").json()["resources"] if r["url"] == "https://ejemplo.org/articulo"
+        )
         assert res["watched"] == 1 and res["category"] == "Lecturas"
     finally:
         ctx.close()
@@ -239,7 +303,9 @@ def test_sin_conexion_cola_y_el_fondo_la_envia(nocors, server, api):
         assert "cola (1)" in page.text_content("#result")
         assert len(store_of(page)["queue"]) == 1
         # vuelve la conexión: el fondo vacía la cola y pone en la insignia los pendientes
-        page.evaluate(f"localStorage.setItem('__ext_store', JSON.stringify({{...JSON.parse(localStorage.getItem('__ext_store')), baseUrl: '{server}'}}))")
+        page.evaluate(
+            f"localStorage.setItem('__ext_store', JSON.stringify({{...JSON.parse(localStorage.getItem('__ext_store')), baseUrl: '{server}'}}))"
+        )
         page.goto("http://ext.test/__bg.html")
         page.wait_for_function("window.__badge !== undefined")
         page.wait_for_timeout(300)
@@ -252,25 +318,31 @@ def test_sin_conexion_cola_y_el_fondo_la_envia(nocors, server, api):
         ctx.close()
 
 
-
 def test_envio_rapido_desde_el_menu_contextual(nocors, server, api):
     ctx, page, errors = open_ext(nocors, "__bg.html", {"baseUrl": server, "token": "t", "includeLink": False})
     try:
         page.wait_for_function("window.__badge !== undefined")
         assert {"quick-selection", "quick-link"} <= set(page.evaluate("__menus"))
         tab = {"url": "https://ejemplo.org/a", "title": "Página A"}
-        page.evaluate("([t]) => __listeners.menu({ menuItemId: 'quick-selection', selectionText: 'Llamar al dentista' }, t)", [tab])
+        page.evaluate(
+            "([t]) => __listeners.menu({ menuItemId: 'quick-selection', selectionText: 'Llamar al dentista' }, t)",
+            [tab],
+        )
         page.wait_for_function("__calls.some((c) => c[0] === 'notify')")
         assert ["notify", "Enviado al Inbox", "Llamar al dentista"] in page.evaluate("__calls")
         item = next(i for i in inbox_items(api) if i["text"].startswith("Llamar al dentista"))
         assert item["text"] == "Llamar al dentista" and item["type"] == "tarea"  # sin enlace: como en el popup
         # un enlace va siempre con su dirección
-        page.evaluate("([t]) => __listeners.menu({ menuItemId: 'quick-link', linkText: 'Guía rápida', linkUrl: 'https://ejemplo.org/guia' }, t)", [tab])
+        page.evaluate(
+            "([t]) => __listeners.menu({ menuItemId: 'quick-link', linkText: 'Guía rápida', linkUrl: 'https://ejemplo.org/guia' }, t)",
+            [tab],
+        )
         page.wait_for_function("__calls.filter((c) => c[0] === 'notify').length === 2")
         assert any(i["text"] == "Guía rápida\n\nhttps://ejemplo.org/guia" for i in inbox_items(api))
         assert not errors, errors
     finally:
         ctx.close()
+
 
 def test_sin_configurar_y_opciones(nocors, server):
     ctx, page, errors = open_ext(nocors, "popup.html", {})
@@ -299,15 +371,18 @@ def test_sin_configurar_y_opciones(nocors, server):
         ctx.close()
 
 
-
-# ---------- Inicio de sesión automático (autologin.js) ----------
+# ---------- Entrar con el token (autologin.js, 2.9: sin contraseña) ----------
 def open_login(nocors, server, store):
-    """La pantalla de acceso real del servidor con el content script inyectado (sin CSP, como en Firefox)."""
+    """La pantalla de acceso real del servidor con el content script inyectado (sin CSP, como en Firefox).
+    El servidor de pruebas no tiene login: POST /api/ext/sesion se simula y se anotan sus cabeceras."""
     ctx = nocors.new_context()
     page = ctx.new_page()
-    errors, posts = [], []
+    errors, calls = [], []
     # tras entrar, el login navega al panel: Chrome puede abortar la transición entre páginas (no es un fallo)
-    page.on("pageerror", lambda e: not str(e).startswith("Transition was aborted because of invalid state") and errors.append(str(e)))
+    page.on(
+        "pageerror",
+        lambda e: not str(e).startswith("Transition was aborted because of invalid state") and errors.append(str(e)),
+    )
     scripts = '<script src="http://ext.test/lib/panel.js"></script><script src="http://ext.test/autologin.js"></script>'
 
     def ext(route):
@@ -315,80 +390,146 @@ def open_login(nocors, server, store):
         route.fulfill(body=f.read_bytes(), content_type="text/javascript")
 
     def login(route):
-        if route.request.method == "POST":
-            posts.append(route.request.post_data)
         res = route.fetch()
-        # Sin el aviso de «aún no hay contraseña» (depende del .env de la máquina que pasa los tests)
-        html = re.sub(r'<p class="login-msg warn".*?</p>', "", res.text(), flags=re.S).replace("</body>", scripts + "</body>")
-        headers = {k: v for k, v in res.headers.items() if k.lower() not in ("content-security-policy", "content-length")}
+        html = re.sub(r'<p class="login-msg warn".*?</p>', "", res.text(), flags=re.S).replace(
+            "</body>", scripts + "</body>"
+        )
+        headers = {
+            k: v for k, v in res.headers.items() if k.lower() not in ("content-security-policy", "content-length")
+        }
         route.fulfill(status=res.status, headers=headers, body=html)
+
+    def sesion(route):
+        calls.append({"method": route.request.method, **route.request.headers})
+        route.fulfill(status=200, content_type="application/json", body='{"status": "success"}')
 
     page.route("http://ext.test/**", ext)
     page.route(f"{server}/login**", login)
+    page.route(f"{server}/api/ext/sesion", sesion)
     page.add_init_script(MOCK % {"init": json.dumps({"store": store, "tab": {}, "selection": ""})})
-    return ctx, page, errors, posts
+    return ctx, page, errors, calls
 
 
-def test_autologin_escribe_la_contrasena_y_no_reintenta(nocors, server):
-    ctx, page, errors, posts = open_login(nocors, server, {"baseUrl": server, "token": "t", "loginPassword": "secreta-e2e"})
+def test_autologin_entra_con_el_token_y_sigue_a_next(nocors, server):
+    ctx, page, errors, calls = open_login(
+        nocors, server, {"baseUrl": server, "token": "token-ext", "loginPassword": "vieja"}
+    )
     try:
         page.goto(f"{server}/login?next=/tareas")
-        page.wait_for_selector(".login-msg.error")  # el servidor de pruebas no la acepta: vuelve con el error
-        page.wait_for_timeout(500)
-        assert len(posts) == 1, posts  # una sola vez: con el error a la vista no lo vuelve a intentar
-        assert "password=secreta-e2e" in posts[0] and "next=%2Ftareas" in posts[0]
+        page.wait_for_url(f"{server}/tareas")
+        assert len(calls) == 1 and calls[0]["method"] == "POST"
+        assert calls[0]["authorization"] == "Bearer token-ext"
         assert not errors, errors
     finally:
         ctx.close()
 
 
-@pytest.mark.parametrize("store", [
-    {"autoLogin": False, "loginPassword": "secreta-e2e"},      # desactivado en las opciones
-    {"loginPassword": ""},                                      # sin contraseña
-    {"baseUrl": "http://127.0.0.1:9", "loginPassword": "x"},    # otro Panel: solo actúa en la dirección configurada
-])
+@pytest.mark.parametrize(
+    "store",
+    [
+        {"autoLogin": False},  # desactivado en las opciones
+        {"token": ""},  # sin token
+        {"baseUrl": "http://127.0.0.1:9"},  # otro Panel: solo actúa en la dirección configurada
+    ],
+)
 def test_autologin_no_actua(nocors, server, store):
-    ctx, page, errors, posts = open_login(nocors, server, {"baseUrl": server, "token": "t", **store})
+    ctx, page, errors, calls = open_login(nocors, server, {"baseUrl": server, "token": "t", **store})
     try:
         page.goto(f"{server}/login")
         page.wait_for_timeout(600)
-        assert posts == [] and page.input_value("#password") == ""
+        assert calls == [] and page.url.startswith(f"{server}/login")
         assert not errors, errors
     finally:
         ctx.close()
 
 
-def test_opciones_inicio_de_sesion_automatico(nocors, server):
-    ctx, page, errors = open_ext(nocors, "options.html", {"baseUrl": server, "token": "t"}, width=900, height=1000)
+def test_opciones_sin_contrasena_y_permiso_solo_del_panel(nocors, server):
+    ctx, page, errors = open_ext(
+        nocors,
+        "options.html",
+        {"baseUrl": server, "token": "t", "loginPassword": "vieja"},
+        width=900,
+        height=1000,
+        perms=[],
+    )
     try:
-        assert page.is_checked("#autoLogin")  # activado por defecto: basta con escribir la contraseña
-        page.fill("#loginPassword", "secreta")
-        page.click("#togglePassword")
-        assert page.get_attribute("#loginPassword", "type") == "text"
+        assert page.locator("#loginPassword").count() == 0
+        assert page.is_checked("#autoLogin")
+        assert page.is_visible("#ytPermRow")  # sin permiso en YouTube: se ofrece
         page.click("#save")
         page.wait_for_selector("#result[data-type=ok]")
+        calls = page.evaluate("__calls")
+        assert ["perm", "http://127.0.0.1/*"] in calls  # solo el origen del Panel (sin puerto: así son los patrones)
         s = store_of(page)
-        assert s["autoLogin"] is True and s["loginPassword"] == "secreta"
+        assert "loginPassword" not in s and s["autoLogin"] is True
+        page.click("#ytPerm")
+        page.wait_for_selector("#ytPermRow", state="hidden")
+        assert ["perm", "https://www.youtube.com/*"] in page.evaluate("__calls")
         page.uncheck("#autoLogin")
-        page.click("#save")
-        page.wait_for_selector("#result[data-type=ok]")
-        s = store_of(page)
-        assert s["autoLogin"] is False and s["loginPassword"] == "secreta"  # se conserva para volver a activarlo
-        page.reload()
-        page.wait_for_function("document.querySelector('#loginPassword').value === 'secreta'")
-        assert not page.is_checked("#autoLogin")
+        assert store_of(page)["autoLogin"] is False
         if SHOTS:
-            page.screenshot(path=f"{SHOTS}/ext-opciones-autologin.png", full_page=True)
+            page.screenshot(path=f"{SHOTS}/ext-opciones-permisos.png", full_page=True)
         assert not errors, errors
     finally:
         ctx.close()
+
+
+def test_opciones_permiso_denegado_lo_explica(nocors, server):
+    ctx, page, errors = open_ext(nocors, "options.html", {}, width=900, height=900, perms=[], deny=True)
+    try:
+        page.fill("#baseUrl", server)
+        page.fill("#token", "t")
+        page.click("#save")
+        page.wait_for_selector("#result[data-type=error]")
+        assert "Sin permiso para 127.0.0.1" in page.text_content("#result")
+        assert not errors, errors
+    finally:
+        ctx.close()
+
+
+def test_sin_permiso_el_popup_pide_ir_a_opciones(nocors, server):
+    ctx, page, errors = open_ext(nocors, "popup.html", {"baseUrl": server, "token": "t"}, perms=[], start=None)
+    try:
+        page.wait_for_function("document.body.textContent.includes('Falta el permiso')")
+        assert not errors, errors
+    finally:
+        ctx.close()
+
+
+def test_fondo_borra_la_contrasena_y_registra_scripts_solo_con_permiso(nocors, server):
+    store = {"baseUrl": server, "token": "t", "loginPassword": "vieja"}
+    ctx, page, errors = open_ext(nocors, "__bg.html", store, perms=["http://127.0.0.1/*"], start=None)
+    try:
+        page.wait_for_function("__calls.some((c) => c[0] === 'cs')")
+        cs = [c for c in page.evaluate("__calls") if c[0] == "cs"]
+        assert cs == [["cs", "http://127.0.0.1/login*"]]  # YouTube no: sin su permiso
+        page.evaluate("__listeners.installed({ reason: 'update' })")
+        page.wait_for_function("!('loginPassword' in JSON.parse(localStorage.getItem('__ext_store')))")
+        assert ["options"] not in page.evaluate("__calls")  # tenía token y permiso: no hace falta abrir opciones
+        assert not errors, errors
+    finally:
+        ctx.close()
+
+
+def test_fondo_tras_actualizar_sin_permiso_abre_opciones(nocors, server):
+    ctx, page, errors = open_ext(nocors, "__bg.html", {"baseUrl": server, "token": "t"}, perms=[], start=None)
+    try:
+        page.evaluate("__listeners.installed({ reason: 'update' })")
+        page.wait_for_function("__calls.some((c) => c[0] === 'options')")
+        assert not any(c[0] == "cs" for c in page.evaluate("__calls"))
+        assert not errors, errors
+    finally:
+        ctx.close()
+
 
 # ---------- Temas (los mismos del Panel) ----------
 from core.themes import THEMES  # noqa: E402
 from tests.e2e.test_tema import CONTRAST  # noqa: E402
 
-EXT_CONTRAST = CONTRAST.replace("main h1, main h2, main p, main label, main button, main a, main span, nav a",
-                                "h1, h2, p, label, button, a, span, li, option").replace(".board-wrap, ", "")
+EXT_CONTRAST = CONTRAST.replace(
+    "main h1, main h2, main p, main label, main button, main a, main span, nav a",
+    "h1, h2, p, label, button, a, span, li, option",
+).replace(".board-wrap, ", "")
 
 
 def test_opciones_tema_y_el_popup_lo_usa(nocors, server):
@@ -421,7 +562,9 @@ def test_contraste_de_la_extension_en_cada_tema(nocors, server, theme):
             page.wait_for_load_state("networkidle")
             if name == "popup.html":
                 page.wait_for_selector("#status[data-state=ok]")
-                page.evaluate("document.getElementById('result').hidden = false; document.getElementById('result').dataset.type = 'warn'; document.getElementById('result').textContent = 'Aviso de prueba'")
+                page.evaluate(
+                    "document.getElementById('result').hidden = false; document.getElementById('result').dataset.type = 'warn'; document.getElementById('result').textContent = 'Aviso de prueba'"
+                )
             r = page.evaluate(EXT_CONTRAST)
             if r["bad"]:
                 problems.append(f"{name}: {r['bad']}")
@@ -435,13 +578,17 @@ def test_contraste_de_la_extension_en_cada_tema(nocors, server, theme):
 
 # ─────────── 2.5: agenda, elegir el padre y prefijos ───────────
 
+
 def _dia(n):
     from datetime import date, timedelta
+
     return (date.today() + timedelta(days=n)).isoformat()
 
 
 def test_agenda_ver_crear_mover_y_completar(nocors, server, api):
-    eid = api.post("/api/calendar/events", json={"title": "Evento de la extensión", "start": f"{_dia(1)}T10:00"}).json()["id"]
+    eid = api.post(
+        "/api/calendar/events", json={"title": "Evento de la extensión", "start": f"{_dia(1)}T10:00"}
+    ).json()["id"]
     rid = api.post("/api/items", json={"text": "Rutina de la extensión", "type": "rutina"}).json()["id"]
     ctx, page, errors = open_ext(nocors, "popup.html", {"baseUrl": server, "token": "t", "lastTab": "cal"}, start="cal")
     try:
@@ -497,7 +644,9 @@ def test_elegir_padre_y_prefijos(nocors, server, api):
 
 
 def test_evento_sin_conexion_va_a_la_cola(nocors, server, api):
-    ctx, page, errors = open_ext(nocors, "popup.html", {"baseUrl": "http://127.0.0.1:9", "token": "t", "lastTab": "cal"}, start="cal")
+    ctx, page, errors = open_ext(
+        nocors, "popup.html", {"baseUrl": "http://127.0.0.1:9", "token": "t", "lastTab": "cal"}, start="cal"
+    )
     try:
         page.wait_for_selector(".agenda .hint")
         page.fill("#calText", "cena con amigos viernes 21:00")
@@ -505,7 +654,9 @@ def test_evento_sin_conexion_va_a_la_cola(nocors, server, api):
         page.wait_for_selector("#result[data-type=warn]")
         q = store_of(page)["queue"]
         assert q[-1]["kind"] == "capture" and q[-1]["body"]["text"] == "e: cena con amigos viernes 21:00"
-        page.evaluate(f"localStorage.setItem('__ext_store', JSON.stringify({{...JSON.parse(localStorage.getItem('__ext_store')), baseUrl: '{server}'}}))")
+        page.evaluate(
+            f"localStorage.setItem('__ext_store', JSON.stringify({{...JSON.parse(localStorage.getItem('__ext_store')), baseUrl: '{server}'}}))"
+        )
         page.goto("http://ext.test/__bg.html")
         page.wait_for_function("window.__badge !== undefined")
         page.wait_for_timeout(300)

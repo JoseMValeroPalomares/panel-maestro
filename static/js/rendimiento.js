@@ -46,7 +46,7 @@
     if (tab === 'semana' && rango === 30) q.set('rango', '30');
     history.replaceState(null, '', q.toString() ? `?${q}` : location.pathname);
   }
-  function setTab(t, focus = false) {
+  function setTab(t, focus = false, load = true) {
     tab = t;
     document.querySelectorAll('[role=tab][data-tab]').forEach((b) => {
       const on = b.dataset.tab === t;
@@ -56,7 +56,7 @@
       $(`rdPanel-${b.dataset.tab}`).hidden = !on;
     });
     syncUrl();
-    loadTab();
+    if (load) loadTab();
   }
   function loadTab() {
     if (tab === 'hoy') loadToday();
@@ -559,6 +559,8 @@
           ${row('Luz solar directa', yesno('luz_solar', v('luz_solar'), 'Luz solar directa'), src.luz_solar)}
         </section>
         <section class="rd-sec"><h3>${icon('graduation-cap', 'icon-sm')}Bloques de estudio</h3>
+          ${(D.bloques_propuestos || []).length ? `<div class="rd-proposed"><p class="small muted">${icon('timer', 'icon-sm')}Cronometrado este día con el contador:</p>
+            <div class="chips">${D.bloques_propuestos.map((b, i) => `<button type="button" class="chip" data-proposed="${i}" title="${esc(b.de.join(' · '))}">${icon('plus', 'icon-sm')}${esc(b.asignatura)} · ${b.minutos} min</button>`).join('')}</div></div>` : ''}
           <div id="rdBlocks">${bloques.map((b) => blockHTML(b, D.asignaturas)).join('')}</div>
           <button type="button" class="btn btn-tinted btn-sm" id="rdAddBlock">${icon('plus', 'icon-sm')}Añadir bloque</button>
         </section>
@@ -603,6 +605,17 @@
     });
     dlg.addEventListener('click', (e) => {
       const blk = e.target.closest('.rd-block');
+      const prop = e.target.closest('[data-proposed]');
+      if (prop) {  // bloque propuesto por el contador: con su asignatura y sus minutos, lo demás como el anterior
+        const b = D.bloques_propuestos[Number(prop.dataset.proposed)];
+        const last = [...dlg.querySelectorAll('.rd-block')].pop();
+        const prev = last ? readBlock(form, last.dataset.block) : { recall: true };
+        $('rdBlocks').insertAdjacentHTML('beforeend', blockHTML({ ...prev, asignatura: b.asignatura, minutos: b.minutos, caida: null }, D.asignaturas));
+        prop.disabled = true;
+        prop.innerHTML = `${icon('check', 'icon-sm')}${esc(b.asignatura)} · ${b.minutos} min`;
+        $('rdBlocks').lastElementChild.querySelector('.rd-min')?.focus();
+        return;
+      }
       if (e.target.closest('#rdAddBlock')) {
         // el bloque nuevo copia los ajustes del anterior: suele repetirse la forma de estudiar
         const last = [...dlg.querySelectorAll('.rd-block')].pop();
@@ -805,7 +818,7 @@
 
   function paintRange() { document.querySelectorAll('[data-range]').forEach((x) => x.setAttribute('aria-pressed', String(Number(x.dataset.range) === rango))); }
   paintRange();
-  setTab(tab);
+  setTab(tab, false, false);  // sin cargar: setDay carga la pestaña (antes se pedía dos veces, V-2)
   setDay(fecha);
   if (params.get('registrar')) { openLog(); history.replaceState(null, '', location.pathname); }
 })();

@@ -64,13 +64,15 @@
   // Notas de un elemento en modo lectura: Markdown saneado (marked + DOMPurify si están cargados)
   function renderMd(text) {
     if (!window.marked || !window.DOMPurify) return `<p>${linkify(esc(text)).replace(/\n/g, '<br>')}</p>`;
-    const html = DOMPurify.sanitize(marked.parse(text, { breaks: true, gfm: true }), { USE_PROFILES: { html: true }, FORBID_ATTR: ['style'], ALLOW_DATA_ATTR: false });
-    return html.replace(/<a /g, '<a target="_blank" rel="noopener noreferrer" ');
+    return renderMarkdown(text).replace(/<a /g, '<a target="_blank" rel="noopener noreferrer" ');
   }
 
   /* ---------- Notas de las tareas: visibles salvo las ocultadas a mano (Prefs) ---------- */
   const NOTES_HIDDEN = 'item-notes-hidden';
   const notesHidden = () => Prefs.get(NOTES_HIDDEN, {}) || {};
+  // En el móvil y en táctil el botón de copiar de la tarjeta no está (items.css: no hay sitio para su zona de 44 px):
+  // copiar va en el menú. Misma consulta que el CSS
+  const copyInMenuMQ = window.matchMedia('(max-width: 767px), (pointer: coarse)');
 
   /* ---------- Rutinas: repetición y hábito ---------- */
   // Un campo del editor: con su icono y sin ocupar una línea para el nombre
@@ -142,12 +144,22 @@
     constructor(root, opts = {}) {
       this.root = root;
       this.variant = opts.variant || 'page';
-      this.filters = { status: 'pending', type: 'all', category: '', q: '', ...(opts.filters || {}) };
+      // contexto: el activo (Ctx, el mismo en todas las pantallas) salvo que la vista lo fije (Universidad, un proyecto)
+      this.followCtx = !(opts.filters && 'contexto' in opts.filters);
+      this.filters = { status: 'pending', type: 'all', category: '', q: '', contexto: window.Ctx ? Ctx.active() : 'todo',
+        asignatura: null, proyecto: null, ...(opts.filters || {}) };
+      if (this.followCtx && window.Ctx) {
+        document.addEventListener('contexto:changed', () => this.setFilters({ contexto: Ctx.active() }));
+        Prefs.ready?.then(() => { if (this.filters.contexto !== Ctx.active()) this.setFilters({ contexto: Ctx.active() }); }).catch(() => {});
+      }
+      document.addEventListener('contexto:data', () => this.render());
+      window.Ctx?.load().catch(() => {});
       this.selected = new Set();
       this.selectMode = false;
       this.editing = null;     // id en edición
       this.adding = null;      // 'item:<id>' (paso nuevo) o 'note:<id>' (casilla nueva en una nota)
       this.openDetails = new Set();  // elementos con sus notas desplegadas (lectura)
+      this.notesOpen = new Set();    // móvil: notas leídas enteras («Más»); solo en esta visita, no es preferencia
       this.hoverId = null;           // tarjeta bajo el ratón (tecla E)
       this.onRender = opts.onRender;
       this.menuItems = opts.menuItems;
@@ -161,6 +173,11 @@
       // E con el ratón sobre una tarjeta: añadir un paso. En captura, para que el tablero no la tome por la goma
       document.addEventListener('keydown', (e) => this.onGlobalKey(e), true);
       document.addEventListener('items:changed', () => this.render());
+      document.addEventListener('timer:changed', () => this.render());  // «En marcha» en la tarjeta (timer.js)
+      // Qué se desborda (chips) y qué notas no caben en dos líneas cambia con el ancho (girar el móvil) y no se puede medir
+      // mientras la lista está oculta (la pestaña «Plantilla» del Inbox): se vuelve a mirar cuando cambia su tamaño
+      let rz = 0;
+      new ResizeObserver(() => { cancelAnimationFrame(rz); rz = requestAnimationFrame(() => this.markOverflow()); }).observe(root);
       views.add(this);
       this.bar = document.createElement('div');
       this.bar.className = 'il-bulkbar';
@@ -186,6 +203,9 @@
       // Una rutina se repite: hecha hoy sigue en «Pendientes» (marcada)
       if (f.status === 'pending' && it.done && it.type !== 'rutina') return false;
       if (f.status === 'done' && !it.done) return false;
+      if (window.Ctx && !Ctx.match(it, f.contexto)) return false;
+      if (f.asignatura && it.asignatura_id !== f.asignatura) return false;
+      if (f.proyecto && it.proyecto_id !== f.proyecto) return false;
       if (f.type !== 'all' && f.type !== 'inbox' && it.type !== f.type) return false;
       if (f.category) {
         const cat = it.origin === 'nota' ? it.note_category : it.category;
@@ -228,12 +248,26 @@
         const li = this.root.querySelector(`.il-item[data-id="${focusId}"]`);
         (focusInRow && li?.querySelector(`:scope > .il-row [data-act="${focusInRow}"]`) || li)?.focus({ preventScroll: true });
       }
+      this.markOverflow();
       this.renderBar();
       this.onRender?.(this);
       // Después de onRender: la cuadrícula da a las tarjetas su tamaño ahí, y sin él no hay a dónde desplazarse
       if (this.onRender) scroller.scrollTop = top;
       this.innerScroll().forEach((el, key) => { if (inner.has(key)) el.scrollTop = inner.get(key); });
       document.dispatchEvent(new CustomEvent('items:rendered'));
+    }
+
+    // Chips que no caben en su fila (se funde el final) y notas cortadas en dos líneas («Más»): solo pasa en el móvil,
+    // donde el CSS pone los chips en una fila y pliega las notas; en escritorio nada se desborda y no se marca nada
+    // Primero se mide todo y después se marca: medir y escribir alternando rehace el layout en cada tarjeta
+    markOverflow() {
+      const metas = [...this.root.querySelectorAll('.il-meta')].map((m) => [m, m.scrollWidth > m.clientWidth + 1]);
+      const notes = [...this.root.querySelectorAll('.il-details')].map((d) => {
+        const md = d.querySelector('.il-details-md');
+        return [d, !d.classList.contains('is-open') && !!md && md.scrollHeight > md.clientHeight + 1];
+      });
+      metas.forEach(([m, on]) => m.classList.toggle('is-overflowing', on));
+      notes.forEach(([d, on]) => d.classList.toggle('is-clamped', on));
     }
 
     // Lo que se desplaza de verdad: en la app no es el documento (.page-body). Al repintar la cuadrícula, las tarjetas
@@ -305,6 +339,7 @@
       let body;
       const emptyText = this.filtering() ? 'Nada coincide con el filtro' : meta.empty[this.filters.status];
       if (g === 'nota') body = this.notesHTML(items);
+      else if ((g === 'inbox' || g === 'ideas') && ['universidad', 'proyectos'].includes(this.filters.contexto) && !this.filters.asignatura && !this.filters.proyecto) body = this.byContainerHTML(g, items, emptyText);
       else if (g === 'rutinas') body = this.routinesTodayHTML() + this.listHTML(items.sort((a, b) => (b.today - a.today) || (a.due_time || '99').localeCompare(b.due_time || '99')), { target: g }, emptyText);
       else body = this.listHTML(items, { target: g }, emptyText);
       return `<section class="il-group" data-group="${g}" aria-labelledby="il-h-${this.variant}-${g}">
@@ -323,12 +358,35 @@
       </section>`;
     }
 
+    // Universidad o Proyectos: un subgrupo por asignatura o proyecto (con su color), sin mezclar.
+    // Soltar una tarjeta en otro subgrupo la lleva a esa asignatura o proyecto.
+    byContainerHTML(g, items, emptyText) {
+      const uni = this.filters.contexto === 'universidad';
+      const list = uni ? Ctx.data.asignaturas : Ctx.data.proyectos.filter((p) => p.estado !== 'terminado' || items.some((i) => i.proyecto_id === p.id));
+      const keyOf = (it) => (uni ? it.asignatura_id : it.proyecto_id) || 0;
+      const subs = list.map((c) => ({ id: c.id, title: uni ? `${c.codigo} · ${c.nombre}` : c.nombre, color: c.color, items: items.filter((i) => keyOf(i) === c.id) }));
+      const loose = items.filter((i) => !list.some((c) => c.id === keyOf(i)));
+      subs.push({ id: 0, title: uni ? 'Sin asignatura' : 'Sin proyecto', color: null, items: loose });
+      const shown = subs.filter((x) => x.items.length || (x.id && !this.filtering()));
+      if (!shown.length) return `<p class="il-empty">${esc(emptyText || '')}</p>`;
+      return shown.map((x) => {
+        const key = `${this.variant}:k:${g}:${uni ? 'a' : 'p'}${x.id}`;
+        const open = !folded[key];
+        const where = x.id ? `${uni ? 'a' : 'p'}:${x.id}` : this.filters.contexto;
+        return `<div class="il-cat il-ctxgroup" data-where="${where}">
+          <div class="il-cat-head">${this.foldBtn(key, x.title, open)}<span class="ctx-dot" style="background:${Ctx.color(x.color)}"></span><h3>${esc(x.title)}</h3>
+            <span class="badge tabular">${x.items.length}</span><span class="grow"></span>
+            <button type="button" class="btn btn-ghost btn-icon btn-sm" data-act="add-to" data-type="${Items.typeFor(g)}" data-where="${where}" aria-label="Nueva ${Items.typeFor(g)} en ${esc(x.title)}" title="Nueva ${Items.typeFor(g)} aquí">${icon('plus', 'icon-sm')}</button></div>
+          <div class="il-cat-body" ${open ? '' : 'hidden'}>${this.listHTML(x.items, { target: g, where }, uni ? 'Suelta aquí para llevarla a esta asignatura' : 'Suelta aquí para llevarla a este proyecto')}</div></div>`;
+      }).join('');
+    }
+
     // Próximos eventos del calendario (7 días): misma tarjeta, sin arrastre; se editan en /calendario
     eventsHTML() {
       if (!agenda) loadAgenda();
       const key = `${this.variant}:g:calendario`;
       const open = !folded[key];
-      const list = agenda || [];
+      const list = (agenda || []).filter((e) => !window.Ctx || Ctx.match(e, this.filters.contexto));
       const fmt = (e) => {
         const d = new Date(e.start.slice(0, 10) + 'T00:00');
         const today = new Date().toISOString().slice(0, 10);
@@ -420,8 +478,8 @@
       </div>`;
     }
 
-    listHTML(items, { target, note = '' }, emptyText) {
-      return `<ul class="il-list" data-zone data-target="${target}" ${note ? `data-note="${esc(note)}"` : ''} data-empty="${esc(emptyText || DROP_HINT[target])}"
+    listHTML(items, { target, note = '', where = '' }, emptyText) {
+      return `<ul class="il-list" data-zone data-target="${target}" ${note ? `data-note="${esc(note)}"` : ''} ${where ? `data-where="${esc(where)}"` : ''} data-empty="${esc(emptyText || DROP_HINT[target])}"
         aria-label="${esc(GROUP_META[target].title)}">${items.map((it) => this.itemHTML(it)).join('')}</ul>`;
     }
 
@@ -448,11 +506,21 @@
       }
       if (it.due_date) {
         const late = !it.done && it.due_date < today();
-        meta.push(`<a class="il-chip il-due no-drag${late ? ' is-late' : it.due_date === today() ? ' is-today' : ''}" href="/calendario?dia=${it.due_date}" title="Ver en el calendario">${icon(it.due_time ? 'calendar-clock' : 'calendar', 'icon-sm')}<time datetime="${it.due_date}">${it.due_date === today() ? 'Hoy' : formatDue(it.due_date)}${it.due_time ? ` ${it.due_time}` : ''}</time>${it.due_time && it.duration_min ? ` · ${it.duration_min} min` : ''}</a>`);
+        // Se cambia en el sitio (P-3): «vie 11:00», «mañana», «11» (solo la hora) o vacío para quitarla
+        meta.push(`<button type="button" class="il-chip il-due no-drag${late ? ' is-late' : it.due_date === today() ? ' is-today' : ''}" data-act="edit-when" title="Cambiar la fecha o la hora (en el calendario: ⋯ → Ver en el calendario)">${icon(it.due_time ? 'calendar-clock' : 'calendar', 'icon-sm')}<time datetime="${it.due_date}">${it.due_date === today() ? 'Hoy' : formatDue(it.due_date)}${it.due_time ? ` ${it.due_time}` : ''}</time>${it.due_time && it.duration_min ? ` · ${it.duration_min} min` : ''}</button>`);
       }
+      // La asignatura o el proyecto, salvo donde ya lo dice el subgrupo o la vista
+      const inSubgroup = ['universidad', 'proyectos'].includes(this.filters.contexto) && ['inbox', 'ideas'].includes(it.origin);
+      if (!child && (it.asignatura_id || it.proyecto_id) && !this.filters.asignatura && !this.filters.proyecto && !inSubgroup) meta.push(Ctx.chip(it));
+      else if (!child && this.filters.contexto === 'todo' && it.contexto && it.contexto !== 'puntual') meta.push(`<span class="ctx-chip">${esc(Ctx.label(it.contexto))}</span>`);
+      if (it.uni_tipo) meta.push(`<span class="tag uni-tipo" data-uni="${esc(it.uni_tipo)}">${icon(it.uni_tipo === 'examen' ? 'triangle-alert' : 'flag', 'icon-sm')}${it.uni_tipo === 'examen' ? 'Examen' : 'Entrega'}${it.peso ? ` · ${it.peso} %` : ''}</span>`);
+      if (it.version_id) { const v = Ctx.data.versiones.find((x) => x.id === it.version_id); if (v) meta.push(`<span class="tag">${icon('milestone', 'icon-sm')}${esc(v.nombre)}</span>`); }
+      if (it.en_curso && !it.done) meta.push(`<span class="tag tag-doing">${icon('circle-dot', 'icon-sm')}En curso</span>`);
       if (it.routine_label) meta.push(`<a class="il-chip il-routine no-drag" href="/rutinas" title="Va en este bloque de una rutina">${icon('repeat', 'icon-sm')}${esc(it.routine_label)}</a>`);
-      if (it.priority) meta.push(`<span class="tag prio" data-prio="${esc(it.priority)}">${icon('flag', 'icon-sm')}${esc(Items.PRIO[it.priority] || it.priority)}</span>`);
-      if (it.category && it.origin !== 'nota') meta.push(`<span class="tag">${icon('tag', 'icon-sm')}${esc(it.category)}</span>`);
+      if (it.tiempo_s >= 60 || window.Timer?.isRunning(it.id)) meta.push(window.Timer ? Timer.chip(it) : '');
+      if (it.priority) meta.push(`<button type="button" class="tag prio no-drag" data-prio="${esc(it.priority)}" data-act="prio" aria-haspopup="menu" title="Cambiar la prioridad">${icon('flag', 'icon-sm')}${esc(Items.PRIO[it.priority] || it.priority)}</button>`);
+      const sameAsCtx = it.category && [it.asignatura, it.asignatura_nombre, it.proyecto, it.proyecto_nombre].some((x) => x && norm(x) === norm(it.category));
+      if (it.category && it.origin !== 'nota' && !sameAsCtx) meta.push(`<span class="tag">${icon('tag', 'icon-sm')}${esc(it.category)}</span>`);
       // notas: se ven siempre salvo que se hayan ocultado en esa tarea (Prefs, sobrevive a reiniciar);
       // el mapa del hábito de una rutina, al revés: plegado hasta que se pide
       const showDet = it.type === 'rutina' ? this.openDetails.has(it.id) : !!it.details && !notesHidden()[it.id];
@@ -475,8 +543,7 @@
             ${editing ? this.editorHTML(it, kids.length) : `<p class="il-text" data-act="edit-text">${linkify(esc(it.text))}</p>
             ${meta.length ? `<div class="il-meta">${meta.join('')}</div>` : ''}
             ${showDet && it.type === 'rutina' && !isStep ? habitHTML(it) : ''}
-            ${showDet && it.details ? `<div class="il-details no-drag"><div class="il-details-md md">${renderMd(it.details)}</div>
-              <button type="button" class="btn btn-ghost btn-sm" data-act="edit-details">${icon('pencil', 'icon-sm')}Editar notas</button></div>` : ''}`}
+            ${showDet && it.details ? this.detailsHTML(it) : ''}`}
           </div>
           ${!child && !editing && it.type === 'rutina' && kids.length && it.today && !it.done ? `<button type="button" class="btn btn-tinted btn-icon btn-sm il-run" data-act="run-routine" aria-label="Empezar «${esc(label)}» paso a paso" title="Empezar paso a paso">${icon('play', 'icon-sm')}</button>` : ''}
           ${!child && !editing ? `<button type="button" class="btn btn-ghost btn-icon btn-sm il-addstep" data-act="add-step" aria-label="Añadir un paso a «${esc(label)}»" title="Añadir un paso (E)">${icon('list-plus', 'icon-sm')}</button>` : ''}
@@ -498,6 +565,15 @@
         <button type="button" class="btn btn-ghost btn-sm" data-act="add-cancel">Cancelar</button></form>`;
     }
 
+    // Notas en modo lectura. En el móvil se ven dos líneas: «Más» las abre (y deja editarlas) y «Menos» las vuelve a plegar;
+    // si caben, el lápiz va en el sitio de «Más». En escritorio se ven enteras y «Más» no aparece (items.css)
+    detailsHTML(it) {
+      const open = this.notesOpen.has(it.id);
+      return `<div class="il-details no-drag${open ? ' is-open' : ''}" id="il-notes-${this.variant}-${it.id}"><div class="il-details-md md">${renderMd(it.details)}</div>
+        <button type="button" class="btn btn-ghost btn-sm il-details-edit" data-act="edit-details">${icon('pencil', 'icon-sm')}<span>Editar notas</span></button>
+        <button type="button" class="il-details-more" data-act="notes-more" aria-expanded="${open}" aria-controls="il-notes-${this.variant}-${it.id}"><span>${open ? 'Menos' : 'Más'}</span><span class="sr-only"> de las notas de «${esc(it.text.split('\n')[0].slice(0, 50))}»</span></button></div>`;
+    }
+
     editorHTML(it, nKids) {
       const isNote = it.origin === 'nota';
       const lockType = isNote ? 'Una casilla de una nota es una tarea (sácala de la nota para hacerla idea)' : it.parent_id ? 'Un paso tiene el tipo de su elemento' : nKids ? 'Tiene pasos' : '';
@@ -513,6 +589,10 @@
             <button type="button" data-ed-type="rutina" aria-pressed="${it.type === 'rutina'}" ${lockType ? 'disabled' : ''}>${icon('repeat', 'icon-sm')}Rutina</button>
           </div>
           ${edField('tag', 'Categoría', `<input name="category" list="il-cats-${this.variant}" maxlength="60" value="${esc(isNote ? it.note_category || '' : it.category || '')}" ${isNote ? 'disabled title="La de su nota"' : ''} placeholder="Categoría">`, 'is-wide')}
+          ${it.asignatura_id || it.contexto === 'universidad' ? edField('flag', 'Tipo en la universidad', `<select name="uni_tipo"><option value="">Normal</option>
+              <option value="entrega" ${it.uni_tipo === 'entrega' ? 'selected' : ''}>Entrega</option><option value="examen" ${it.uni_tipo === 'examen' ? 'selected' : ''}>Examen</option></select>`) : ''}
+          ${it.asignatura_id ? edField('percent', 'Peso en la nota final (%)', `<input type="number" name="peso" min="0" max="100" step="0.5" value="${it.peso ?? ''}" placeholder="Peso"><span class="il-ed-unit" aria-hidden="true">%</span>`, 'is-short') : ''}
+          ${it.proyecto_id ? edField('milestone', 'Versión objetivo', `<select name="version_id"><option value="">Sin versión</option>${Ctx.data.versiones.filter((v) => v.proyecto_id === it.proyecto_id && (v.estado === 'abierta' || v.id === it.version_id)).map((v) => `<option value="${v.id}" ${v.id === it.version_id ? 'selected' : ''}>${esc(v.nombre)}</option>`).join('')}</select>`) : ''}
           ${edField('flag', 'Prioridad', `<select name="priority"><option value="">Prioridad</option>
               ${Object.entries(Items.PRIO).map(([k, v]) => `<option value="${k}" ${it.priority === k ? 'selected' : ''}>${v.replace('Prioridad ', '')}</option>`).join('')}</select>`)}
           ${isStep || it.type === 'rutina' ? '' : edField('calendar', 'Fecha', `<input type="date" name="due_date" value="${esc(it.due_date || '')}">`)}
@@ -526,6 +606,7 @@
           <button type="submit" class="btn btn-primary btn-sm">Guardar</button>
           <button type="button" class="btn btn-sm" data-act="cancel-edit">Cancelar</button>
           <span class="tiny subtle hide-mobile"><kbd>Ctrl</kbd>+<kbd>Enter</kbd> guarda · <kbd>Esc</kbd> cancela</span>
+          ${edField(isNote || it.parent_id ? 'lock' : 'map-pin', isNote ? 'Va con su nota' : it.parent_id ? 'Va con su elemento' : 'Dónde va', `<select name="where" ${isNote || it.parent_id ? 'disabled' : ''}>${Ctx.whereOptions(it)}</select>`, 'is-where')}
         </div>
       </form>`;
     }
@@ -533,7 +614,7 @@
     /* ---------- Arrastre ---------- */
     destOf(list) {
       const parent = list.dataset.parent ? Number(list.dataset.parent) : null;
-      return { target: list.dataset.target, note_id: list.dataset.note || null, parent_id: parent };
+      return { target: list.dataset.target, note_id: list.dataset.note || null, parent_id: parent, where: list.dataset.where || null };
     }
 
     wireSortables() {
@@ -548,7 +629,13 @@
           id: (el) => el.dataset.id, data: dest,
           ghost: isKids ? null : (clone, li) => this.fillGhost(clone, li),
           accepts: (ctx) => Items.moveError(Number(ctx.id), ctx.to.data),
-          onDrop: (ctx) => Items.move(Number(ctx.id), { ...ctx.to.data, before_id: ctx.beforeId ? Number(ctx.beforeId) : null }),
+          onDrop: async (ctx) => {
+            const { where, ...dest } = ctx.to.data;
+            const id = Number(ctx.id);
+            await Items.move(id, { ...dest, before_id: ctx.beforeId ? Number(ctx.beforeId) : null });
+            const it = Items.get(id);  // otro subgrupo de Universidad o Proyectos: cambia de asignatura o proyecto
+            if (where && it && !it.parent_id && it.origin !== 'nota' && Ctx.whereOf(it) !== where) await Items.update(id, Ctx.whereToPatch(where));
+          },
         });
       });
     }
@@ -605,6 +692,10 @@
       if (type && type !== it.type) patch.type = type;
       if (it.origin !== 'nota' && f.category.value.trim() !== (it.category || '')) patch.category = f.category.value.trim();
       if (f.priority.value !== (it.priority || '')) patch.priority = f.priority.value;
+      if (f.where && !f.where.disabled && f.where.value !== Ctx.whereOf(it)) Object.assign(patch, Ctx.whereToPatch(f.where.value));
+      if (f.uni_tipo && f.uni_tipo.value !== (it.uni_tipo || '')) patch.uni_tipo = f.uni_tipo.value;
+      if (f.peso && f.peso.value !== String(it.peso ?? '')) patch.peso = f.peso.value === '' ? -1 : Number(f.peso.value);
+      if (f.version_id && f.version_id.value !== String(it.version_id || '')) patch.version_id = Number(f.version_id.value) || 0;
       if (f.due_date && f.due_date.value !== (it.due_date || '')) patch.due_date = f.due_date.value;
       if (f.due_time && f.due_time.value !== (it.due_time || '')) patch.due_time = f.due_time.value;
       const dur = parseInt(f.duration_min.value, 10) || 0;
@@ -701,7 +792,11 @@
       const goTo = (g) => this.tryMove(it, { target: g, parent_id: null, before_id: null });
       openMenu(anchor, [
         { label: it.done ? 'Volver a pendiente' : (it.type === 'idea' ? 'Marcar como procesada' : 'Marcar como hecha'), icon: it.done ? 'rotate-ccw' : 'check', onClick: () => Items.setDone(it.id, !it.done) },
+        !it.done && window.Timer && (Timer.isRunning(it.id)
+          ? { label: 'Pausar el contador', icon: 'pause', onClick: () => Timer.pause() }
+          : { label: 'Empezar contador', icon: 'timer', onClick: () => Timer.start({ item_id: it.id }) }),
         { label: 'Editar', icon: 'pencil', onClick: () => this.startEdit(it) },
+        copyInMenuMQ.matches && { label: 'Copiar el texto', icon: 'copy', onClick: () => copyText(it.text).then((ok) => toast(ok ? 'Copiado' : 'No se pudo copiar', { type: ok ? 'success' : 'error', duration: 1400 })) },
         !it.parent_id && { label: 'Añadir un paso (E)', icon: 'list-plus', onClick: () => this.startAdd(`item:${it.id}`) },
         it.type === 'rutina' && !it.parent_id && kids && { label: 'Hacer paso a paso', icon: 'play', onClick: () => Routines.run(it.id) },
         it.type === 'rutina' && !it.parent_id && { label: 'Guardar como plantilla…', icon: 'layout-template', onClick: () => Routines.saveTemplate(it.id) },
@@ -710,6 +805,7 @@
           if (window.__board?.openForItem) window.__board.openForItem(it.id);
           else location.href = `/inbox?tablero=${it.id}`;
         } },
+        !it.parent_id && it.type !== 'rutina' && kids && { label: 'Guardar como plantilla de tablero…', icon: 'layout-template', onClick: () => Plantillas.guardarTarea(it, Items.children(it.id)) },
         { label: 'Enlazar con una nota…', icon: 'link', onClick: () => linkToNote(it) },
         it.type !== 'rutina' && { label: it.routine_step ? 'Cambiar de bloque de rutina…' : 'Asociar a una rutina…', icon: 'repeat', onClick: () => attachToRoutine(it) },
         it.type !== 'rutina' && it.routine_step && { label: 'Quitar de la rutina', icon: 'unlink', onClick: () => Items.update(it.id, { routine_step: 0 }) },
@@ -860,9 +956,9 @@
       const actEl = e.target.closest('[data-act]');
       const act = actEl?.dataset.act;
       if (act === 'select-group') { this.selectWhere(`.il-group[data-group="${actEl.dataset.group}"] .il-item`); return; }
-      if (act === 'add-to') { openQuickAdd(actEl.dataset.type); return; }
+      if (act === 'add-to') { openQuickAdd(actEl.dataset.type, actEl.dataset.where || (this.filters.asignatura ? `a:${this.filters.asignatura}` : this.filters.proyecto ? `p:${this.filters.proyecto}` : '')); return; }
       if (act === 'add-note') { this.startAdd(`note:${actEl.dataset.note}`); return; }
-      if (act === 'routine-templates') { Routines.openTemplates(); return; }
+      if (act === 'routine-templates') { Plantillas.open({ tab: 'rutina' }); return; }
       if (act === 'run-routine' && actEl.dataset.run) { Routines.run(Number(actEl.dataset.run)); return; }
       if (act === 'add-cancel') { this.stopAdd(); return; }
       const it = this.itemOf(e.target);
@@ -901,12 +997,42 @@
         this.render();
         return;
       }
+      if (act === 'notes-more') {
+        const box = actEl.closest('.il-details');
+        const open = !this.notesOpen.has(it.id);
+        if (open) this.notesOpen.add(it.id); else this.notesOpen.delete(it.id);
+        box.classList.toggle('is-open', open);
+        actEl.setAttribute('aria-expanded', String(open));
+        actEl.firstElementChild.textContent = open ? 'Menos' : 'Más';
+        this.markOverflow();
+        if (!open) box.scrollIntoView({ block: 'nearest' });  // al plegar una nota larga, que no se pierda de vista
+        return;
+      }
       if (act === 'edit-details') {
         this.startEdit(it);
         this.root.querySelector(`[data-edit="${it.id}"] textarea[name=details]`)?.focus();
         return;
       }
+      if (act === 'prio') { this.priorityMenu([it.id], actEl, it.priority); return; }
+      if (act === 'edit-when') { this.editWhen(it, actEl); return; }
       if (act === 'menu') this.menu(it, actEl);
+    }
+
+    // La fecha y la hora en el sitio, escribiendo como en la captura: «vie 11:00 30m», «mañana», «11» o nada
+    editWhen(it, el) {
+      const [y, m, d] = it.due_date.split('-');
+      const value = `${d}/${m}${y !== String(new Date().getFullYear()) ? `/${y}` : ''}${it.due_time ? ` ${it.due_time}` : ''}${it.due_time && it.duration_min ? ` ${it.duration_min}m` : ''}`;
+      Rapido.inline(el, {
+        value, label: `Fecha y hora de «${it.text.split('\n')[0].slice(0, 60)}» (p. ej. vie 11:00 30m; vacío la quita)`, width: '12em',
+        onSave: async (v) => {
+          if (!v) { await Items.update(it.id, { due_date: '', due_time: '' }); return; }
+          const time = parseTime(v);
+          if (time) { await Items.update(it.id, { due_time: time }); return; }  // «11», «11:30»: solo la hora
+          const r = await api('/api/capture', { method: 'POST', body: { text: `t: x ${v}`, dry_run: true }, quiet: true });
+          if (!r.preview?.due_date) { toast(`No entiendo «${v}»: prueba con «vie 11:00» o «20/11»`, { type: 'info' }); throw new Error('no'); }
+          await Items.update(it.id, { due_date: r.preview.due_date, due_time: r.preview.due_time || '', ...(r.preview.duration_min ? { duration_min: r.preview.duration_min } : {}) });
+        },
+      });
     }
 
     onDblClick(e) {
@@ -960,8 +1086,9 @@
   }
 
   /* ---------- «Nueva tarea / idea» desde la cabecera de un grupo: la captura común ---------- */
-  function openQuickAdd(type) {
+  function openQuickAdd(type, where = '') {
     const local = document.querySelector('[data-capture]:not(#captureForm)');
+    [local, document.getElementById('captureForm')].forEach((f) => f?.setWhere?.(where));
     if (local && local.offsetParent) {
       local.setType?.(type);
       local.querySelector('[data-capture-text]').focus();
@@ -1022,11 +1149,14 @@
   /* Botones Pendientes / Hechas (/ Todas) con el contador único del servidor */
   function wireStatus(view, box) {
     const btns = [...box.querySelectorAll('[data-status]')];
+    // Mismo criterio que el servidor (counts_of: elementos de primer nivel, sin rutinas), del contexto que se ve
     const paint = () => {
-      const c = Items.state.counts;
-      if (!c) return;
+      if (!Items.state.loaded) return;
+      const top = Items.state.items.filter((it) => !it.parent_id && it.type !== 'rutina' && (!window.Ctx || Ctx.match(it, view.filters.contexto)));
+      const c = { pendientes: top.filter((it) => !it.done).length, hechas: top.filter((it) => it.done).length };
       box.querySelectorAll('[data-status-count]').forEach((el) => { el.textContent = c[el.dataset.statusCount]; });
     };
+    document.addEventListener('contexto:changed', () => setTimeout(paint));
     btns.forEach((b) => b.addEventListener('click', () => {
       btns.forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
       view.setFilters({ status: b.dataset.status });

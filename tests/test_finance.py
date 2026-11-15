@@ -1,4 +1,5 @@
 """Economía (/api/finance): cuentas con saldo, movimientos, resumen del mes, deudas, deseos y papelera."""
+
 from datetime import date
 
 import pytest
@@ -15,18 +16,29 @@ def test_importes_en_formato_espanol():
 
 
 def test_cuentas_movimientos_y_resumen(client):
-    banco = client.post("/api/finance/accounts", json={"nombre": "Banco R", "tipo": "banco", "saldo_inicial": "1.000,00"}).json()["id"]
-    caja = client.post("/api/finance/accounts", json={"nombre": "Efectivo R", "tipo": "efectivo", "saldo_inicial": 50}).json()["id"]
+    banco = client.post(
+        "/api/finance/accounts", json={"nombre": "Banco R", "tipo": "banco", "saldo_inicial": "1.000,00"}
+    ).json()["id"]
+    caja = client.post(
+        "/api/finance/accounts", json={"nombre": "Efectivo R", "tipo": "efectivo", "saldo_inicial": 50}
+    ).json()["id"]
+
     def mov(**kw):
         r = client.post("/api/finance/movements", json={"fecha": f"{MES}-10", **kw})
         assert r.status_code == 200, r.text
         return r.json()["id"]
+
     mov(importe="12,40", tipo="gasto", categoria="Comida", concepto="Menú", cuenta_id=caja)
     mov(importe=30, tipo="gasto", categoria="Transporte", concepto="Abono", cuenta_id=banco)
     mov(importe=200, tipo="ingreso", categoria="Paga", cuenta_id=banco)
     mov(importe=20, tipo="transferencia", cuenta_id=banco, cuenta_destino=caja)
     # una transferencia necesita dos cuentas distintas; el importe tiene que ser positivo
-    assert client.post("/api/finance/movements", json={"importe": 5, "tipo": "transferencia", "cuenta_id": banco}).status_code == 422
+    assert (
+        client.post(
+            "/api/finance/movements", json={"importe": 5, "tipo": "transferencia", "cuenta_id": banco}
+        ).status_code
+        == 422
+    )
     assert client.post("/api/finance/movements", json={"importe": "-3"}).status_code == 422
     s = client.get("/api/finance/summary", params={"month": MES}).json()
     saldo = {c["nombre"]: c["saldo"] for c in s["cuentas"]}
@@ -46,7 +58,9 @@ def test_cuentas_movimientos_y_resumen(client):
 
 def test_deudas_deseos_y_papelera(client):
     cuenta = client.post("/api/finance/accounts", json={"nombre": "Banco D", "saldo_inicial": 0}).json()["id"]
-    ana = client.post("/api/finance/debts", json={"persona": "Ana", "importe": "25", "direccion": "me-deben", "concepto": "Cena"}).json()["id"]
+    ana = client.post(
+        "/api/finance/debts", json={"persona": "Ana", "importe": "25", "direccion": "me-deben", "concepto": "Cena"}
+    ).json()["id"]
     client.post("/api/finance/debts", json={"persona": "Luis", "importe": 10, "direccion": "debo"})
     s = client.get("/api/finance/summary").json()
     assert s["me_deben"] >= 25 and s["debo"] >= 10
@@ -57,11 +71,15 @@ def test_deudas_deseos_y_papelera(client):
     assert next(c for c in s["cuentas"] if c["id"] == cuenta)["saldo"] == 25
     assert client.post(f"/api/finance/debts/{ana}/settle", json={}).status_code == 422
     # deseo comprado = gasto «Compras»
-    w = client.post("/api/finance/wishes", json={"nombre": "Auriculares", "precio": "59,90", "prioridad": "alta"}).json()["id"]
+    w = client.post(
+        "/api/finance/wishes", json={"nombre": "Auriculares", "precio": "59,90", "prioridad": "alta"}
+    ).json()["id"]
     assert any(x["id"] == w for x in client.get("/api/finance/summary").json()["deseos"])
     client.post(f"/api/finance/wishes/{w}/buy", json={"cuenta_id": cuenta})
     s = client.get("/api/finance/summary").json()
-    assert not any(x["id"] == w for x in s["deseos"]) and next(c for c in s["cuentas"] if c["id"] == cuenta)["saldo"] == round(25 - 59.9, 2)
+    assert not any(x["id"] == w for x in s["deseos"]) and next(c for c in s["cuentas"] if c["id"] == cuenta)[
+        "saldo"
+    ] == round(25 - 59.9, 2)
     # borrar un movimiento va a la papelera y se restaura
     mid = client.post("/api/finance/movements", json={"importe": 3, "concepto": "Café papelera"}).json()["id"]
     tok = client.delete(f"/api/finance/movements/{mid}").json()["trash"]

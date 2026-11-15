@@ -1,4 +1,5 @@
 """Casos conocidos para los cálculos de comidas/nutrition.py."""
+
 import pytest
 
 from comidas import nutrition as nu
@@ -39,11 +40,11 @@ def test_suma_por_plato_comida_y_dia():
 
 def test_atwater_ok_y_avisos():
     assert nu.kcal_atwater(10, 20, 5) == 165
-    assert nu.comprobar_kcal(884, 0, 0, 100)["ok"]              # aceite: 900 esperadas, 1.8 %
-    assert nu.comprobar_kcal(165, 31, 0, 3.6)["ok"]              # pollo: 156.4 esperadas
-    malo = nu.comprobar_kcal(100, 20, 20, 10)                    # 250 esperadas
+    assert nu.comprobar_kcal(884, 0, 0, 100)["ok"]  # aceite: 900 esperadas, 1.8 %
+    assert nu.comprobar_kcal(165, 31, 0, 3.6)["ok"]  # pollo: 156.4 esperadas
+    malo = nu.comprobar_kcal(100, 20, 20, 10)  # 250 esperadas
     assert not malo["ok"] and malo["esperadas"] == 250 and malo["diferencia"] == -150
-    assert nu.comprobar_kcal(20, 1, 2, 0.2)["ok"]                # verdura: diferencia absoluta pequeña
+    assert nu.comprobar_kcal(20, 1, 2, 0.2)["ok"]  # verdura: diferencia absoluta pequeña
 
 
 def test_tmb_mifflin_st_jeor():
@@ -52,8 +53,17 @@ def test_tmb_mifflin_st_jeor():
 
 
 def test_objetivos_mantenimiento_y_reparto():
-    obj = nu.calcular_objetivos({"peso_kg": 80, "altura_cm": 180, "edad": 30, "sexo": "hombre",
-                                 "nivel_actividad": 1.55, "objetivo": "mantenimiento", "proteina_g_kg": 1.8})
+    obj = nu.calcular_objetivos(
+        {
+            "peso_kg": 80,
+            "altura_cm": 180,
+            "edad": 30,
+            "sexo": "hombre",
+            "nivel_actividad": 1.55,
+            "objetivo": "mantenimiento",
+            "proteina_g_kg": 1.8,
+        }
+    )
     assert obj["bmr"] == 1780 and obj["tdee"] == 2759
     assert obj["kcal_objetivo"] == 2759
     assert obj["proteina_g"] == 144
@@ -63,16 +73,39 @@ def test_objetivos_mantenimiento_y_reparto():
     assert abs(obj["proteina_g"] * 4 + obj["carbohidratos_g"] * 4 + obj["grasa_g"] * 9 - obj["kcal_objetivo"]) < 12
 
 
-@pytest.mark.parametrize("objetivo,factor", [("definicion", 0.8), ("perder", 0.8), ("volumen", 1.1), ("ganar", 1.1), ("mantener", 1.0), ("otro", 1.0)])
+@pytest.mark.parametrize(
+    "objetivo,factor",
+    [("definicion", 0.8), ("perder", 0.8), ("volumen", 1.1), ("ganar", 1.1), ("mantener", 1.0), ("otro", 1.0)],
+)
 def test_ajuste_por_objetivo_y_alias(objetivo, factor):
-    obj = nu.calcular_objetivos({"peso_kg": 80, "altura_cm": 180, "edad": 30, "sexo": "hombre",
-                                 "nivel_actividad": 1.55, "objetivo": objetivo, "proteina_g_kg": 1.8})
+    obj = nu.calcular_objetivos(
+        {
+            "peso_kg": 80,
+            "altura_cm": 180,
+            "edad": 30,
+            "sexo": "hombre",
+            "nivel_actividad": 1.55,
+            "objetivo": objetivo,
+            "proteina_g_kg": 1.8,
+        }
+    )
     assert obj["kcal_objetivo"] == round(1780 * 1.55 * factor)
 
 
 def test_ajuste_y_grasa_configurables():
-    obj = nu.calcular_objetivos({"peso_kg": 70, "altura_cm": 170, "edad": 40, "sexo": "mujer", "nivel_actividad": 1.2,
-                                 "objetivo": "definicion", "ajuste_pct": -10, "grasa_pct": 30, "proteina_g_kg": 2})
+    obj = nu.calcular_objetivos(
+        {
+            "peso_kg": 70,
+            "altura_cm": 170,
+            "edad": 40,
+            "sexo": "mujer",
+            "nivel_actividad": 1.2,
+            "objetivo": "definicion",
+            "ajuste_pct": -10,
+            "grasa_pct": 30,
+            "proteina_g_kg": 2,
+        }
+    )
     tdee = (700 + 1062.5 - 200 - 161) * 1.2
     assert obj["kcal_objetivo"] == round(tdee * 0.9)
     assert obj["grasa_g"] == round(tdee * 0.9 * 0.30 / 9)
@@ -80,8 +113,18 @@ def test_ajuste_y_grasa_configurables():
 
 
 def test_aviso_si_no_quedan_hidratos():
-    obj = nu.calcular_objetivos({"peso_kg": 120, "altura_cm": 150, "edad": 70, "sexo": "mujer", "nivel_actividad": 1.2,
-                                 "objetivo": "definicion", "grasa_pct": 45, "proteina_g_kg": 3.5})
+    obj = nu.calcular_objetivos(
+        {
+            "peso_kg": 120,
+            "altura_cm": 150,
+            "edad": 70,
+            "sexo": "mujer",
+            "nivel_actividad": 1.2,
+            "objetivo": "definicion",
+            "grasa_pct": 45,
+            "proteina_g_kg": 3.5,
+        }
+    )
     assert obj["carbohidratos_g"] == 0 and obj["aviso"]
 
 
@@ -108,7 +151,11 @@ def test_sugerir_platos_elige_el_que_encaja():
 
 def test_sugerir_ingredientes_cubre_el_macro_que_falta():
     hueco = {"kcal": 300, "proteinas": 40, "carbohidratos": 5, "grasas": 2}
-    ings = [{"id": 1, "nombre": "Pechuga", **POLLO}, {"id": 2, "nombre": "Arroz", **ARROZ}, {"id": 3, "nombre": "Aceite", **ACEITE}]
+    ings = [
+        {"id": 1, "nombre": "Pechuga", **POLLO},
+        {"id": 2, "nombre": "Arroz", **ARROZ},
+        {"id": 3, "nombre": "Aceite", **ACEITE},
+    ]
     res = nu.sugerir_ingredientes(hueco, ings)
     assert res[0]["nombre"] == "Pechuga" and res[0]["macro"] == "proteinas"
     # no supera las kcal restantes

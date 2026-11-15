@@ -19,6 +19,7 @@ suma del dia encaje con tu objetivo real de kcal/proteina del perfil.
 Si gramos_racion es NULL (asignacion manual, o comida sin pasar por el
 generador), se usa la racion estandar del catalogo tal cual.
 """
+
 import time
 
 from core import config
@@ -26,13 +27,16 @@ from core.db import connect, db_session, enable_wal
 
 DB_PATH = str(config.COMIDAS_DB)
 
+
 def get_db_connection():
     """Conexión suelta (con WAL/busy_timeout/foreign_keys). Preferir get_db()."""
     return connect(DB_PATH)
 
+
 def get_db():
     """Context manager: commit/rollback automático y cierre garantizado."""
     return db_session(DB_PATH)
+
 
 def _add_columns(c, table: str, columns: dict[str, str]) -> None:
     """Migración aditiva: añade solo las columnas que falten (nunca borra)."""
@@ -44,6 +48,11 @@ def _add_columns(c, table: str, columns: dict[str, str]) -> None:
 
 
 def init_db():
+    # Antes de tocar el esquema: si hay migraciones pendientes en una BD con datos, copia previa (falla = no arranca)
+    from comidas.migrations import MIGRATIONS as _pending_check
+    from core.migrations import backup_before_migrating
+
+    backup_before_migrating(DB_PATH, _pending_check, config.BACKUPS_DIR, "comidas")
     enable_wal(DB_PATH)
     conn = get_db_connection()
     c = conn.cursor()
@@ -58,7 +67,7 @@ def init_db():
         if "nombre" not in existing_cols:
             c.execute(f"ALTER TABLE ingredients RENAME TO ingredients_legacy_{int(time.time())}")
 
-    c.execute('''
+    c.execute("""
         CREATE TABLE IF NOT EXISTS ingredients (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             nombre TEXT NOT NULL UNIQUE,
@@ -72,9 +81,9 @@ def init_db():
             azucares_100g REAL DEFAULT 0,
             sal_100g REAL DEFAULT 0
         )
-    ''')
+    """)
 
-    c.execute('''
+    c.execute("""
         CREATE TABLE IF NOT EXISTS meals (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             nombre TEXT NOT NULL,
@@ -88,7 +97,7 @@ def init_db():
             image_source TEXT DEFAULT 'pexels',
             created_at REAL DEFAULT (unixepoch())
         )
-    ''')
+    """)
 
     # ── Migracion: comidas creadas con esquemas anteriores ──
     c.execute("PRAGMA table_info(meals)")
@@ -99,16 +108,16 @@ def init_db():
         c.execute("ALTER TABLE meals ADD COLUMN es_racion_unica INTEGER DEFAULT 0")
     # (La columna antigua "raciones", si existe, se deja tal cual: no se borran datos.)
 
-    c.execute('''
+    c.execute("""
         CREATE TABLE IF NOT EXISTS meal_ingredients (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             meal_id INTEGER NOT NULL REFERENCES meals(id) ON DELETE CASCADE,
             ingredient_id INTEGER NOT NULL REFERENCES ingredients(id) ON DELETE CASCADE,
             gramos REAL NOT NULL
         )
-    ''')
+    """)
 
-    c.execute('''
+    c.execute("""
         CREATE TABLE IF NOT EXISTS shopping_list (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             ingredient_id INTEGER REFERENCES ingredients(id),
@@ -119,17 +128,17 @@ def init_db():
             source_meal_id INTEGER REFERENCES meals(id),
             created_at REAL DEFAULT (unixepoch())
         )
-    ''')
+    """)
 
-    c.execute('''
+    c.execute("""
         CREATE TABLE IF NOT EXISTS meal_usage_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             meal_id INTEGER NOT NULL REFERENCES meals(id) ON DELETE CASCADE,
             semana TEXT NOT NULL
         )
-    ''')
+    """)
 
-    c.execute('''
+    c.execute("""
         CREATE TABLE IF NOT EXISTS weekly_plan (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             semana TEXT NOT NULL,
@@ -140,7 +149,7 @@ def init_db():
             gramos_racion REAL,
             UNIQUE(semana, dia, franja)
         )
-    ''')
+    """)
 
     # ── Migracion: celdas del planificador creadas antes de tener
     # racion personalizada por celda ──
@@ -149,7 +158,7 @@ def init_db():
     if "gramos_racion" not in plan_cols:
         c.execute("ALTER TABLE weekly_plan ADD COLUMN gramos_racion REAL")
 
-    c.execute('''
+    c.execute("""
         CREATE TABLE IF NOT EXISTS user_profile (
             id INTEGER PRIMARY KEY CHECK (id = 1),
             edad INTEGER DEFAULT 28,
@@ -160,23 +169,31 @@ def init_db():
             objetivo TEXT DEFAULT 'mantener',
             proteina_g_kg REAL DEFAULT 1.6
         )
-    ''')
+    """)
     c.execute("INSERT OR IGNORE INTO user_profile (id) VALUES (1)")
 
     # ── Fase 5: unidades, varios platos por comida y reparto configurable ──
-    _add_columns(c, "ingredients", {
-        "gramos_por_unidad": "REAL",      # p. ej. 1 huevo = 60 g; NULL si no se mide en unidades
-        "unidad_nombre": "TEXT",          # "huevo", "rebanada"...
-    })
+    _add_columns(
+        c,
+        "ingredients",
+        {
+            "gramos_por_unidad": "REAL",  # p. ej. 1 huevo = 60 g; NULL si no se mide en unidades
+            "unidad_nombre": "TEXT",  # "huevo", "rebanada"...
+        },
+    )
     _add_columns(c, "meal_ingredients", {"unidades": "REAL"})
-    _add_columns(c, "user_profile", {
-        "grasa_pct": "REAL DEFAULT 25",   # % de la energía que viene de la grasa
-        "ajuste_pct": "REAL",             # NULL = el del objetivo (definición -20, volumen +10)
-    })
+    _add_columns(
+        c,
+        "user_profile",
+        {
+            "grasa_pct": "REAL DEFAULT 25",  # % de la energía que viene de la grasa
+            "ajuste_pct": "REAL",  # NULL = el del objetivo (definición -20, volumen +10)
+        },
+    )
     # Platos ADICIONALES de una comida del plan. El plato principal sigue en
     # weekly_plan.meal_id (lo rellena el generador); aquí van los demás
     # (ensalada, postre, pan...), cada uno con sus gramos.
-    c.execute('''
+    c.execute("""
         CREATE TABLE IF NOT EXISTS plan_items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             plan_id INTEGER NOT NULL REFERENCES weekly_plan(id) ON DELETE CASCADE,
@@ -185,7 +202,7 @@ def init_db():
             orden INTEGER DEFAULT 0,
             created_at REAL DEFAULT (unixepoch())
         )
-    ''')
+    """)
     c.execute("CREATE INDEX IF NOT EXISTS idx_plan_items_plan ON plan_items(plan_id)")
 
     c.execute("CREATE INDEX IF NOT EXISTS idx_meal_ingredients_meal ON meal_ingredients(meal_id)")
@@ -199,6 +216,7 @@ def init_db():
     # Migraciones versionadas (reversibles): comidas/migrations.py
     from comidas.migrations import MIGRATIONS
     from core.migrations import apply_pending
+
     mconn = connect(DB_PATH)
     mconn.isolation_level = None
     try:

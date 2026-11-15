@@ -13,15 +13,19 @@ def test_note_id_invalido_rechazado(client, bad_id):
 
 
 def test_note_id_con_tildes_sigue_valido(client):
-    r = client.post("/api/notes/indice-electrónica-prueba",
-                    json={"title": "Índice", "category": "Electrónica", "content": "x", "status": "indice"})
+    r = client.post(
+        "/api/notes/indice-electrónica-prueba",
+        json={"title": "Índice", "category": "Electrónica", "content": "x", "status": "indice"},
+    )
     assert r.status_code == 200
     assert client.get("/api/notes/indice-electrónica-prueba").status_code == 200
 
 
 def test_guardar_y_leer_nota(client, tmp_root):
-    r = client.post("/api/notes/nota-test", json={"title": "Nota test", "category": "Pruebas", "content": "Hola [[Nota inicial]]",
-                                                  "tags": ["a"]})
+    r = client.post(
+        "/api/notes/nota-test",
+        json={"title": "Nota test", "category": "Pruebas", "content": "Hola [[Nota inicial]]", "tags": ["a"]},
+    )
     assert r.status_code == 200
     note = client.get("/api/notes/nota-test").json()
     assert note["title"] == "Nota test"
@@ -49,9 +53,21 @@ def test_limites_pydantic(client):
     assert client.post("/api/inbox", json={"content": ""}).status_code == 422
     assert client.post("/api/resources", json={"url": "javascript:alert(1)"}).status_code == 422
     assert client.post("/api/flashcards/1/review", json={"quality": 9}).status_code == 422
-    assert client.patch("/comidas/api/profile", json={"edad": 5, "peso_kg": 70, "altura_cm": 170, "sexo": "hombre",
-                                                       "nivel_actividad": 1.5, "objetivo": "mantener",
-                                                       "proteina_g_kg": 1.6}).status_code == 422
+    assert (
+        client.patch(
+            "/comidas/api/profile",
+            json={
+                "edad": 5,
+                "peso_kg": 70,
+                "altura_cm": 170,
+                "sexo": "hombre",
+                "nivel_actividad": 1.5,
+                "objetivo": "mantener",
+                "proteina_g_kg": 1.6,
+            },
+        ).status_code
+        == 422
+    )
     assert client.get("/comidas/api/weekly-plan/no-es-fecha").status_code == 422
 
 

@@ -5,6 +5,9 @@
 # ~/.config/rofi/config-search.rasi). Se escribe y se pulsa Intro:
 #   sin prefijo = Inbox · t: tarea · i: idea · r: rutina · e: evento en lenguaje natural · g: gasto («g: 4,50 café»)
 #   o, sin escribir el prefijo, Alt+1 tarea · Alt+2 idea · Alt+3 rutina · Alt+4 evento.
+# Menciones: «@gabd» la lleva a esa asignatura y «#panel-maestro v0.3» a ese proyecto (y versión). Alt+5 abre
+# la lista de asignaturas y proyectos y añade la mención elegida. Una mención que no existe no se guarda: se
+# avisa (con la más parecida) y se vuelve al texto para corregirlo.
 # Tareas e ideas guardan la fecha si la llevan clara («t: llamar a Juan el viernes»). Todo lo que
 # lleva algo que interpretar (un evento, una rutina o una tarea con fecha) muestra antes una vista
 # previa: Intro guarda, «Corregir el texto» vuelve al primer paso, Esc cancela. Un evento cuya fecha
@@ -34,15 +37,28 @@ if [ -z "${PANEL_ROFI:-}" ] && pgrep -x rofi >/dev/null; then pkill -x rofi; fi
 
 # Colores de los tipos (Catppuccin Mocha, los mismos que la agenda de la Waybar)
 HELP="<span color='#94e2d5'><b>t:</b> tarea</span>    <span color='#fab387'><b>i:</b> idea</span>    <span color='#cba6f7'><b>r:</b> rutina</span>    <span color='#89b4fa'><b>e:</b> evento</span>    <span color='#89dceb'><b>g:</b> gasto</span>    sin prefijo: al Inbox
-<span size='small'><b>Intro</b> guarda · <b>Alt+1</b> tarea · <b>Alt+2</b> idea · <b>Alt+3</b> rutina · <b>Alt+4</b> evento, sin escribir el prefijo</span>
-<span size='small' alpha='70%'>«t: llamar a Juan el viernes» · «r: gimnasio lunes y jueves a las 19» · «e: examen 3 nov 9:00 2h»</span>"
+<span size='small'><b>Intro</b> guarda · <b>Alt+1</b> tarea · <b>Alt+2</b> idea · <b>Alt+3</b> rutina · <b>Alt+4</b> evento, sin escribir el prefijo · <b>Alt+5</b> @asignatura o #proyecto</span>
+<span size='small' alpha='70%'>«t: práctica 4 @gabd viernes» · «t: arreglar login #panel-maestro v0.3» · «r: gimnasio lunes y jueves a las 19» · «e: examen 3 nov 9:00 2h»</span>"
+
+pick_mention() {  # lista de @asignaturas y #proyectos; devuelve la mención elegida (o nada)
+  local list
+  list="$("$PY" "$CLIENT" get /api/contextos/menciones 2>/dev/null | "$PY" -c 'import json,sys
+try:
+    for m in json.load(sys.stdin).get("menciones", []): print(m["mencion"] + chr(9) + m["nombre"])
+except Exception: pass')"
+  [ -z "$list" ] && { notify normal "Panel" "No hay asignaturas ni proyectos (o el panel no responde)"; return; }
+  printf '%s\n' "$list" | "$ROFI" -dmenu -config "$DIR/rofi/panel-confirmar.rasi" -mesg "Añadir una mención" -p '' -no-custom -display-columns 1,2 -display-column-separator $'\t' | cut -f1
+}
 
 ask() {  # $1 = texto inicial; deja el texto en $text (con el prefijo del tipo elegido) o sale
   local out rc
   out="$(printf '' | "$ROFI" -dmenu -config "$DIR/rofi/panel-captura.rasi" -mesg "$HELP" -p '' ${1:+-filter "$1"} \
-          -kb-custom-1 'Alt+1' -kb-custom-2 'Alt+2' -kb-custom-3 'Alt+3' -kb-custom-4 'Alt+4')"; rc=$?
+          -kb-custom-1 'Alt+1' -kb-custom-2 'Alt+2' -kb-custom-3 'Alt+3' -kb-custom-4 'Alt+4' -kb-custom-5 'Alt+5')"; rc=$?
   case $rc in
     0) text="$out" ;;
+    14)  # Alt+5: elegir una asignatura o un proyecto y volver al texto con la mención añadida
+      local m; m="$(pick_mention)"
+      ask "${out:+$out }${m:+$m }"; return ;;
     10|11|12|13)  # Alt+1…4: el tipo elegido, si el texto no lleva ya un prefijo
       local p; p=$(printf 't:\ni:\nr:\ne:' | sed -n "$((rc - 9))p")
       if [[ "$out" =~ ^[[:space:]]*[tireTIRE][[:space:]]*: ]]; then text="$out"; else text="$p $out"; fi ;;
@@ -59,6 +75,7 @@ while :; do
   [ -z "${text//[[:space:]]/}" ] && exit 0
   is_event=0; [[ "$text" =~ ^[[:space:]]*[eE][[:space:]]*: ]] && is_event=1
   is_typed=0; [[ "$text" =~ ^[[:space:]]*[tirTIR][[:space:]]*: ]] && is_typed=1
+  [[ "$text" =~ (^|[[:space:]])[@#][[:alnum:]] ]] && is_typed=1  # con una mención: se comprueba antes de guardar
   # Vista previa: siempre en los eventos; en el menú, también si una tarea, idea o rutina lleva algo que interpretar
   [ $is_event -eq 0 ] && { [ $interactive -eq 0 ] || [ $is_typed -eq 0 ]; } && break
   prev="$("$PY" "$CLIENT" capture "$text" --dry-run)"; rc=$?
@@ -76,6 +93,10 @@ while :; do
     else
       break  # nada que interpretar: se guarda sin preguntar
     fi
+  elif [ $rc -eq 2 ]; then  # una @mención o #proyecto que no existe: se corrige, no se crea
+    msg="<span color='#f38ba8'></span>  $(field message <<<"$prev" | esc)"
+    opts=$'Corregir el texto\nCancelar'
+    [ $interactive -eq 0 ] && { notify critical "Panel: no se ha guardado" "$(field message <<<"$prev")"; exit 1; }
   elif [ $rc -eq 3 ]; then
     [ $is_event -eq 0 ] && break  # sin conexión: a la cola sin más
     msg="Sin conexión con el panel: no se puede ver la vista previa.&#10;El texto se guardará en la cola y se enviará después."
@@ -98,6 +119,7 @@ case $rc in
   0)
     if [ "$(field revisar <<<"$res")" = "True" ]; then notify normal "Panel: revisar fecha" "$message"
     else notify low "Panel: guardado" "$message"; fi ;;
+  2) notify critical "Panel: no se ha guardado" "$message"; exit 1 ;;
   3) notify normal "Panel sin conexión" "$message" ;;
   *) notify critical "Panel: no se pudo capturar" "$message"; exit 1 ;;
 esac

@@ -1,4 +1,5 @@
 """Calendario: la altura de cada hora crece con el ancho de la columna (las franjas no quedan aplastadas)."""
+
 from datetime import date, timedelta
 
 import pytest

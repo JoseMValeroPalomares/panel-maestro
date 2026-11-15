@@ -13,6 +13,7 @@ Planificación ampliada de Comidas (sexta ronda). Modelo: día → comida → pl
 
 Los macros salen siempre de los ingredientes de cada plato escalados a su ración (_plan_state).
 """
+
 import json
 import random
 import re
@@ -21,11 +22,23 @@ from datetime import date, timedelta
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from core import undo
+from core.db import update_fields
+
 from . import nutrition as nu
+from .core import (
+    DIAS_SEMANA,
+    SEMANA_PATTERN,
+    PlanSlotAdd,
+    _catalogo_de,
+    _check_dia_franja,
+    _slot_id,
+    _sync_franjas,
+    calculate_targets,
+)
 from .database import get_db
-from .main import (DIAS_SEMANA, PlanSlotAdd, SEMANA_PATTERN, _build_meal_catalog, _build_week_state,
-                   _catalogo_de, _check_dia_franja, _gramos_racion_para_objetivo, _plan_state, _slot_id,
-                   _sync_franjas, add_plato_to_slot, calculate_targets)
+from .generador import _build_meal_catalog, _build_week_state, _gramos_racion_para_objetivo
+from .plan import _plan_state, add_plato_to_slot
 
 router = APIRouter(prefix="/api")
 ROL_RE = r"^(primero|segundo|guarnicion|postre|bebida|unico)$"
@@ -34,6 +47,7 @@ ROL_RE = r"^(primero|segundo|guarnicion|postre|bebida|unico)$"
 # ─────────────────────────────────────────────
 # Franjas
 # ─────────────────────────────────────────────
+
 
 class FranjaIn(BaseModel):
     nombre: str = Field(min_length=1, max_length=40)
@@ -54,6 +68,7 @@ class FranjaPatch(BaseModel):
 
 def _slug(text: str) -> str:
     import unicodedata
+
     t = unicodedata.normalize("NFD", text.lower())
     t = "".join(c for c in t if unicodedata.category(c) != "Mn")
     return re.sub(r"[^a-z0-9]+", "-", t).strip("-")[:30] or "franja"
@@ -72,8 +87,10 @@ def create_franja(data: FranjaIn):
         while conn.execute("SELECT 1 FROM franjas WHERE clave=?", (clave,)).fetchone():
             clave, n = f"{_slug(data.nombre)}-{n}", n + 1
         orden = conn.execute("SELECT COALESCE(MAX(orden), 0) + 10 FROM franjas").fetchone()[0]
-        conn.execute("INSERT INTO franjas (clave, nombre, orden, fraccion, hora, catalogo, activa, base) VALUES (?, ?, ?, ?, ?, ?, 1, 0)",
-                     (clave, data.nombre.strip(), orden, data.fraccion, data.hora, data.catalogo or "merienda"))
+        conn.execute(
+            "INSERT INTO franjas (clave, nombre, orden, fraccion, hora, catalogo, activa, base) VALUES (?, ?, ?, ?, ?, ?, 1, 0)",
+            (clave, data.nombre.strip(), orden, data.fraccion, data.hora, data.catalogo or "merienda"),
+        )
     return {"status": "success", "clave": clave}
 
 
@@ -82,10 +99,16 @@ def update_franja(clave: str, data: FranjaPatch):
     with get_db() as conn:
         if not conn.execute("SELECT 1 FROM franjas WHERE clave=?", (clave,)).fetchone():
             raise HTTPException(status_code=404, detail="Franja no encontrada")
-        for field in ("nombre", "hora", "fraccion", "orden", "catalogo"):
-            v = getattr(data, field)
-            if v is not None:
-                conn.execute(f"UPDATE franjas SET {field}=? WHERE clave=?", (v.strip() if isinstance(v, str) else v, clave))
+        campos = ("nombre", "hora", "fraccion", "orden", "catalogo")
+        dados = {f: getattr(data, f) for f in campos if getattr(data, f) is not None}
+        update_fields(
+            conn,
+            "franjas",
+            clave,
+            {f: v.strip() if isinstance(v, str) else v for f, v in dados.items()},
+            campos,
+            columna_id="clave",
+        )
         if data.hora == "":
             conn.execute("UPDATE franjas SET hora=NULL WHERE clave=?", (clave,))
         if data.activa is not None:
@@ -97,7 +120,10 @@ def update_franja(clave: str, data: FranjaPatch):
             if not dias:  # ningún día = ocultarla del todo
                 conn.execute("UPDATE franjas SET activa=0, dias=NULL WHERE clave=?", (clave,))
             else:
-                conn.execute("UPDATE franjas SET dias=?, activa=1 WHERE clave=?", (None if len(dias) == 7 else json.dumps(dias), clave))
+                conn.execute(
+                    "UPDATE franjas SET dias=?, activa=1 WHERE clave=?",
+                    (None if len(dias) == 7 else json.dumps(dias), clave),
+                )
     return {"status": "success"}
 
 
@@ -108,7 +134,9 @@ def delete_franja(clave: str):
         row = conn.execute("SELECT base FROM franjas WHERE clave=?", (clave,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Franja no encontrada")
-        usada = conn.execute("SELECT 1 FROM weekly_plan WHERE franja=? AND meal_id IS NOT NULL LIMIT 1", (clave,)).fetchone()
+        usada = conn.execute(
+            "SELECT 1 FROM weekly_plan WHERE franja=? AND meal_id IS NOT NULL LIMIT 1", (clave,)
+        ).fetchone()
         if row["base"] or usada:
             conn.execute("UPDATE franjas SET activa=0 WHERE clave=?", (clave,))
             return {"status": "success", "oculta": True}
@@ -121,9 +149,10 @@ def delete_franja(clave: str):
 # Papel de un plato y plato doble
 # ─────────────────────────────────────────────
 
+
 class RolIn(BaseModel):
     plan_id: int = Field(ge=1)
-    item_id: int | None = None          # None = el plato principal de la comida
+    item_id: int | None = None  # None = el plato principal de la comida
     rol: str | None = Field(default=None, pattern=ROL_RE)
 
 
@@ -133,17 +162,72 @@ def set_rol(data: RolIn):
         if data.item_id is None:
             cur = conn.execute("UPDATE weekly_plan SET rol=? WHERE id=?", (data.rol, data.plan_id))
         else:
-            cur = conn.execute("UPDATE plan_items SET rol=? WHERE id=? AND plan_id=?", (data.rol, data.item_id, data.plan_id))
+            cur = conn.execute(
+                "UPDATE plan_items SET rol=? WHERE id=? AND plan_id=?", (data.rol, data.item_id, data.plan_id)
+            )
         if not cur.rowcount:
             raise HTTPException(status_code=404, detail="Plato no encontrado")
     return {"status": "success"}
 
 
-PRIMERO_PALABRAS = ("primero", "salmorejo", "pipirrana", "paella", "fideua", "fideuá", "potaje", "ensalada", "sopa", "crema", "pure", "puré", "gazpacho", "salmorejo", "verdura", "menestra",
-                    "lentejas", "garbanzos", "alubias", "judias", "judías", "pasta", "arroz", "espaguetis", "macarrones")
-SEGUNDO_PALABRAS = ("segundo", "pollo", "ternera", "cerdo", "pavo", "pescado", "salmon", "salmón", "merluza", "atun", "atún",
-                    "huevo", "tortilla", "filete", "hamburguesa", "lomo", "bacalao", "sardina", "caballa", "dorada",
-                    "pulpo", "conejo", "chuleta", "albondiga", "albóndiga", "boqueron", "boquerón", "revuelto", "solomillo")
+PRIMERO_PALABRAS = (
+    "primero",
+    "salmorejo",
+    "pipirrana",
+    "paella",
+    "fideua",
+    "fideuá",
+    "potaje",
+    "ensalada",
+    "sopa",
+    "crema",
+    "pure",
+    "puré",
+    "gazpacho",
+    "salmorejo",
+    "verdura",
+    "menestra",
+    "lentejas",
+    "garbanzos",
+    "alubias",
+    "judias",
+    "judías",
+    "pasta",
+    "arroz",
+    "espaguetis",
+    "macarrones",
+)
+SEGUNDO_PALABRAS = (
+    "segundo",
+    "pollo",
+    "ternera",
+    "cerdo",
+    "pavo",
+    "pescado",
+    "salmon",
+    "salmón",
+    "merluza",
+    "atun",
+    "atún",
+    "huevo",
+    "tortilla",
+    "filete",
+    "hamburguesa",
+    "lomo",
+    "bacalao",
+    "sardina",
+    "caballa",
+    "dorada",
+    "pulpo",
+    "conejo",
+    "chuleta",
+    "albondiga",
+    "albóndiga",
+    "boqueron",
+    "boquerón",
+    "revuelto",
+    "solomillo",
+)
 
 
 def _tipo_doble(meal: dict, tags: str) -> set[str]:
@@ -159,6 +243,7 @@ def _tipo_doble(meal: dict, tags: str) -> set[str]:
     def puntos(palabras, grupos, prot_ok):
         p = 4 if any(first.startswith(w) for w in palabras) else 2 if any(w in nombre for w in palabras) else 0
         return p + (1 if groups & grupos else 0) + (2 if prot_ok else 0)
+
     p1 = puntos(PRIMERO_PALABRAS, {"verdura", "legumbre"}, prot_ratio < 0.2)
     p2 = puntos(SEGUNDO_PALABRAS, {"pescado", "carne_roja", "carne_blanca", "huevo"}, prot_ratio >= 0.28)
     if p1 == p2:
@@ -191,8 +276,11 @@ def add_plato_doble(data: DobleIn):
         tags = {r["id"]: r["tags"] or "" for r in conn.execute("SELECT id, tags FROM meals")}
         week = _build_week_state(conn, data.semana, catalogo)
         fuente = _catalogo_de(data.franja)
-        pool = [m for m in catalogo.values() if m["id"] not in ya and m["kcal_100g"] > 0
-                and (m["franja"] == fuente or m["franja"] in ("comida", "cena"))]
+        pool = [
+            m
+            for m in catalogo.values()
+            if m["id"] not in ya and m["kcal_100g"] > 0 and (m["franja"] == fuente or m["franja"] in ("comida", "cena"))
+        ]
         tipos = {m["id"]: _tipo_doble(m, tags.get(m["id"], "")) for m in pool}
 
         def elegir(tipo, excluir):
@@ -200,26 +288,47 @@ def add_plato_doble(data: DobleIn):
             if not cands:
                 return None
             # primero lo de la franja, lo no usado esta semana y lo menos repetido últimamente
-            cands.sort(key=lambda m: (m["franja"] != fuente, m["id"] in week["used_main"], week["recent_usage"].get(m["id"], 0)))
+            cands.sort(
+                key=lambda m: (
+                    m["franja"] != fuente,
+                    m["id"] in week["used_main"],
+                    week["recent_usage"].get(m["id"], 0),
+                )
+            )
             return random.choice(cands[:3])
 
         primero = elegir("primero", set())
         segundo = elegir("segundo", {primero["id"]} if primero else set())
         if not primero or not segundo:
             falta = "primeros" if not primero else "segundos"
-            raise HTTPException(status_code=422, detail=f"No hay {falta} en tus platos: etiqueta alguno con «{falta[:-1]}»")
+            raise HTTPException(
+                status_code=422, detail=f"No hay {falta} en tus platos: etiqueta alguno con «{falta[:-1]}»"
+            )
         g1, _, _ = _gramos_racion_para_objetivo(primero, hueco * 0.45)
         g2, _, _ = _gramos_racion_para_objetivo(segundo, hueco * 0.55)
-    r1 = add_plato_to_slot(PlanSlotAdd(semana=data.semana, dia=data.dia, franja=data.franja, meal_id=primero["id"], gramos=g1, rol="primero"))
-    r2 = add_plato_to_slot(PlanSlotAdd(semana=data.semana, dia=data.dia, franja=data.franja, meal_id=segundo["id"], gramos=g2, rol="segundo"))
-    return {"status": "success", "plan_id": r1["plan_id"],
-            "primero": {"meal_id": primero["id"], "nombre": primero["nombre"], "gramos": g1},
-            "segundo": {"meal_id": segundo["id"], "nombre": segundo["nombre"], "gramos": g2}, "items": [r1, r2]}
+    r1 = add_plato_to_slot(
+        PlanSlotAdd(
+            semana=data.semana, dia=data.dia, franja=data.franja, meal_id=primero["id"], gramos=g1, rol="primero"
+        )
+    )
+    r2 = add_plato_to_slot(
+        PlanSlotAdd(
+            semana=data.semana, dia=data.dia, franja=data.franja, meal_id=segundo["id"], gramos=g2, rol="segundo"
+        )
+    )
+    return {
+        "status": "success",
+        "plan_id": r1["plan_id"],
+        "primero": {"meal_id": primero["id"], "nombre": primero["nombre"], "gramos": g1},
+        "segundo": {"meal_id": segundo["id"], "nombre": segundo["nombre"], "gramos": g2},
+        "items": [r1, r2],
+    }
 
 
 # ─────────────────────────────────────────────
 # Favoritos y plantillas de comida
 # ─────────────────────────────────────────────
+
 
 class FavIn(BaseModel):
     favorito: bool
@@ -242,7 +351,7 @@ class TemplateItem(BaseModel):
 class TemplateIn(BaseModel):
     nombre: str = Field(min_length=1, max_length=80)
     franja: str | None = Field(default=None, max_length=30)
-    plan_id: int | None = None                          # guardar una comida del plan tal cual
+    plan_id: int | None = None  # guardar una comida del plan tal cual
     items: list[TemplateItem] = Field(default_factory=list, max_length=12)
     favorito: bool = False
 
@@ -261,10 +370,20 @@ class ApplyIn(BaseModel):
 
 def _template_out(conn, row) -> dict:
     items = json.loads(row["items"] or "[]")
-    nombres = {r["id"]: r["nombre"] for r in conn.execute(
-        f"SELECT id, nombre FROM meals WHERE id IN ({','.join('?' * len(items)) or 'NULL'})", [i["meal_id"] for i in items])}
-    return {"id": row["id"], "nombre": row["nombre"], "franja": row["franja"], "favorito": bool(row["favorito"]),
-            "items": [{**i, "nombre": nombres.get(i["meal_id"], "Plato borrado")} for i in items]}
+    nombres = {
+        r["id"]: r["nombre"]
+        for r in conn.execute(
+            f"SELECT id, nombre FROM meals WHERE id IN ({','.join('?' * len(items)) or 'NULL'})",
+            [i["meal_id"] for i in items],
+        )
+    }
+    return {
+        "id": row["id"],
+        "nombre": row["nombre"],
+        "franja": row["franja"],
+        "favorito": bool(row["favorito"]),
+        "items": [{**i, "nombre": nombres.get(i["meal_id"], "Plato borrado")} for i in items],
+    }
 
 
 @router.get("/meal-templates")
@@ -287,12 +406,16 @@ def create_template(data: TemplateIn):
             items = []
             if slot["meal_id"]:
                 items.append({"meal_id": slot["meal_id"], "gramos": slot["gramos_racion"], "rol": slot["rol"]})
-            items += [{"meal_id": r["meal_id"], "gramos": r["gramos_racion"], "rol": r["rol"]}
-                      for r in conn.execute("SELECT * FROM plan_items WHERE plan_id=? ORDER BY orden, id", (data.plan_id,))]
+            items += [
+                {"meal_id": r["meal_id"], "gramos": r["gramos_racion"], "rol": r["rol"]}
+                for r in conn.execute("SELECT * FROM plan_items WHERE plan_id=? ORDER BY orden, id", (data.plan_id,))
+            ]
         if not items:
             raise HTTPException(status_code=422, detail="La plantilla no tiene platos")
-        new_id = conn.execute("INSERT INTO meal_templates (nombre, franja, items, favorito) VALUES (?, ?, ?, ?)",
-                              (data.nombre.strip(), franja, json.dumps(items), int(data.favorito))).lastrowid
+        new_id = conn.execute(
+            "INSERT INTO meal_templates (nombre, franja, items, favorito) VALUES (?, ?, ?, ?)",
+            (data.nombre.strip(), franja, json.dumps(items), int(data.favorito)),
+        ).lastrowid
     return {"status": "success", "id": new_id}
 
 
@@ -311,8 +434,14 @@ def update_template(tid: int, data: TemplatePatch):
 @router.delete("/meal-templates/{tid}")
 def delete_template(tid: int):
     with get_db() as conn:
+        rows = undo.select(conn, "meal_templates", "id=?", (tid,))
+        token = (
+            undo.save_rows(conn, "rows.plantilla-comida", [("meal_templates", rows)], title=rows[0]["nombre"])
+            if rows
+            else None
+        )
         conn.execute("DELETE FROM meal_templates WHERE id=?", (tid,))
-    return {"status": "success"}
+    return {"status": "success", "undo_token": token, "undo_db": "comidas"}
 
 
 @router.post("/meal-templates/{tid}/apply")
@@ -322,15 +451,26 @@ def apply_template(tid: int, data: ApplyIn):
         row = conn.execute("SELECT * FROM meal_templates WHERE id=?", (tid,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Plantilla no encontrada")
-        items = [i for i in json.loads(row["items"] or "[]")
-                 if conn.execute("SELECT 1 FROM meals WHERE id=?", (i["meal_id"],)).fetchone()]
+        items = [
+            i
+            for i in json.loads(row["items"] or "[]")
+            if conn.execute("SELECT 1 FROM meals WHERE id=?", (i["meal_id"],)).fetchone()
+        ]
         if data.reemplazar:
             plan_id = _slot_id(conn, data.semana, data.dia, data.franja)
             conn.execute("DELETE FROM plan_items WHERE plan_id=?", (plan_id,))
             conn.execute("UPDATE weekly_plan SET meal_id=NULL, gramos_racion=NULL, rol=NULL WHERE id=?", (plan_id,))
     for i in items:
-        add_plato_to_slot(PlanSlotAdd(semana=data.semana, dia=data.dia, franja=data.franja, meal_id=i["meal_id"],
-                                      gramos=i.get("gramos"), rol=i.get("rol")))
+        add_plato_to_slot(
+            PlanSlotAdd(
+                semana=data.semana,
+                dia=data.dia,
+                franja=data.franja,
+                meal_id=i["meal_id"],
+                gramos=i.get("gramos"),
+                rol=i.get("rol"),
+            )
+        )
     return {"status": "success", "platos": len(items)}
 
 
@@ -368,8 +508,12 @@ def tendencia(puntos: list[tuple[date, float]], hoy: date, dias: int = 28) -> di
     if not den:
         return None
     pendiente = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / den  # kg/día
-    return {"kg_semana": round(pendiente * 7, 2), "pesajes": len(pts), "desde": pts[0][0].isoformat(),
-            "peso_medio": round(my, 1)}
+    return {
+        "kg_semana": round(pendiente * 7, 2),
+        "pesajes": len(pts),
+        "desde": pts[0][0].isoformat(),
+        "peso_medio": round(my, 1),
+    }
 
 
 def sugerencia(tend: dict | None, perfil: dict) -> dict | None:
@@ -378,18 +522,26 @@ def sugerencia(tend: dict | None, perfil: dict) -> dict | None:
     objetivo = nu.normalizar_objetivo(perfil.get("objetivo"))
     targets = calculate_targets(perfil)
     peso = tend["peso_medio"]
-    buscado = RITMO_OBJETIVO.get(objetivo, 0) / 100 * peso       # kg/semana
-    diferencia = buscado - tend["kg_semana"]                     # >0: hay que comer más
+    buscado = RITMO_OBJETIVO.get(objetivo, 0) / 100 * peso  # kg/semana
+    diferencia = buscado - tend["kg_semana"]  # >0: hay que comer más
     delta = max(-400, min(400, round(diferencia * KCAL_POR_KG / 7 / 10) * 10))
     if abs(delta) < 50:
-        return {"delta_kcal": 0, "ajuste_pct": targets["ajuste_pct"], "kg_semana_buscado": round(buscado, 2),
-                "texto": "Vas al ritmo de tu objetivo: no hace falta tocar las kcal."}
+        return {
+            "delta_kcal": 0,
+            "ajuste_pct": targets["ajuste_pct"],
+            "kg_semana_buscado": round(buscado, 2),
+            "texto": "Vas al ritmo de tu objetivo: no hace falta tocar las kcal.",
+        }
     tdee = targets["tdee"] or 1
     nuevo_pct = round(targets["ajuste_pct"] + delta / tdee * 100, 1)
     verbo = "Sube" if delta > 0 else "Baja"
     es = lambda v: f"{v:+.2f}".replace(".", ",")  # noqa: E731 — coma decimal
-    return {"delta_kcal": delta, "ajuste_pct": max(-40, min(40, nuevo_pct)), "kg_semana_buscado": round(buscado, 2),
-            "texto": f"{verbo} unas {abs(delta)} kcal al día: vas a {es(tend['kg_semana'])} kg/semana y tu objetivo pide {es(buscado)}."}
+    return {
+        "delta_kcal": delta,
+        "ajuste_pct": max(-40, min(40, nuevo_pct)),
+        "kg_semana_buscado": round(buscado, 2),
+        "texto": f"{verbo} unas {abs(delta)} kcal al día: vas a {es(tend['kg_semana'])} kg/semana y tu objetivo pide {es(buscado)}.",
+    }
 
 
 @router.get("/body")
@@ -400,8 +552,12 @@ def get_body(dias: int = 120):
         rows = [dict(r) for r in conn.execute("SELECT * FROM body_log WHERE fecha >= ? ORDER BY fecha", (desde,))]
         perfil = dict(conn.execute("SELECT * FROM user_profile WHERE id=1").fetchone())
     tend = tendencia([(date.fromisoformat(r["fecha"]), r["peso_kg"]) for r in rows], date.today())
-    return {"registros": rows, "tendencia": tend, "sugerencia": sugerencia(tend, perfil),
-            "objetivo": nu.normalizar_objetivo(perfil.get("objetivo"))}
+    return {
+        "registros": rows,
+        "tendencia": tend,
+        "sugerencia": sugerencia(tend, perfil),
+        "objetivo": nu.normalizar_objetivo(perfil.get("objetivo")),
+    }
 
 
 @router.put("/body/{fecha}")
@@ -415,17 +571,21 @@ def put_body(fecha: str, data: BodyIn):
         raise HTTPException(status_code=422, detail="Escribe al menos el peso o una medida")
     cols = list(vals)
     with get_db() as conn:
-        conn.execute(f"INSERT INTO body_log (fecha, {', '.join(cols)}) VALUES (?, {', '.join('?' * len(cols))}) "
-                     f"ON CONFLICT(fecha) DO UPDATE SET {', '.join(f'{c}=excluded.{c}' for c in cols)}",
-                     (d.isoformat(), *[vals[c] for c in cols]))
+        conn.execute(
+            f"INSERT INTO body_log (fecha, {', '.join(cols)}) VALUES (?, {', '.join('?' * len(cols))}) "
+            f"ON CONFLICT(fecha) DO UPDATE SET {', '.join(f'{c}=excluded.{c}' for c in cols)}",
+            (d.isoformat(), *[vals[c] for c in cols]),
+        )
     return {"status": "success"}
 
 
 @router.delete("/body/{fecha}")
 def delete_body(fecha: str):
     with get_db() as conn:
+        rows = undo.select(conn, "body_log", "fecha=?", (fecha,))
+        token = undo.save_rows(conn, "rows.peso", [("body_log", rows)], title=f"Peso del {fecha}") if rows else None
         conn.execute("DELETE FROM body_log WHERE fecha=?", (fecha,))
-    return {"status": "success"}
+    return {"status": "success", "undo_token": token, "undo_db": "comidas"}
 
 
 class AjusteIn(BaseModel):
@@ -439,7 +599,9 @@ def apply_adjustment(data: AjusteIn):
     with get_db() as conn:
         conn.execute("UPDATE user_profile SET ajuste_pct=? WHERE id=1", (data.ajuste_pct,))
         if data.actualizar_peso:
-            last = conn.execute("SELECT peso_kg FROM body_log WHERE peso_kg IS NOT NULL ORDER BY fecha DESC LIMIT 1").fetchone()
+            last = conn.execute(
+                "SELECT peso_kg FROM body_log WHERE peso_kg IS NOT NULL ORDER BY fecha DESC LIMIT 1"
+            ).fetchone()
             if last:
                 conn.execute("UPDATE user_profile SET peso_kg=? WHERE id=1", (last["peso_kg"],))
         perfil = dict(conn.execute("SELECT * FROM user_profile WHERE id=1").fetchone())

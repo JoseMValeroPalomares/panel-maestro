@@ -15,6 +15,7 @@ eso la comprobación usa tolerancia.
 Objetivos: TMB de Mifflin-St Jeor × factor de actividad (TDEE) ± ajuste por
 objetivo; proteína en g/kg, grasa en % de la energía y el resto, hidratos.
 """
+
 from __future__ import annotations
 
 MACROS = ("kcal", "proteinas", "carbohidratos", "grasas", "azucares", "sal", "grasas_saturadas")
@@ -37,8 +38,8 @@ OBJETIVOS = {"definicion": -20.0, "mantenimiento": 0.0, "volumen": 10.0}
 OBJETIVOS_ALIAS = {"perder": "definicion", "mantener": "mantenimiento", "ganar": "volumen"}
 
 GRASA_PCT_DEFECTO = 25.0
-SAL_MAX_G = 5.0           # OMS
-AZUCAR_MAX_PCT = 10.0     # OMS, azúcares libres
+SAL_MAX_G = 5.0  # OMS
+AZUCAR_MAX_PCT = 10.0  # OMS, azúcares libres
 FRUTA_VERDURA_MIN_G = 400  # OMS
 
 
@@ -104,8 +105,14 @@ def kcal_atwater(proteinas: float, carbohidratos: float, grasas: float) -> float
     return KCAL_PROTEINA * (proteinas or 0) + KCAL_HIDRATOS * (carbohidratos or 0) + KCAL_GRASA * (grasas or 0)
 
 
-def comprobar_kcal(kcal: float, proteinas: float, carbohidratos: float, grasas: float,
-                   tolerancia_pct: float = 12.0, tolerancia_abs: float = 20.0) -> dict:
+def comprobar_kcal(
+    kcal: float,
+    proteinas: float,
+    carbohidratos: float,
+    grasas: float,
+    tolerancia_pct: float = 12.0,
+    tolerancia_abs: float = 20.0,
+) -> dict:
     """¿Cuadran las kcal declaradas con 4P + 4C + 9G? Se acepta la diferencia si
     es menor que la tolerancia relativa O la absoluta (los alimentos casi sin
     energía tienen diferencias relativas grandes pero irrelevantes)."""
@@ -114,8 +121,13 @@ def comprobar_kcal(kcal: float, proteinas: float, carbohidratos: float, grasas: 
     base = max(esperadas, kcal or 0, 1e-9)
     diff_pct = abs(diff) / base * 100
     ok = abs(diff) <= tolerancia_abs or diff_pct <= tolerancia_pct
-    return {"ok": ok, "kcal": round(kcal or 0, 1), "esperadas": round(esperadas, 1),
-            "diferencia": round(diff, 1), "diferencia_pct": round(diff_pct, 1)}
+    return {
+        "ok": ok,
+        "kcal": round(kcal or 0, 1),
+        "esperadas": round(esperadas, 1),
+        "diferencia": round(diff, 1),
+        "diferencia_pct": round(diff_pct, 1),
+    }
 
 
 # ── Objetivos ───────────────────────────────────────────────────
@@ -147,7 +159,9 @@ def calcular_objetivos(perfil: dict) -> dict:
     grasa_pct = GRASA_PCT_DEFECTO if grasa_pct is None else float(grasa_pct)
     prot_gkg = float(perfil.get("proteina_g_kg") or 1.6)
 
-    tmb = tmb_mifflin(peso, float(perfil.get("altura_cm") or 0), float(perfil.get("edad") or 0), perfil.get("sexo", "hombre"))
+    tmb = tmb_mifflin(
+        peso, float(perfil.get("altura_cm") or 0), float(perfil.get("edad") or 0), perfil.get("sexo", "hombre")
+    )
     tdee = gasto_total(tmb, float(perfil.get("nivel_actividad") or 1.2))
     kcal = tdee * (1 + float(ajuste_pct) / 100)
 
@@ -188,9 +202,14 @@ def calcular_objetivos(perfil: dict) -> dict:
 
 def objetivos_comparables(obj: dict) -> dict:
     """Objetivo diario en las mismas claves que los macros."""
-    return {"kcal": obj["kcal_objetivo"], "proteinas": obj["proteina_g"],
-            "carbohidratos": obj["carbohidratos_g"], "grasas": obj["grasa_g"],
-            "azucares": obj["azucar_max_g"], "sal": obj["sal_max_g"]}
+    return {
+        "kcal": obj["kcal_objetivo"],
+        "proteinas": obj["proteina_g"],
+        "carbohidratos": obj["carbohidratos_g"],
+        "grasas": obj["grasa_g"],
+        "azucares": obj["azucar_max_g"],
+        "sal": obj["sal_max_g"],
+    }
 
 
 def progreso(consumido: dict, objetivo: dict) -> dict:
@@ -234,10 +253,16 @@ def sugerir_platos(hueco: dict, platos: list[dict], n: int = 5, fraccion_dia: fl
         gramos = max(p["gramos_min"], min(p["gramos_max"], ideal))
         gramos = round(gramos / 5) * 5
         aporte = escalar(d, gramos / 100)
-        candidatos.append({
-            "id": p["id"], "nombre": p["nombre"], "franja": p.get("franja"), "gramos": gramos,
-            "aporte": redondear(aporte), "puntuacion": round(_error_relativo(aporte, objetivo), 3),
-        })
+        candidatos.append(
+            {
+                "id": p["id"],
+                "nombre": p["nombre"],
+                "franja": p.get("franja"),
+                "gramos": gramos,
+                "aporte": redondear(aporte),
+                "puntuacion": round(_error_relativo(aporte, objetivo), 3),
+            }
+        )
     candidatos.sort(key=lambda c: c["puntuacion"])
     return candidatos[:n]
 
@@ -252,7 +277,11 @@ def sugerir_ingredientes(hueco: dict, ingredientes: list[dict], n: int = 5) -> l
     if max(deficits.values()) <= 0:
         return []
     # El macro que falta más en kcal equivalentes
-    kcal_eq = {"proteinas": deficits["proteinas"] * 4, "carbohidratos": deficits["carbohidratos"] * 4, "grasas": deficits["grasas"] * 9}
+    kcal_eq = {
+        "proteinas": deficits["proteinas"] * 4,
+        "carbohidratos": deficits["carbohidratos"] * 4,
+        "grasas": deficits["grasas"] * 9,
+    }
     clave = max(kcal_eq, key=kcal_eq.get)
     out = []
     for ing in ingredientes:
@@ -267,7 +296,15 @@ def sugerir_ingredientes(hueco: dict, ingredientes: list[dict], n: int = 5) -> l
         if gramos > MAX_GRAMOS_EXTRA:  # una ración razonable de un alimento suelto
             continue
         gramos = round(gramos / 5) * 5
-        out.append({"id": ing["id"], "nombre": ing["nombre"], "macro": clave, "gramos": gramos,
-                    "aporte": redondear(macros_por_cantidad(ing, gramos)), "densidad": round(densidad, 3)})
+        out.append(
+            {
+                "id": ing["id"],
+                "nombre": ing["nombre"],
+                "macro": clave,
+                "gramos": gramos,
+                "aporte": redondear(macros_por_cantidad(ing, gramos)),
+                "densidad": round(densidad, 3),
+            }
+        )
     out.sort(key=lambda x: -x["densidad"])
     return out[:n]

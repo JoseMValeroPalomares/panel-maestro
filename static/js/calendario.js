@@ -9,6 +9,16 @@
   const $ = (id) => document.getElementById(id);
   const params = new URLSearchParams(location.search);
   const saved = Prefs.get('calendar-view', null);
+  // Rejilla del minicalendario (6 semanas desde el lunes de antes del día 1): contiene el día, los 3 días o la semana a
+  // la vista, así que se pide antes de montar y el calendario saca su rango de ella sin otra petición (V-2). Sin
+  // preferencias en caché aún no se sabe el contexto: entonces no se adelanta nada.
+  const miniFirst = (d) => { const m = new Date(d.getFullYear(), d.getMonth(), 1); return Calendar.addDays(m, -((m.getDay() + 6) % 7)); };
+  let pre = null;
+  if (Prefs.cached && window.Ctx) {
+    const first = miniFirst(params.get('dia') ? Calendar.parse(params.get('dia')) : new Date());
+    pre = { key: Calendar.iso(first), ctx: Ctx.active(), p: Calendar.fetchEntries(first, Calendar.addDays(first, 41), Ctx.active()) };
+    pre.p.catch(() => {});
+  }
   const cal = Calendar.mount($('calendar'), {
     view: params.get('vista') || saved || undefined,
     date: params.get('dia') || undefined,
@@ -18,7 +28,9 @@
       document.querySelectorAll('[data-cal-view]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.calView === c.view)));
       history.replaceState(null, '', `?vista=${c.view}&dia=${Calendar.iso(c.date)}`);
       paintHours(c);
-      miniDots.key = '';  // cada pintado refresca los puntos (algo se ha podido crear o mover)
+      // datos nuevos (algo se ha podido crear o mover): se refrescan los puntos; ni un repintado sin más ni la primera carga
+      // (los puntos se piden al pintar el minicalendario por primera vez) los vuelven a pedir (V-2)
+      if ((c.loads || 0) > 1 && c.loads !== dotsFor) { dotsFor = c.loads; miniDots.key = ''; }
       paintMini(c);
     },
   });
@@ -39,51 +51,71 @@
     else if (views[e.key.toLowerCase()]) { e.preventDefault(); cal.setView(views[e.key.toLowerCase()]); Prefs.set('calendar-view', cal.view); }
   });
 
-  /* ---------- Crear escribiendo: «dentista mañana 17:00» ---------- */
+  /* ---------- Crear escribiendo: «dentista mañana 17:00 30m en Clínica Sur» (P-3) ----------
+     Lo entendido se ve debajo; Intro (o Ctrl+Intro) lo crea y deja la línea lista para otro, Alt+Intro o «Más opciones»
+     abre el editor ya relleno (lugar, aviso, notas…) sin crear nada antes, y Esc vacía la línea. */
   const PREFIX = /^\s*[tire]\s*:/i;
-  const quick = $('calQuickText'), hint = $('calQuickHint'), HINT = '';  // la línea solo se ve al escribir (vista previa)
+  const quick = $('calQuickText'), hint = $('calQuickHint');
   const asEvent = (t) => (PREFIX.test(t) ? t : `e: ${t}`);
-  let qTimer = null, qSeq = 0;
-  quick.addEventListener('input', () => {
-    clearTimeout(qTimer);
+  let qLast = null;
+  const clearHint = () => { hint.innerHTML = ''; hint.hidden = true; hint.classList.remove('is-ok', 'is-warn'); qLast = null; };
+  const qPreview = Rapido.preview(async () => {
     const t = quick.value.trim();
-    hint.hidden = !t;
-    if (!t) { hint.textContent = HINT; hint.classList.remove('is-ok', 'is-warn'); return; }
-    qTimer = setTimeout(async () => {
-      const seq = ++qSeq;
-      let r;
-      try { r = await api('/api/capture', { method: 'POST', body: { text: asEvent(t), dry_run: true }, quiet: true }); } catch { return; }
-      if (seq !== qSeq) return;
-      const ok = r.kind !== 'inbox' || !r.revisar;
-      hint.textContent = r.kind === 'evento' ? `${r.preview.title} · ${r.preview.when}` : ok ? r.message : 'Sin fecha clara: irá al Inbox para revisarlo';
-      hint.classList.toggle('is-ok', ok);
-      hint.classList.toggle('is-warn', !ok);
-    }, 220);
+    if (!t) return null;
+    return api('/api/capture', { method: 'POST', body: { text: asEvent(t), dry_run: true }, quiet: true });
+  }, (r) => {
+    if (!r || r.error) { if (!quick.value.trim()) clearHint(); return; }
+    qLast = r;
+    const ok = r.kind !== 'inbox' || !r.revisar;
+    const p = r.preview || {};
+    hint.innerHTML = (r.kind === 'evento'
+      ? Rapido.chips([{ icon: 'calendar', text: p.title }, { icon: 'clock', text: p.when }, p.location && { icon: 'map-pin', text: p.location, kind: 'plain' }, p.donde && { icon: 'layers', text: p.donde, kind: 'plain' }])
+      : Rapido.chips([{ icon: ok ? 'check' : 'triangle-alert', text: ok ? r.message : 'Sin fecha clara: irá al Inbox para revisarlo', kind: ok ? 'plain' : 'warn' }]))
+      + (r.kind === 'evento' ? '<button type="button" class="link-btn" data-quick-more>Más opciones</button><span class="tiny subtle hide-mobile"> · <kbd>Alt</kbd>+<kbd>Intro</kbd></span>' : '');
+    hint.hidden = false;
+    hint.classList.toggle('is-ok', ok);
+    hint.classList.toggle('is-warn', !ok);
+  }, 220);
+  quick.addEventListener('input', () => { if (!quick.value.trim()) { qPreview.cancel(); clearHint(); return; } qPreview(); });
+  async function quickMore() {
+    if (!quick.value.trim()) return;
+    qPreview.cancel();
+    const r = qLast?.kind === 'evento' ? qLast : await api('/api/capture', { method: 'POST', body: { text: asEvent(quick.value.trim()), dry_run: true }, quiet: true }).catch(() => null);
+    const p = r?.kind === 'evento' ? r.preview : null;
+    const day = cal.date ? Calendar.iso(cal.date) : Calendar.iso(new Date());
+    Calendar.openEditor(p ? { kind: 'event', type: 'evento', isNew: true, title: p.title, start: p.start, end: p.end, all_day: p.all_day, location: p.location || '' }
+      : { kind: 'event', type: 'evento', isNew: true, title: quick.value.trim(), start: `${day}T09:00`, end: `${day}T10:00`, all_day: false }, cal);
+    quick.value = '';
+    clearHint();
+  }
+  hint.addEventListener('click', (e) => { if (e.target.closest('[data-quick-more]')) quickMore(); });
+  quick.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && quick.value) { e.preventDefault(); e.stopPropagation(); quick.value = ''; qPreview.cancel(); clearHint(); }
+    else if (e.key === 'Enter' && e.altKey) { e.preventDefault(); quickMore(); }
+    else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); $('calQuick').requestSubmit(); }
   });
   $('calQuick').addEventListener('submit', async (e) => {
     e.preventDefault();
     const t = quick.value.trim();
     if (!t) { quick.focus(); return; }
-    clearTimeout(qTimer);
-    qSeq++;
+    qPreview.cancel();
     let r;
     try { r = await api('/api/capture', { method: 'POST', body: { text: asEvent(t) } }); } catch { return; }
     toast(r.message, { type: r.revisar ? 'warning' : 'info' });
     quick.value = '';
-    hint.textContent = HINT;
-    hint.hidden = true;
-    hint.classList.remove('is-ok', 'is-warn');
+    clearHint();
     if (r.kind === 'evento' && r.preview?.start) cal.goTo(r.preview.start.slice(0, 10));
     else Calendar.refreshAll();
+    quick.focus();
   });
 
   /* ---------- Minicalendario: ir a un día; los puntos marcan los días con algo ---------- */
-  let mini = null, miniDots = { key: '', days: new Set() };
+  let mini = null, miniDots = { key: '', days: new Set() }, dotsFor;
   const MONTHS = (d) => d.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
   function paintMini(c) {
     const ref = c ? new Date(c.date.getFullYear(), c.date.getMonth(), 1) : mini;
     if (c) mini = ref;
-    const first = Calendar.addDays(mini, -((mini.getDay() + 6) % 7));
+    const first = miniFirst(mini);
     const [r0, r1] = cal.view === 'month' || cal.view === 'agenda' ? ['', ''] : cal.range().map(Calendar.iso);  // en Mes y Agenda no se marca el rango
     const key = Calendar.iso(first);
     if (miniDots.key !== key) loadDots(first, key);
@@ -102,7 +134,10 @@
   async function loadDots(first, key) {
     miniDots = { key, days: new Set() };
     try {
-      const { entries } = await api(`/api/calendar/entries?start=${key}&end=${Calendar.iso(Calendar.addDays(first, 41))}`, { quiet: true });
+      const ctx = window.Ctx ? Ctx.active() : 'todo';
+      const ahead = pre && pre.key === key && pre.ctx === ctx ? pre.p : null;  // la de arranque, una sola vez
+      pre = null;
+      const { entries } = await (ahead || Calendar.fetchEntries(first, Calendar.addDays(first, 41), ctx));
       entries.filter((e) => e.kind !== 'routine').forEach((e) => miniDots.days.add(e.start.slice(0, 10)));
     } catch { return; }
     if (miniDots.key === key) paintMini();
@@ -186,19 +221,8 @@
     const r = await api('/api/day-templates', { method: 'POST', body: { name: name.trim(), day } });
     toast(`Plantilla guardada: ${r.eventos} eventos y bloques, ${r.comidas} platos`);
   }
-  async function applyDayTemplate() {
-    const { plantillas } = await api('/api/day-templates', { quiet: true });
-    if (!plantillas.length) { toast('Aún no hay plantillas: guarda primero un día', { type: 'info' }); return; }
-    const picked = await uiPick({
-      title: `Aplicar al ${new Date(dayShown() + 'T00:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })}`,
-      placeholder: 'Busca una plantilla',
-      load: () => plantillas.map((p) => ({ id: p.id, label: p.name, sub: `${p.eventos} eventos y bloques · ${p.comidas} platos`, icon: 'layout-template' })),
-    });
-    if (!picked) return;
-    const r = await api(`/api/day-templates/${picked.id}/apply`, { method: 'POST', body: { day: dayShown() } });
-    toast(`Aplicada: ${r.eventos} eventos y bloques, ${r.platos} platos`);
-    Calendar.refreshAll();
-  }
+  // La galería común (plantillas.js): las de serie y las tuyas, con miniatura; aplica al día que se está viendo
+  function applyDayTemplate() { Plantillas.open({ tab: 'dia', day: dayShown() }); }
   async function syncNow() {
     await api('/api/calendar/sync', { method: 'POST' });
     toast('Sincronizando con iCloud y el ESP32…', { type: 'info' });
@@ -209,7 +233,7 @@
   const today = Calendar.iso(new Date());
   function paintSide() {
     if (!Items.state.loaded) return;
-    const all = Items.state.items;
+    const all = Items.state.items.filter((i) => !window.Ctx || Ctx.match(i));  // el contexto activo, como la rejilla
     // solo las rutinas (sus pasos van dentro de cada una)
     const rut = all.filter((i) => i.type === 'rutina' && !i.parent_id && i.today)
       .sort((a, b) => (a.due_time || '99').localeCompare(b.due_time || '99'));
@@ -238,7 +262,7 @@
   Items.ready().then(paintSide).catch(() => {});
 
   $('calRoutines').addEventListener('click', async (e) => {
-    if (e.target.closest('[data-rt-templates]')) { Routines.openTemplates(); return; }
+    if (e.target.closest('[data-rt-templates]')) { Plantillas.open({ tab: 'rutina' }); return; }
     const run = e.target.closest('[data-run]');
     if (run) { Routines.run(Number(run.dataset.run)); return; }
     const b = e.target.closest('[data-rut]');
@@ -272,4 +296,6 @@
     });
     openModal(dlg, { focus: 'input[name=time]', onClose: () => dlg.remove() });
   });
+  // Otro contexto: los puntos del mes y el lateral cambian con la rejilla
+  document.addEventListener('contexto:changed', () => { miniDots.key = ''; paintMini(); paintSide(); });
 })();

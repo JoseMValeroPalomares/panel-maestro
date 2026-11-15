@@ -9,6 +9,7 @@ Cada fuente lleva ASCII, Latin-1 (tildes, ñ, ¿, ¡, º…) y unos pocos signos
 tipográficos (… — « » “ ” • €). Las de números solo llevan dígitos y «:», con
 avance fijo (cifras tabulares) para que la hora no baile al cambiar.
 """
+
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -17,8 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 WOFF = ROOT / "static" / "fonts" / "inter-latin-wght-normal.woff2"
 OUT = Path(__file__).resolve().parents[1] / "src" / "gfx" / "fonts_data.h"
 
-TEXT_CHARS = ([chr(c) for c in range(0x20, 0x7F)] + [chr(c) for c in range(0xA0, 0x100)]
-              + list("–—‘’“”•…€←→↑↓›✓"))
+TEXT_CHARS = [chr(c) for c in range(0x20, 0x7F)] + [chr(c) for c in range(0xA0, 0x100)] + list("–—‘’“”•…€←→↑↓›✓")
 DIGITS = list("0123456789:. -")
 
 # nombre, tamaño (px de em), grosor, juego de caracteres, cifras tabulares
@@ -77,21 +77,27 @@ def build(name, size, weight, chars, tabular):
 
 
 def emit(fonts) -> str:
-    lines = ["// Generado por tools/make_fonts.py a partir de Inter (static/fonts del panel). No editar a mano.",
-             "#pragma once", '#include "font.h"', ""]
+    lines = [
+        "// Generado por tools/make_fonts.py a partir de Inter (static/fonts del panel). No editar a mano.",
+        "#pragma once",
+        '#include "font.h"',
+        "",
+    ]
     for f in fonts:
         n = f["name"]
         data = f["bits"]
         lines.append(f"static const uint8_t font_{n}_bits[] = {{")
         for i in range(0, len(data), 24):
-            lines.append("  " + ",".join(str(b) for b in data[i:i + 24]) + ",")
+            lines.append("  " + ",".join(str(b) for b in data[i : i + 24]) + ",")
         lines.append("};")
         lines.append(f"static const Glyph font_{n}_glyphs[] = {{")
         for g in f["glyphs"]:
             lines.append("  {%d,%d,%d,%d,%d,%d,%d}," % g)
         lines.append("};")
-        lines.append(f"const Font FONT_{n.upper()} = {{ font_{n}_glyphs, font_{n}_bits, {len(f['glyphs'])}, "
-                     f"{f['ascent']}, {f['descent']} }};")
+        lines.append(
+            f"const Font FONT_{n.upper()} = {{ font_{n}_glyphs, font_{n}_bits, {len(f['glyphs'])}, "
+            f"{f['ascent']}, {f['descent']} }};"
+        )
         lines.append("")
     return "\n".join(lines)
 
@@ -102,8 +108,10 @@ def main():
     OUT.write_text(emit(fonts), encoding="utf-8")
     total = sum(len(f["bits"]) + 12 * len(f["glyphs"]) for f in fonts)
     for f in fonts:
-        print(f"{f['name']:6} {len(f['glyphs']):3} glifos  {len(f['bits']) / 1024:6.1f} KB  "
-              f"ascent {f['ascent']} descent {f['descent']}")
+        print(
+            f"{f['name']:6} {len(f['glyphs']):3} glifos  {len(f['bits']) / 1024:6.1f} KB  "
+            f"ascent {f['ascent']} descent {f['descent']}"
+        )
     print(f"Total ≈ {total / 1024:.1f} KB de flash → {OUT.relative_to(ROOT)}")
 
 

@@ -2,7 +2,7 @@
 name: Panel
 description: Panel personal (notas, inbox, tareas, comidas, estudio) con aspecto de app de sistema de Apple y temas intercambiables (Catppuccin Mocha por defecto).
 colors:
-  # Tema por defecto: Catppuccin Mocha. Los demás (16 + «Sistema»: ver Colors) redefinen los mismos tokens:
+  # Tema por defecto: Catppuccin Mocha. Los demás (26 + «Sistema» + «Mi paleta», la propia de static/js/tema-propio.js: ver Colors) redefinen los mismos tokens:
   # core/themes.py → static/css/themes.css.
   bg: "#181825"
   bg-elev: "#1e1e2e"
@@ -204,7 +204,14 @@ tabular-nums` (clase `.tabular`). Monoespaciada solo para código y para mostrar
   `page-body` de 16 px, tablas convertidas en tarjetas, modales como hoja inferior que respeta el teclado (`--vvh`).
   Nunca desplazamiento horizontal de página. El FAB de captura solo existe por debajo de 1024 px.
 - Barra lateral: la lista de secciones se desplaza; marca y pie (Capturar, Conexiones, Ajustes) siempre visibles.
-- Espaciado en múltiplos de 4 px (`--sp-*`); objetivos táctiles de 44 px (`--touch`, `.check-hit`).
+- Espaciado en múltiplos de 4 px (`--sp-*`); objetivos táctiles de 44 px (`--touch`, `.check-hit`). Con puntero grueso,
+  lo que se ve pequeño (asa, fecha, enlaces de cabecera, títulos de fila) toca en 44 × 44 con un `::after` centrado que
+  no cambia el aspecto; dentro de algo que recorta (`overflow`), el hueco va en el relleno del contenedor
+  (`.chips-scroll`, `.il-meta`) o la zona cuelga de un antecesor (`.yt-info`, la tarjeta de un evento). Se mide con
+  `elementFromPoint` en una rejilla, no con la caja del elemento.
+- **Tareas en el móvil** (< 768 px): chips de la tarjeta en una sola fila que se desplaza (fundida al final si no cabe),
+  notas a dos líneas con «Más», copiar en el menú «…», y la captura plegada en «Nueva tarea o idea»
+  cuando ya hay tareas. Al menos tres tareas a la vista a 375 × 812.
 
 ## Elevation & Depth
 

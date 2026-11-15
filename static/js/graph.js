@@ -16,6 +16,7 @@ let tagFilter = null;
 let colorMode = 'status'; // 'status' | 'stale'
 let orphanHighlight = false;
 let collapsedCats = new Set();
+let panelReturn = null;        // botón de la lista desde el que se abrió la ficha (U-3)
 const movedNodes = new Set();   // nodos arrastrados a mano desde la última vez que se guardó: pasan a «fijados»
 
 const STATUS_LABELS = { 'por-escribir': 'Por escribir', 'en-desarrollo': 'En desarrollo', 'consolidado': 'Consolidado', 'indice': 'Índice' };
@@ -178,6 +179,8 @@ function renderGraph() {
     buildLegend();
     updateStats();
     if (tagFilter) applyTagDim();
+    labelCanvas();
+    renderNodeList();
   };
   network.on('stabilizationIterationsDone', finish);
   if (!nodesDS.get().some(n => n.physics !== false)) finish();
@@ -336,11 +339,25 @@ function openPanel(node) {
   fc.hidden = !(node.due_flashcards > 0);
   fc.textContent = `${node.due_flashcards} flashcard(s) pendiente(s) de repaso`;
   document.getElementById('panel-link').href = `/?note=${encodeURIComponent(node.id)}`;
+  const links = linksOf(node.id);
+  document.getElementById('panel-links').hidden = !links.length;
+  document.getElementById('panel-links-list').innerHTML = links.map((l) => `<li><button type="button" class="panel-link-btn" data-node="${escapeHtml(l.node.id)}">
+      <span class="status-dot" data-status="${l.node.status || 'por-escribir'}" aria-hidden="true"></span><span class="grow">${escapeHtml(l.node.label)}</span>
+      <span class="tiny subtle">${l.out ? 'enlaza a' : 'enlazada desde'}${l.manual ? ' · manual' : ''}</span></button></li>`).join('');
+  markListCurrent();
   document.getElementById('panel-connect-btn').hidden = !editMode;
   updatePinButton(node);
   document.getElementById('node-panel').hidden = false;
 }
-function closePanel() { document.getElementById('node-panel').hidden = true; panelNodeId = null; }
+function closePanel() {
+  const panel = document.getElementById('node-panel');
+  const hadFocus = panel.contains(document.activeElement);  // con teclado: el foco vuelve a la fila de la lista
+  panel.hidden = true;
+  panelNodeId = null;
+  markListCurrent();
+  if (hadFocus) (panelReturn?.isConnected ? panelReturn : document.getElementById('btnList')).focus();
+  panelReturn = null;
+}
 function startConnectFrom() {
   if (!panelNodeId) return;
   linkSource = panelNodeId;
@@ -530,3 +547,90 @@ async function undoAutoLayout() {
   toast('Posiciones anteriores restauradas', { type: 'info' });
   await initGraph();
 }
+
+
+/* ============================================================
+   ALTERNATIVA ACCESIBLE AL LIENZO (U-3)
+   El lienzo de vis-network no se puede recorrer con el teclado ni leer: lleva nombre y, al lado, una lista de las notas
+   que se ven (con los mismos filtros). Elegir una la centra en el grafo y abre su ficha, que dice con qué conecta.
+   ============================================================ */
+const foldText = (t) => (t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+function linksOf(id) {
+  return rawData.edges.filter((e) => e.type !== 'category' && (e.from === id || e.to === id))
+    .map((e) => ({ node: rawData.nodes.find((n) => n.id === (e.from === id ? e.to : e.from)), out: e.from === id, manual: e.type === 'manual' }))
+    .filter((l) => l.node && l.node.type === 'note')
+    .sort((a, b) => a.node.label.localeCompare(b.node.label, 'es'));
+}
+function labelCanvas() {
+  const el = document.querySelector('#graph-container .vis-network');
+  if (!el) return;
+  const notes = nodesDS ? nodesDS.get().filter((n) => n.type === 'note').length : 0;
+  const links = rawData.edges.filter((e) => e.type !== 'category').length;
+  el.setAttribute('role', 'application');
+  el.setAttribute('aria-label', `Mapa de notas: ${notes} notas y ${links} conexiones. Flechas para desplazarte, + y − para acercar. `
+    + 'Para recorrer las notas una a una, usa el botón «Lista».');
+}
+function renderNodeList() {
+  const box = document.getElementById('node-list-body');
+  if (!box || document.getElementById('node-list').hidden) return;
+  const q = foldText(document.getElementById('node-list-q').value.trim());
+  const shown = new Set(nodesDS ? nodesDS.getIds() : []);
+  const notes = rawData.nodes.filter((n) => n.type === 'note' && shown.has(n.id)
+    && (!q || foldText(`${n.label} ${n.group || ''} ${n.tags || ''}`).includes(q)));
+  document.getElementById('node-list-count').textContent = `${notes.length} ${notes.length === 1 ? 'nota' : 'notas'}`;
+  if (!notes.length) {
+    box.innerHTML = stateView({ kind: 'no-results', title: q ? 'Ninguna nota con ese texto' : 'Ninguna nota con estos filtros', compact: true });
+    return;
+  }
+  const groups = {};
+  notes.forEach((n) => (groups[n.group || 'Sin categoría'] ||= []).push(n));
+  box.innerHTML = Object.keys(groups).sort((a, b) => a.localeCompare(b, 'es')).map((g) => `<section class="node-list-section" aria-label="${escapeHtml(g)}">
+      <h3 class="node-list-group"><span class="legend-swatch" style="background:${categoryColor(g)}" aria-hidden="true"></span>${escapeHtml(g)}
+        <span class="tiny subtle tabular">${groups[g].length}</span></h3>
+      <ul class="node-list-items">${groups[g].sort((a, b) => a.label.localeCompare(b.label, 'es')).map((n) => {
+        const k = linksOf(n.id).length;
+        return `<li><button type="button" class="node-list-item" data-node="${escapeHtml(n.id)}">
+          <span class="status-dot" data-status="${n.status || 'por-escribir'}" aria-hidden="true"></span>
+          <span class="grow">${n.encrypted ? icon('lock', 'icon-sm') + ' ' : ''}${escapeHtml(n.label)}<span class="sr-only">, ${STATUS_LABELS[n.status || 'por-escribir']}</span></span>
+          ${k ? `<span class="tiny subtle tabular">${k} ${k === 1 ? 'conexión' : 'conexiones'}</span>` : ''}</button></li>`;
+      }).join('')}</ul></section>`).join('');
+  markListCurrent();
+}
+function markListCurrent() {
+  document.querySelectorAll('#node-list [data-node]').forEach((b) => {
+    if (b.dataset.node === panelNodeId) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current');
+  });
+}
+function toggleNodeList() {
+  const box = document.getElementById('node-list');
+  const open = box.hidden;
+  box.hidden = !open;
+  document.getElementById('btnList').setAttribute('aria-expanded', String(open));
+  if (open) { renderNodeList(); document.getElementById('node-list-q').focus(); } else document.getElementById('btnList').focus();
+}
+function goToNode(id, from) {
+  const node = rawData.nodes.find((n) => n.id === id);
+  if (!node) return;
+  if (network && nodesDS?.get(id)) {
+    network.selectNodes([id]);
+    const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    network.focus(id, { scale: Math.max(network.getScale(), 1), animation: still ? false : { duration: 400, easingFunction: 'easeInOutQuad' } });
+  }
+  openPanel(node);
+  // desde la lista, el foco vuelve a esa fila al cerrar; de conexión en conexión se conserva la de origen
+  if (from?.closest('#node-list')) panelReturn = from;
+  document.getElementById('panel-title').focus();
+}
+document.getElementById('node-list-q').addEventListener('input', renderNodeList);
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('#node-list [data-node], #panel-links [data-node]');
+  if (b) goToNode(b.dataset.node, b);
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || document.querySelector('dialog[open]')) return;
+  if (document.getElementById('node-panel').contains(document.activeElement)) { e.preventDefault(); closePanel(); }
+  else if (document.getElementById('node-list').contains(document.activeElement)) {
+    e.preventDefault();
+    if (e.target.id === 'node-list-q' && e.target.value) { e.target.value = ''; renderNodeList(); } else toggleNodeList();
+  }
+});

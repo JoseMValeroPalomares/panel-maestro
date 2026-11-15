@@ -8,21 +8,22 @@
 # pulsaste OK, abre esa nota en el navegador de ESTE MISMO PC.
 # =====================================================================
 
+import asyncio
 import json
 import random
 import re
-import asyncio
 import webbrowser
+
 import aiohttp
 
-REVIEW_INTERVAL_SEC = 15*60  # una nota nueva cada 15 minutos
-SNIPPET_MAX_CHARS = 220
-
-# IP real de este PC (donde corre uvicorn), puerto de FastAPI.
 from core import config
 
 from .esp32_link import keep_connected
 
+REVIEW_INTERVAL_SEC = 15 * 60  # una nota nueva cada 15 minutos
+SNIPPET_MAX_CHARS = 220
+
+# IP real de este PC (donde corre uvicorn), puerto de FastAPI.
 SERVER_BASE_URL = config.SERVER_BASE_URL
 
 
@@ -146,18 +147,18 @@ def _candidate_blocks(content: str) -> list[str]:
 
 def clean_snippet(text: str) -> str:
     """Quita la sintaxis Markdown y deja texto plano en una sola línea."""
-    text = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", text)                      # imágenes
-    text = re.sub(r"!\[\[[^\]]*\]\]", "", text)                            # incrustados ![[...]]
-    text = re.sub(r"\[\[([^\]|]+)\|([^\]]+)\]\]", r"\2", text)              # [[nota|alias]]
-    text = re.sub(r"\[\[([^\]]+)\]\]", r"\1", text)                         # [[nota]]
-    text = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text)                     # [texto](url)
-    text = re.sub(r"<[^>\n]+>", "", text)                                   # HTML y <url>
-    text = re.sub(r"^\s*>\s?", "", text, flags=re.M)                        # citas
+    text = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", text)  # imágenes
+    text = re.sub(r"!\[\[[^\]]*\]\]", "", text)  # incrustados ![[...]]
+    text = re.sub(r"\[\[([^\]|]+)\|([^\]]+)\]\]", r"\2", text)  # [[nota|alias]]
+    text = re.sub(r"\[\[([^\]]+)\]\]", r"\1", text)  # [[nota]]
+    text = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text)  # [texto](url)
+    text = re.sub(r"<[^>\n]+>", "", text)  # HTML y <url>
+    text = re.sub(r"^\s*>\s?", "", text, flags=re.M)  # citas
     text = re.sub(r"^\s*(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?", "", text, flags=re.M)  # listas y casillas
-    text = re.sub(r"(\*\*|__|~~|==)(.+?)\1", r"\2", text)                   # negrita, tachado, resaltado
+    text = re.sub(r"(\*\*|__|~~|==)(.+?)\1", r"\2", text)  # negrita, tachado, resaltado
     text = re.sub(r"(?<![\w*])[*_](\S(?:.*?\S)?)[*_](?![\w*])", r"\1", text)  # cursiva (no toca snake_case)
-    text = re.sub(r"`([^`]*)`", r"\1", text)                                # código en línea
-    text = re.sub(r"(?<!\S)#(?=[\w/-])", "", text)                          # #etiquetas
+    text = re.sub(r"`([^`]*)`", r"\1", text)  # código en línea
+    text = re.sub(r"(?<!\S)#(?=[\w/-])", "", text)  # #etiquetas
     text = "".join(c if c in _FONT_CHARS else _CHAR_SUBST.get(c, " ") for c in text)
     text = re.sub(r"\s+", " ", text).strip()
     return text if re.search(r"[^\W\d_]", text) else ""  # sin ninguna letra no sirve de repaso
@@ -172,8 +173,8 @@ def truncate_snippet(text: str) -> str:
 
 
 # Pantalla «Notas» del ESP32: nada cifrado (bóveda) ni índices
-NOTES_LIST_MAX = 160          # notes::MAX_NOTES en el firmware
-NOTE_TEXT_MAX_BYTES = 5800    # notes::MAX_TEXT = 6000
+NOTES_LIST_MAX = 160  # notes::MAX_NOTES en el firmware
+NOTE_TEXT_MAX_BYTES = 5800  # notes::MAX_TEXT = 6000
 
 
 def _fit_bytes(text: str, max_bytes: int) -> str:
@@ -194,8 +195,14 @@ def list_notes_for_esp32() -> list[dict]:
             "SELECT id, title, category FROM notes "
             "WHERE COALESCE(encrypted, 0) = 0 AND COALESCE(status, '') != 'indice'"
         ).fetchall()
-    notes = [{"id": r["id"], "title": _fit_bytes(r["title"] or "(sin título)", 70),
-              "category": _fit_bytes(_clean_category(r["category"]), 46)} for r in rows]
+    notes = [
+        {
+            "id": r["id"],
+            "title": _fit_bytes(r["title"] or "(sin título)", 70),
+            "category": _fit_bytes(_clean_category(r["category"]), 46),
+        }
+        for r in rows
+    ]
     notes.sort(key=lambda n: (n["category"].casefold(), n["title"].casefold()))
     return notes[:NOTES_LIST_MAX]
 
@@ -224,10 +231,12 @@ def note_content_for_esp32(note_id: str):
 
 
 def _build_review_payload(snippet: dict) -> str:
-    return json.dumps({
-        "type": "review_note",
-        "note_id": snippet["id"],
-        "title": snippet["title"],
-        "category": snippet["category"],
-        "snippet": snippet["snippet"],
-    })
+    return json.dumps(
+        {
+            "type": "review_note",
+            "note_id": snippet["id"],
+            "title": snippet["title"],
+            "category": snippet["category"],
+            "snippet": snippet["snippet"],
+        }
+    )

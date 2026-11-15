@@ -1,3 +1,5 @@
+import tempfile
+
 from core import auth
 from tests.conftest import TEST_API_TOKEN, TEST_PASSWORD
 
@@ -38,8 +40,47 @@ def test_login_correcto_y_logout(anon):
     cookie = r.headers["set-cookie"].lower()
     assert "httponly" in cookie and "samesite=lax" in cookie
     assert anon.get("/api/notes").status_code == 200
-    anon.get("/logout")
+    # S-7: GET /logout no cierra nada (una <img> en otra web no puede echarte); solo POST
+    assert anon.get("/logout", follow_redirects=False).status_code == 405
+    assert anon.get("/api/notes").status_code == 200
+    # POST desde otra web: bloqueado aunque /logout sea pública
+    assert anon.post("/logout", headers={"Origin": "http://evil.com"}, follow_redirects=False).status_code == 403
+    assert anon.get("/api/notes").status_code == 200
+    r = anon.post("/logout", headers={"Origin": "http://testserver"}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/login"
     assert anon.get("/api/notes").status_code == 401
+
+
+def test_cerrar_todas_las_sesiones_invalida_las_cookies_anteriores(app, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from core import config
+
+    monkeypatch.setattr(config, "SESSION_GEN", config.SESSION_GEN)  # vuelve a su valor al acabar
+    env_antes = config.ENV_FILE.read_text() if config.ENV_FILE.exists() else None
+    assert str(config.ENV_FILE).startswith(tempfile.gettempdir())  # nunca el .env real
+    with TestClient(app) as movil, TestClient(app) as portatil:
+        for c in (movil, portatil):
+            assert c.post("/login", data={"password": TEST_PASSWORD}, follow_redirects=False).status_code == 303
+        vieja = movil.cookies.get(auth.SESSION_COOKIE)
+        assert movil.get("/api/notes").status_code == 200
+        r = portatil.post("/api/sesiones/cerrar-todas", headers={"Origin": "http://testserver"})
+        assert r.status_code == 200 and auth.SESSION_COOKIE in r.headers["set-cookie"]
+        assert movil.get("/api/notes").status_code == 401  # la cookie anterior ya no vale
+        assert not auth.session_is_valid(vieja)
+        assert portatil.get("/api/notes").status_code == 200  # quien las cierra sigue dentro, con cookie nueva
+        assert f"PANEL_SESSION_GEN={config.SESSION_GEN}" in config.ENV_FILE.read_text()
+        # el token Bearer de la extensión y del escritorio no cambia
+        assert movil.get("/api/notes", headers={"Authorization": f"Bearer {TEST_API_TOKEN}"}).status_code == 200
+    if env_antes is None:
+        config.ENV_FILE.unlink()
+    else:
+        config.ENV_FILE.write_text(env_antes)
+
+
+def test_cerrar_todas_sin_sesion_ni_desde_otra_web(anon, client):
+    assert anon.post("/api/sesiones/cerrar-todas").status_code == 401
+    assert client.post("/api/sesiones/cerrar-todas", headers={"Origin": "http://evil.com"}).status_code == 403
 
 
 def test_next_no_permite_redireccion_externa(anon):
@@ -87,3 +128,33 @@ def test_pwa_publica(anon):
     man = anon.get("/manifest.webmanifest").json()
     assert man["display"] == "standalone" and any(i["purpose"] == "maskable" for i in man["icons"])
     assert anon.get("/static/icons/icon-192.png").status_code == 200
+
+
+def test_healthz_con_una_bd_inaccesible_da_503(anon, monkeypatch, tmp_path):
+    from core import config
+
+    monkeypatch.setattr(config, "COMIDAS_DB", tmp_path / "no-existe" / "comidas.db")
+    r = anon.get("/healthz")
+    assert r.status_code == 503 and r.json() == {"status": "error"}  # no dice cuál ni por qué
+    monkeypatch.undo()
+    assert anon.get("/healthz").status_code == 200
+
+
+def test_la_extension_cambia_su_token_por_una_sesion(app, monkeypatch):
+    """S-4: POST /api/ext/sesion con el token de la extensión devuelve la cookie (ya no hace falta la contraseña)."""
+    from fastapi.testclient import TestClient
+
+    from core import config
+    from core.security import hash_api_token
+
+    monkeypatch.setattr(config, "DESKTOP_TOKEN_HASH", hash_api_token("token-del-escritorio"))
+    with TestClient(app) as c:
+        assert c.post("/api/ext/sesion").status_code == 401  # sin token
+        r = c.post("/api/ext/sesion", headers={"Authorization": "Bearer token-del-escritorio"})
+        assert r.status_code == 403  # el del escritorio no
+        r = c.post("/api/ext/sesion", headers={"Authorization": f"Bearer {TEST_API_TOKEN}"})
+        assert r.status_code == 200 and "httponly" in r.headers["set-cookie"].lower()
+        assert c.get("/api/notes").status_code == 200  # ya con la cookie
+    with TestClient(app) as c:  # una sesión abierta con la cookie no puede pedir otra (hace falta el token)
+        c.post("/login", data={"password": TEST_PASSWORD}, follow_redirects=False)
+        assert c.post("/api/ext/sesion", headers={"Origin": "http://testserver"}).status_code == 403

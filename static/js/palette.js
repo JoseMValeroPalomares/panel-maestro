@@ -1,7 +1,8 @@
 /* ==========================================================================
    palette.js — paleta de comandos (Ctrl+K) y atajos «G + letra» (window.Palette)
    Busca de forma aproximada (fuzzyScore, ui.js) en notas, tareas, ideas, rutinas,
-   eventos cercanos, platos y acciones; cada acción muestra su atajo. Flechas para
+   eventos cercanos, platos y acciones; cada acción muestra su atajo. Con 2 letras o más,
+   añade lo que sale «Dentro del texto» (índice único de /api/search: notas, tareas, Baúl, eventos). Flechas para
    moverse, Intro abre, Esc cierra. El índice (/api/palette/index) se pide al abrir
    y se guarda 2 minutos.
    ========================================================================== */
@@ -23,17 +24,22 @@
     { label: 'Nueva idea', icon: 'lightbulb', run: newCapture('idea'), words: 'crear añadir' },
     { label: 'Nueva rutina', icon: 'repeat', run: newCapture('rutina'), words: 'hábito crear repetir' },
     { label: 'Nuevo evento (lenguaje natural)', icon: 'calendar-plus', run: newCapture('tarea', 'e: '), words: 'cita calendario crear' },
+    { label: 'Empezar contador…', icon: 'timer', run: () => window.Timer?.pick(), words: 'cronómetro tiempo empezar actividad libre estudiar' },
     { label: 'Captura rápida', icon: 'plus', keys: 'C', run: () => openCapture(), words: 'inbox apuntar' },
     { label: 'Ir a Hoy', icon: 'sun', keys: 'G H', run: go('/hoy'), words: 'inicio resumen' },
     { label: 'Ir a Calendario', icon: 'calendar', keys: 'G C', run: go('/calendario'), words: 'agenda semana mes' },
     { label: 'Ir a Notas', icon: 'notebook-pen', keys: 'G O', run: go('/'), words: 'cerebro' },
     { label: 'Ir a Inbox', icon: 'inbox', keys: 'G I', run: go('/inbox'), words: 'tablero' },
     { label: 'Ir a Tareas', icon: 'list-todo', keys: 'G T', run: go('/tareas'), words: 'ideas rutinas' },
+    { label: 'Ir a Universidad', icon: 'school', keys: 'G A', run: go('/universidad'), words: 'asignaturas temas clases exámenes entregas' },
+    { label: 'Ir a Proyectos', icon: 'rocket', keys: 'G P', run: go('/proyectos'), words: 'versiones bitácora' },
+    ...['puntual', 'universidad', 'proyectos', 'todo'].map((c) => ({ label: `Contexto: ${{ puntual: 'Puntual', universidad: 'Universidad', proyectos: 'Proyectos', todo: 'Todo' }[c]}`,
+      icon: { puntual: 'zap', universidad: 'school', proyectos: 'rocket', todo: 'layers' }[c], run: () => window.Ctx?.set(c), words: 'cambiar filtro ver' })),
     { label: 'Ir a Comidas', icon: 'utensils-crossed', keys: 'G M', run: go('/comidas/'), words: 'menú plan compra' },
     { label: 'Ir a Estudio', icon: 'graduation-cap', keys: 'G E', run: go('/estudio/'), words: 'esp32 pomodoro' },
     { label: 'Revisión semanal', icon: 'clipboard-check', keys: 'G R', run: go('/revision'), words: 'registro cambios completadas' },
     { label: 'Repasar flashcards', icon: 'layers', run: go('/repaso'), words: 'repaso' },
-    { label: 'Buscar en las notas', icon: 'search', keys: '/', run: go('/buscar'), words: 'texto completo' },
+    { label: 'Buscar en todo', icon: 'search', keys: '/', run: go('/buscar'), words: 'texto completo notas tareas baúl eventos' },
     { label: 'Papelera', icon: 'trash-2', run: go('/papelera'), words: 'borrado restaurar' },
     { label: 'Copias de seguridad', icon: 'database-backup', run: go('/backups'), words: 'backup' },
     { label: 'Estado de las conexiones', icon: 'plug-zap', run: () => window.Status?.open(), words: 'esp32 icloud sincronizar' },
@@ -53,22 +59,69 @@
   function candidates(idx) {
     const out = ACTIONS.map((a) => ({ group: 'Acciones', label: a.label, sub: a.words, icon: a.icon, keys: a.keys, run: a.run, boost: 6 }));
     if (!idx) return out;
-    idx.notes.forEach((n) => out.push({ group: 'Notas', label: n.title, sub: n.category, icon: 'notebook-pen', run: go(`/?note=${encodeURIComponent(n.id)}`) }));
-    idx.items.forEach((i) => out.push({ group: { tarea: 'Tareas', idea: 'Ideas', rutina: 'Rutinas' }[i.type] || 'Tareas', label: i.text,
-      sub: i.done ? 'hecha' : i.origin === 'nota' ? 'en una nota' : '', icon: ITEM_ICON[i.type] || 'square-check', run: go(`/tareas?item=${i.id}`), penalty: i.done ? 4 : 0 }));
+    idx.notes.forEach((n) => out.push({ group: 'Notas', label: n.title, sub: n.category, icon: 'notebook-pen', href: `/?note=${encodeURIComponent(n.id)}`, run: go(`/?note=${encodeURIComponent(n.id)}`) }));
+    // Tareas: las del contexto activo (con «Todo», todas); lo demás no se filtra
+    idx.items.filter((i) => !window.Ctx || Ctx.match(i)).forEach((i) => out.push({ group: { tarea: 'Tareas', idea: 'Ideas', rutina: 'Rutinas' }[i.type] || 'Tareas', label: i.text,
+      sub: i.done ? 'hecha' : i.origin === 'nota' ? 'en una nota' : '', icon: ITEM_ICON[i.type] || 'square-check', href: `/tareas?item=${i.id}`, run: go(`/tareas?item=${i.id}`), penalty: i.done ? 4 : 0 }));
     idx.events.forEach((e) => out.push({ group: 'Eventos', label: e.title,
       sub: new Date(e.start.slice(0, 10) + 'T00:00').toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' }) + (e.start.length > 10 ? ` · ${e.start.slice(11, 16)}` : ''),
-      icon: 'calendar', run: go(`/calendario?dia=${e.start.slice(0, 10)}`) }));
+      icon: 'calendar', href: `/calendario?dia=${e.start.slice(0, 10)}`, run: go(`/calendario?dia=${e.start.slice(0, 10)}`) }));
+    (idx.asignaturas || []).forEach((a) => {
+      out.push({ group: 'Universidad', label: `${a.codigo} · ${a.nombre}`, sub: 'asignatura', icon: 'school', run: go(`/universidad?asignatura=${a.id}`) });
+      if (a.carpeta) out.push({ group: 'Abrir carpeta', label: `Abrir la carpeta de ${a.codigo}`, sub: a.nombre, icon: 'folder-open', run: () => Ctx.openFolder('asignatura', a.id) });
+    });
+    (idx.temas || []).forEach((t) => {
+      if (t.abrible) out.push({ group: 'Abrir tema', label: `${t.codigo} · ${t.titulo}`, sub: 'abrir el archivo o la carpeta', icon: 'folder-open', run: () => Ctx.openFolder('tema', t.id), penalty: 1 });
+      else out.push({ group: 'Universidad', label: `${t.codigo} · ${t.titulo}`, sub: 'tema', icon: 'book-open', run: go(`/universidad?asignatura=${t.asignatura_id}`), penalty: 1 });
+    });
+    (idx.proyectos || []).forEach((p) => {
+      out.push({ group: 'Proyectos', label: p.nombre, sub: `#${p.slug}`, icon: 'rocket', run: go(`/proyectos/${encodeURIComponent(p.slug)}`) });
+      if (p.carpeta) out.push({ group: 'Abrir carpeta', label: `Abrir la carpeta de ${p.nombre}`, sub: `#${p.slug}`, icon: 'folder-open', run: () => Ctx.openFolder('proyecto', p.id) });
+    });
     idx.meals.forEach((m) => out.push({ group: 'Platos', label: m.nombre, sub: m.franja, icon: 'utensils-crossed', run: go('/comidas/') }));
     return out;
+  }
+
+  /* Texto completo (F-3): lo que no sale por el título, sacado del índice único (/api/search) */
+  const FTS_GROUPS = [['notes', 'notebook-pen'], ['items', null], ['resources', null], ['events', 'calendar']];
+  const FTS_MAX = 6;
+  let fts = { q: '', rows: [] }, ftsTimer = null, ftsSeq = 0;
+  const marked = (t, [o, c]) => escapeHtml(String(t || '').replace(/[#*_`>|~]+/g, ' ').replace(/\s+/g, ' ').trim()).split(o).join('<mark>').split(c).join('</mark>');
+  function ftsRows(data) {
+    const m = data.marks || ['\u0002', '\u0003'];
+    const rows = [];
+    FTS_GROUPS.map(([k]) => k).forEach((k) => (data[k] || []).forEach((x) => {
+      const ic = FTS_GROUPS.find(([g]) => g === k)[1] || (k === 'items' ? ITEM_ICON[x.type] || 'square-check' : x.resource_type === 'youtube' ? 'youtube' : 'globe');
+      const label = k === 'items' ? x.text : x.title || x.url || '';
+      const snip = x.snippet && x.snippet.includes(m[0]) ? x.snippet : '';
+      rows.push({ group: 'Dentro del texto', label, icon: ic, href: x.href, run: go(x.href),
+        subHtml: snip ? marked(snip, m) : escapeHtml({ notes: x.category, items: x.done ? 'hecha' : '', resources: x.channel || x.category, events: (x.start || '').slice(0, 10) }[k] || '') });
+    }));
+    return rows;
+  }
+  function fetchFts(q, repaint) {
+    clearTimeout(ftsTimer);
+    const t = q.trim();
+    if (t.length < 2) { fts = { q: t, rows: [] }; return; }
+    if (fts.q === t) return;
+    const my = ++ftsSeq;
+    ftsTimer = setTimeout(async () => {
+      const ctx = window.Ctx?.active() || 'todo';
+      const data = await api(`/api/search?${new URLSearchParams({ q: t, limit: 4, contexto: ctx })}`, { quiet: true }).catch(() => null);
+      if (my !== ftsSeq || !data) return;
+      fts = { q: t, rows: ftsRows(data) };
+      repaint();
+    }, 180);
   }
 
   function search(all, q) {
     if (!q.trim()) return all.filter((c) => c.group === 'Acciones');
     const found = all.map((c) => ({ c, s: Math.max(fuzzyScore(q, c.label) * 1.2, fuzzyScore(q, c.sub || '') * 0.5) + (c.boost || 0) - (c.penalty || 0) }))
       .filter((r) => r.s > (r.c.boost || 0) - (r.c.penalty || 0)).sort((a, b) => b.s - a.s).slice(0, 60).map((r) => r.c);
-    // Siempre, al final: buscar esas palabras dentro del texto de las notas (búsqueda avanzada, /buscar)
-    return [...found, { group: 'Texto completo', label: `Buscar «${q.trim()}» dentro de las notas`, icon: 'file-search',
+    const seen = new Set(found.slice(0, 12).map((c) => c.href).filter(Boolean));
+    const inText = fts.q === q.trim() ? fts.rows.filter((r) => !seen.has(r.href)).slice(0, FTS_MAX) : [];
+    // Siempre, al final: la búsqueda completa en /buscar (agrupada por tipo, con filtros)
+    return [...found.slice(0, 12), ...inText, ...found.slice(12), { group: 'Texto completo', label: `Ver todos los resultados de «${q.trim()}»`, icon: 'file-search',
       run: go(`/buscar?q=${encodeURIComponent(q.trim())}`) }];
   }
 
@@ -98,14 +151,14 @@
         last = c.group;
         return `${head}<li role="option" id="pal-${i}" class="palette-row" data-i="${i}" aria-selected="${i === active}">
           <span class="palette-icon" aria-hidden="true">${icon(c.icon, 'icon-sm')}</span>
-          <span class="row-main"><span class="row-title">${escapeHtml(c.label)}</span>${c.sub && c.group !== 'Acciones' ? `<span class="row-sub">${escapeHtml(c.sub)}</span>` : ''}</span>
+          <span class="row-main"><span class="row-title">${escapeHtml(c.label)}</span>${c.subHtml ? `<span class="row-sub">${c.subHtml}</span>` : c.sub && c.group !== 'Acciones' ? `<span class="row-sub">${escapeHtml(c.sub)}</span>` : ''}</span>
           ${c.keys ? `<span class="palette-keys">${kbd(c.keys)}</span>` : ''}</li>`;
       }).join('') : `<li class="palette-empty small muted">Nada coincide con «${escapeHtml(input.value)}»</li>`;
       input.setAttribute('aria-activedescendant', shown.length ? `pal-${active}` : '');
       list.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
     };
     const run = (i) => { const c = shown[i]; if (!c) return; closeModal(dlg); setTimeout(() => c.run(), 0); };
-    input.addEventListener('input', () => { active = 0; paint(); });
+    input.addEventListener('input', () => { active = 0; paint(); fetchFts(input.value, () => { if (dlg) paint(); }); });
     input.addEventListener('keydown', (e) => {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
@@ -120,7 +173,7 @@
   }
 
   /* ---------- Atajos: Ctrl+K (paleta) y «G + letra» ---------- */
-  const GOTO = { h: '/hoy', c: '/calendario', u: '/rutinas', o: '/', i: '/inbox', t: '/tareas', m: '/comidas/', d: '/economia', b: '/vault',
+  const GOTO = { h: '/hoy', c: '/calendario', u: '/rutinas', o: '/', i: '/inbox', t: '/tareas', a: '/universidad', p: '/proyectos', m: '/comidas/', d: '/economia', b: '/vault',
     e: '/estudio/', r: '/revision', n: '/?nueva=1' };
 
   /* ---------- «?»: ayuda de atajos (los de siempre y los de la página) ---------- */
@@ -144,7 +197,7 @@
     const page = Object.keys(PAGE_KEYS).find((c) => document.body.classList.contains(c))
       || (document.body.dataset.section === 'notas' ? 'page-notas' : null);
     const rows = (list) => list.map(([keys, what]) => `<dt>${keys}</dt><dd>${what}</dd>`).join('');
-    const go = [['H', 'Hoy'], ['C', 'Calendario'], ['U', 'Rutinas'], ['T', 'Tareas'], ['I', 'Inbox'], ['O', 'Notas'], ['N', 'Nota nueva'],
+    const go = [['H', 'Hoy'], ['C', 'Calendario'], ['U', 'Rutinas'], ['T', 'Tareas'], ['A', 'Universidad'], ['P', 'Proyectos'], ['I', 'Inbox'], ['O', 'Notas'], ['N', 'Nota nueva'],
       ['M', 'Comidas'], ['D', 'Economía'], ['B', 'Baúl'], ['E', 'Estudio'], ['R', 'Revisión']];
     const d = document.createElement('dialog');
     d.className = 'modal modal-sm keys-help';

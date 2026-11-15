@@ -21,11 +21,16 @@ plano; para capturar desde cualquier sitio del escritorio está `Super+K` (ver d
 4. Se abre la página de opciones: escribe la dirección del Panel (la misma que en el navegador, con el puerto) y el
    token, pulsa **Probar conexión** y **Guardar**.
 
-**Entrar sin escribir la contraseña** (desde la 2.3): en las opciones, marca «Iniciar sesión automáticamente» y
-escribe la contraseña del Panel. Al abrir la pantalla de acceso (`/login`) de la dirección configurada, la extensión la
-escribe y entra. Si la contraseña es incorrecta (o el Panel muestra cualquier aviso) no lo reintenta, para no acabar
-bloqueado por «Demasiados intentos». Se desactiva desmarcando la casilla (la contraseña se conserva). La contraseña se
-guarda en el almacenamiento local de la extensión en este Firefox, sin cifrar.
+**Permisos (desde la 2.9)**: la extensión ya no tiene acceso fijo a ninguna web. Al pulsar **Guardar** (o **Probar
+conexión**) en las opciones, Firefox pide permiso solo para la dirección del Panel; YouTube solo se pide si activas sus
+funciones (o con «Permitir en YouTube»). Al actualizar desde la 2.8 se abren las opciones: pulsa **Guardar** una vez y
+acepta el aviso. Hasta entonces el popup dice «Falta el permiso».
+
+**Entrar sin escribir la contraseña** (desde la 2.9, sin contraseña): cuando caduca la sesión y abres la pantalla de
+acceso (`/login`) de la dirección configurada, la extensión entra con su token (`POST /api/ext/sesion` devuelve la
+cookie de sesión) y te lleva a la página que pedías. **La contraseña del Panel no se guarda en ningún sitio**: la que
+guardaban las versiones 2.3–2.8 se borra al actualizar. Se desactiva con «Entrar solo cuando caduque la sesión del
+Panel». Si el Panel muestra un aviso (o el token no vale) no lo reintenta.
 
 Al actualizar desde la versión 1.x se conserva la dirección guardada; solo hay que añadir el token.
 
@@ -34,6 +39,7 @@ Al actualizar desde la versión 1.x se conserva la dirección guardada; solo hay
 | Qué | Cómo |
 |---|---|
 | Enviar al Inbox | Botón de la barra o `Alt+Mayús+I`. Con texto seleccionado, ya viene escrito |
+| Dónde va (2.8) | En el Inbox y en el Baúl: **Puntual**, **Universidad** (o una asignatura) o **Proyectos** (o un proyecto). Se recuerda la última elección y la lista se guarda para usarla sin conexión. En el texto también valen las menciones del Panel: `@gabd`, `#panel-maestro v0.3`; si una no existe, avisa y no guarda nada |
 | Guardar en el Baúl | Es la **primera pestaña** y la que se abre siempre (2.7; con texto seleccionado se abre el Inbox). También `Alt+Mayús+B` |
 | Clasificación automática del Baúl (2.7) | El selector «Normal / Más tarde / Visto» está plegado: una insignia dice qué ha detectado y por qué, y «Cambiar» lo despliega. **Canal** (`/@usuario`, `/channel/`, `/c/`, `/user/`) → se guarda como canal de YouTube. **Vídeo que ya está en el Baúl**, o con el % reproducido por encima del umbral de Opciones (50 % por defecto) → «Visto» (si ya estaba, lo marca sin duplicarlo). **Vídeo nuevo** → «Ver más tarde». Si no está seguro (sin conexión, una página de YouTube que no es vídeo ni canal) usa «Ver más tarde», con «?» en la insignia. Las webs que no son de YouTube no se clasifican. La categoría de partida es la última usada |
 | Duplicados (2.7) | Un vídeo se identifica por su **ID**: `watch?v=…&list=…`, `youtu.be/…`, `shorts/…`, `live/…` y `embed/…` son el mismo, y se guarda siempre como `https://www.youtube.com/watch?v=ID` |
@@ -59,7 +65,7 @@ o token no válido. Se actualiza cada minuto y la cola se reintenta a la vez.
 - `lib/panel.js` — configuración, peticiones con `Authorization: Bearer`, cola sin conexión (común).
 - `background.js` — menús contextuales (con el envío rápido y su notificación), atajos, insignia y reintentos.
 - `youtube.js`, `youtube.css` — content script de youtube.com: marca vistos y pinta las miniaturas (las peticiones las hace `background.js`).
-- `autologin.js` — content script de `/login`: rellena la contraseña y entra (solo en la dirección configurada).
+- `autologin.js` — content script de `/login` (solo en la dirección configurada): entra con el token. Lo registra `background.js` (`contentScripts.register`) solo para el origen con permiso, igual que `youtube.js`; por eso el fondo es persistente.
 - `popup.*`, `options.*`, `ui.css` — interfaz (variables por función: `--bg`, `--accent`, `--control`…).
 - `themes.css`, `lib/themes.js` — temas, **generados** con `python -m scripts.themes` desde `core/themes.py` (las mismas
   paletas que el Panel); `theme-init.js` aplica el elegido antes de pintar.
@@ -67,6 +73,7 @@ o token no válido. Se actualiza cada minuto y la cola se reintenta a la vez.
 
 API del Panel que usa: `GET /api/ext/status`, `GET/POST /api/items` (desde la 2.2; las anteriores usan `POST /api/inbox`, que sigue aceptándose), `PATCH /api/items/{id}`,
 `POST /api/capture` (prefijos y eventos, con `dry_run` para la vista previa), `GET /api/calendar/agenda`,
-`PATCH /api/calendar/events/{id}`, `POST /api/routines/{id}/check`, `POST /api/resources`, `GET /api/resources/categories`.
+`PATCH /api/calendar/events/{id}`, `POST /api/routines/{id}/check`, `POST /api/resources`, `GET /api/resources/categories`,
+`POST /api/ext/sesion` (2.9: el token por una cookie de sesión; solo vale el token de la extensión, no el del escritorio).
 Todo con el mismo token (`Authorization: Bearer`). Tests: `tests/e2e/test_extension.py` (popup, opciones y fondo contra el
 servidor de pruebas, con la API `browser.*` simulada).

@@ -4,6 +4,7 @@ Plantillas Jinja compartidas por las tres apps (todas usan templates/_layout.htm
 La navegación vive aquí para que la barra lateral, la barra de pestañas móvil
 y la hoja "Más" salgan siempre iguales, sea cual sea la app que renderiza.
 """
+
 import hashlib
 import os
 
@@ -12,36 +13,56 @@ from fastapi.templating import Jinja2Templates
 from markupsafe import Markup, escape
 
 from core import config
-from core.themes import CHOICE_GROUPS as THEME_GROUPS, CHOICES as THEME_CHOICES, preview as theme_preview
+from core.themes import CHOICE_GROUPS as THEME_GROUPS
+from core.themes import CHOICES as THEME_CHOICES
+from core.themes import preview as theme_preview
 
 # Menú agrupado por intención: (clave del grupo, título, [(clave, etiqueta, ruta, icono), …])
 NAV_GROUPS = [
-    ("planificar", "Planificar", [
-        ("hoy", "Hoy", "/hoy", "sun"),
-        ("calendario", "Calendario", "/calendario", "calendar"),
-        ("rutinas", "Rutinas", "/rutinas", "repeat"),
-        ("tareas", "Tareas", "/tareas", "list-todo"),
-        ("inbox", "Inbox", "/inbox", "inbox"),
-        ("revision", "Revisión", "/revision", "clipboard-check"),
-    ]),
-    ("conocimiento", "Conocimiento", [
-        ("notas", "Notas", "/", "notebook-pen"),
-        ("grafo", "Grafo", "/graph", "waypoints"),
-        ("baul", "Baúl", "/vault", "library"),
-        ("repaso", "Repaso", "/repaso", "layers"),
-        ("buscar", "Buscar", "/buscar", "search"),
-    ]),
-    ("vida", "Vida", [
-        ("comidas", "Comidas", "/comidas/", "utensils-crossed"),
-        ("estudio", "Estudio", "/estudio/", "graduation-cap"),
-        ("economia", "Economía", "/economia", "wallet"),
-        ("rendimiento", "Rendimiento", "/rendimiento", "activity"),
-    ]),
-    ("sistema", "Sistema", [
-        ("gestion", "Gestión", "/gestion", "table-2"),
-        ("backups", "Copias", "/backups", "database-backup"),
-        ("papelera", "Papelera", "/papelera", "trash-2"),
-    ]),
+    (
+        "planificar",
+        "Planificar",
+        [
+            ("hoy", "Hoy", "/hoy", "sun"),
+            ("calendario", "Calendario", "/calendario", "calendar"),
+            ("rutinas", "Rutinas", "/rutinas", "repeat"),
+            ("tareas", "Tareas", "/tareas", "list-todo"),
+            ("universidad", "Universidad", "/universidad", "school"),
+            ("proyectos", "Proyectos", "/proyectos", "rocket"),
+            ("inbox", "Inbox", "/inbox", "inbox"),
+            ("revision", "Revisión", "/revision", "clipboard-check"),
+        ],
+    ),
+    (
+        "conocimiento",
+        "Conocimiento",
+        [
+            ("notas", "Notas", "/", "notebook-pen"),
+            ("grafo", "Grafo", "/graph", "waypoints"),
+            ("baul", "Baúl", "/vault", "library"),
+            ("repaso", "Repaso", "/repaso", "layers"),
+            ("buscar", "Buscar", "/buscar", "search"),
+        ],
+    ),
+    (
+        "vida",
+        "Vida",
+        [
+            ("comidas", "Comidas", "/comidas/", "utensils-crossed"),
+            ("estudio", "Estudio", "/estudio/", "graduation-cap"),
+            ("economia", "Economía", "/economia", "wallet"),
+            ("rendimiento", "Rendimiento", "/rendimiento", "activity"),
+        ],
+    ),
+    (
+        "sistema",
+        "Sistema",
+        [
+            ("gestion", "Gestión", "/gestion", "table-2"),
+            ("backups", "Copias", "/backups", "database-backup"),
+            ("papelera", "Papelera", "/papelera", "trash-2"),
+        ],
+    ),
 ]
 # Destinos por defecto de la barra inferior en móvil, en su orden (el quinto es siempre "Más"). Se pueden elegir
 # otros, hasta 4, en Ajustes (Prefs «tabbar», static/js/tabbar-init.js).
@@ -55,8 +76,11 @@ def _all_nav():
 
 
 # Carpeta de cada prefijo de URL de recursos estáticos
-_ASSET_DIRS = {"/static/": config.PROJECT_ROOT / "static", "/comidas/": config.PROJECT_ROOT / "comidas" / "static",
-               "/estudio/": config.PROJECT_ROOT / "estudio" / "static"}
+_ASSET_DIRS = {
+    "/static/": config.PROJECT_ROOT / "static",
+    "/comidas/": config.PROJECT_ROOT / "comidas" / "static",
+    "/estudio/": config.PROJECT_ROOT / "estudio" / "static",
+}
 _asset_cache: dict[str, tuple[float, str]] = {}
 
 
@@ -65,7 +89,7 @@ def asset(url: str) -> str:
     service worker (que sirve /static con «stale-while-revalidate»)."""
     for prefix, folder in _ASSET_DIRS.items():
         if url.startswith(prefix):
-            path = folder / url[len(prefix):]
+            path = folder / url[len(prefix) :]
             break
     else:
         return url
@@ -101,7 +125,12 @@ def brand_mark(cls: str = "") -> Markup:
 
 
 templates.env.globals.update(
-    icon=icon, asset=asset, brand_mark=brand_mark, theme_choices=THEME_CHOICES, theme_groups=THEME_GROUPS, theme_preview=theme_preview,
+    icon=icon,
+    asset=asset,
+    brand_mark=brand_mark,
+    theme_choices=THEME_CHOICES,
+    theme_groups=THEME_GROUPS,
+    theme_preview=theme_preview,
     nav_groups=NAV_GROUPS,
     tabbar_default=TABBAR,
     nav_all=_all_nav,

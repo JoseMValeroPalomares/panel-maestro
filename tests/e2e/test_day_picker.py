@@ -1,4 +1,5 @@
 """Rutinas: los días se eligen marcando L M X J V S D (dayPicker en ui.js), igual en todas partes."""
+
 from tests.e2e.test_ronda6 import CARD, _items, _nuevo, _tareas
 
 

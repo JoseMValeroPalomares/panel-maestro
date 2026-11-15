@@ -7,6 +7,7 @@ ediciones seguidas se agrupan: si la última versión tiene menos de
 SESSION_GAP_S, no se crea otra (el autoguardado escribe cada segundo). Se
 conservan MAX_VERSIONS por nota.
 """
+
 import os
 import re
 import time
@@ -14,9 +15,10 @@ from pathlib import Path
 
 import frontmatter
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 
 from app.indexer import sync_notes_to_db
-from app.notes_core import note_path, sync_flashcards
+from app.notes_core import MAX_NOTE_CONTENT, MAX_TAGS, MAX_TITLE, note_path, sync_flashcards
 from core import config
 from core.files import atomic_write
 from core.logging_config import get_logger
@@ -47,23 +49,59 @@ def snapshot(note_id: str, force: bool = False) -> str | None:
     path = note_path(note_id)
     if not os.path.exists(path):
         return None
-    with open(path, "r", encoding="utf-8", newline="") as f:
+    with open(path, encoding="utf-8", newline="") as f:
         raw = f.read()
     versions = _list(note_id)
     if versions:
         last = versions[0]
         if not force and time.time() - int(last.stem) / 1000 < SESSION_GAP_S:
             return None
-        with open(last, "r", encoding="utf-8", newline="") as f:
+        with open(last, encoding="utf-8", newline="") as f:
             if f.read() == raw:
                 return None
     d = _dir(note_id)
     d.mkdir(parents=True, exist_ok=True)
-    vid = str(int(time.time() * 1000))
-    (d / f"{vid}.md").write_text(raw, encoding="utf-8", newline="")
+    vid = _new_vid(note_id)
+    atomic_write(d / f"{vid}.md", raw, newline="")
     for old in _list(note_id)[MAX_VERSIONS:]:
         old.unlink(missing_ok=True)
     return vid
+
+
+def _new_vid(note_id: str) -> str:
+    vid = int(time.time() * 1000)
+    while (_dir(note_id) / f"{vid}.md").exists():  # dos en el mismo milisegundo
+        vid += 1
+    return str(vid)
+
+
+class KeepVersionIn(BaseModel):
+    title: str = Field(max_length=MAX_TITLE)
+    category: str = Field(default="", max_length=MAX_TITLE)
+    content: str = Field(max_length=MAX_NOTE_CONTENT)
+    status: str = Field(default="por-escribir", max_length=30)
+    tags: list[str] = Field(default_factory=list, max_length=MAX_TAGS)
+    encrypted: bool = False
+
+
+def keep(note_id: str, data: KeepVersionIn) -> str:
+    """Guarda en el historial un texto que NO pasa a la nota (lo de este dispositivo tras un conflicto, cuando se
+    recarga lo del otro). Cifrado si la nota lo está: el cliente lo manda ya cifrado."""
+    post = frontmatter.Post(data.content)
+    post["title"], post["category"], post["status"] = data.title, data.category, data.status
+    post["tags"], post["encrypted"], post["conflicto"] = [t[:80] for t in data.tags], data.encrypted, True
+    d = _dir(note_id)
+    d.mkdir(parents=True, exist_ok=True)
+    vid = _new_vid(note_id)
+    atomic_write(d / f"{vid}.md", frontmatter.dumps(post), newline="")
+    for old in _list(note_id)[MAX_VERSIONS:]:
+        old.unlink(missing_ok=True)
+    return vid
+
+
+@router.post("/{note_id}/versions")
+def keep_version(note_id: str, data: KeepVersionIn):
+    return {"status": "success", "id": keep(note_id, data)}
 
 
 def _version_path(note_id: str, vid: str) -> Path:
@@ -82,26 +120,46 @@ def list_versions(note_id: str):
         try:
             post = frontmatter.loads(p.read_text(encoding="utf-8"))
             title, encrypted, words = post.get("title"), bool(post.get("encrypted")), len(post.content.split())
+            conflict = bool(post.get("conflicto"))
         except Exception:
-            title, encrypted, words = None, False, 0
-        out.append({"id": p.stem, "saved_at": int(p.stem) / 1000, "size": p.stat().st_size, "title": title,
-                    "encrypted": encrypted, "words": words})
+            title, encrypted, words, conflict = None, False, 0, False
+        out.append(
+            {
+                "id": p.stem,
+                "saved_at": int(p.stem) / 1000,
+                "size": p.stat().st_size,
+                "title": title,
+                "encrypted": encrypted,
+                "words": words,
+                "conflict": conflict,
+            }
+        )
     return {"versions": out}
 
 
 @router.get("/{note_id}/versions/{vid}")
 def get_version(note_id: str, vid: str):
     post = frontmatter.loads(_version_path(note_id, vid).read_text(encoding="utf-8"))
-    return {"id": vid, "saved_at": int(vid) / 1000, "title": post.get("title"), "category": post.get("category"),
-            "encrypted": bool(post.get("encrypted")), "content": post.content}
+    return {
+        "id": vid,
+        "saved_at": int(vid) / 1000,
+        "title": post.get("title"),
+        "category": post.get("category"),
+        "encrypted": bool(post.get("encrypted")),
+        "content": post.content,
+    }
 
 
 @router.post("/{note_id}/versions/{vid}/restore")
 def restore_version(note_id: str, vid: str):
     src = _version_path(note_id, vid)
     current = snapshot(note_id, force=True)  # lo actual también queda en el historial
-    with open(src, "r", encoding="utf-8", newline="") as f:
+    with open(src, encoding="utf-8", newline="") as f:
         raw = f.read()
+    marked = frontmatter.loads(raw)
+    if "conflicto" in marked.metadata:  # la marca de «guardada tras un conflicto» es del historial, no de la nota
+        del marked.metadata["conflicto"]
+        raw = frontmatter.dumps(marked)
     atomic_write(note_path(note_id), raw, newline="")
     sync_notes_to_db()  # también rehace las filas de sus casillas
     restored = frontmatter.loads(raw)

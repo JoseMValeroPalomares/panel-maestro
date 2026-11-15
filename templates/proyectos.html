@@ -1,0 +1,19 @@
+{% extends "_layout.html" %}
+{% from "_items.html" import note_dialog %}
+{% block head %}<link rel="stylesheet" href="{{ asset('/static/css/items.css') }}"><link rel="stylesheet" href="{{ asset('/static/css/vault.css') }}"><link rel="stylesheet" href="{{ asset('/static/css/proyectos.css') }}">{% endblock %}
+{% block body_class %}page-proyectos{% endblock %}
+{% block title_icon %}{{ icon('rocket') }}{% endblock %}
+{% block heading %}<span id="pjHeading">Proyectos</span>{% endblock %}
+{% block actions %}
+<a class="btn btn-ghost" id="pjBack" href="/proyectos" hidden>{{ icon('chevron-left') }}<span class="hide-mobile">Proyectos</span></a>
+<button type="button" class="btn btn-primary" id="pjNew">{{ icon('plus') }}<span class="hide-mobile">Proyecto</span><span class="sr-only show-mobile">Nuevo proyecto</span></button>
+<button type="button" class="btn btn-ghost btn-icon" id="pjMenu" aria-label="Acciones del proyecto" aria-haspopup="menu" hidden>{{ icon('ellipsis') }}</button>
+{% endblock %}
+{% block content %}
+<div class="pj" id="pjRoot" aria-live="polite">
+  <div class="pj-grid">{% for _ in range(3) %}<span class="skeleton skeleton-card"></span>{% endfor %}</div>
+</div>
+{{ note_dialog() }}
+{% endblock %}
+{% block scripts %}<script src="{{ asset('/static/vendor/marked/marked.min.js') }}"></script><script src="{{ asset('/static/vendor/dompurify/purify.min.js') }}"></script>
+<script src="{{ asset('/static/js/item-list.js') }}"></script><script src="{{ asset('/static/js/item-copy.js') }}"></script><script src="{{ asset('/static/js/proyectos.js') }}"></script>{% endblock %}

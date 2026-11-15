@@ -1,4 +1,5 @@
 """Validador de las correcciones de IA (app/ia_validacion.py): casos buenos y cada tipo de rotura."""
+
 import pytest
 
 from app.ia_validacion import quitar_envoltorio, validar
@@ -38,19 +39,22 @@ def test_correccion_buena():
     assert validar(ORIG, bueno(), TITULOS) == []
 
 
-@pytest.mark.parametrize("roto,frag", [
-    (("$$P = V \\cdot I$$", "$$P = V \\cdot {I$$"), "Fórmula rota"),
-    (("$I = V/R$", "I = V/R$"), "$"),
-    (("|---|---|", "|---|"), "Tabla rota"),
-    (("[[Corriente]]", "[[Inventada]]"), "no existe"),
-    (("[[tarea:7]]", "[[tarea:8]]"), "tareas"),
-    (("Repasar ejercicios", "Repasar ejercicios #fisica"), "etiquetas"),
-    (("= 3 A", "= 4 A"), "números"),
-    (("```python\nprint(12)\n```", "```python\nprint(12)"), "sin cerrar"),
-    (("- [ ] Repasar", "- [x] Repasar"), "casillas"),
-    (("¿Que es la intensidad? >> Carga por segundo", "La intensidad es carga por segundo"), "flashcards"),
-    (("{{resumir: todo depende de V}}", "todo depende de V"), "anotaciones"),
-])
+@pytest.mark.parametrize(
+    "roto,frag",
+    [
+        (("$$P = V \\cdot I$$", "$$P = V \\cdot {I$$"), "Fórmula rota"),
+        (("$I = V/R$", "I = V/R$"), "$"),
+        (("|---|---|", "|---|"), "Tabla rota"),
+        (("[[Corriente]]", "[[Inventada]]"), "no existe"),
+        (("[[tarea:7]]", "[[tarea:8]]"), "tareas"),
+        (("Repasar ejercicios", "Repasar ejercicios #fisica"), "etiquetas"),
+        (("= 3 A", "= 4 A"), "números"),
+        (("```python\nprint(12)\n```", "```python\nprint(12)"), "sin cerrar"),
+        (("- [ ] Repasar", "- [x] Repasar"), "casillas"),
+        (("¿Que es la intensidad? >> Carga por segundo", "La intensidad es carga por segundo"), "flashcards"),
+        (("{{resumir: todo depende de V}}", "todo depende de V"), "anotaciones"),
+    ],
+)
 def test_rechaza(roto, frag):
     t = bueno().replace(*roto)
     assert any(frag in p for p in validar(ORIG, t, TITULOS)), validar(ORIG, t, TITULOS)

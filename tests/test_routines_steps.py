@@ -1,4 +1,5 @@
 """Rutinas con pasos (séptima ronda): pasos marcados por días, horario calculado y plantillas."""
+
 from datetime import date, timedelta
 
 import pytest
@@ -10,6 +11,7 @@ HOY = date.today()
 def sin_rutinas(client):
     """La BD de los tests es compartida y dos bloques no pueden pisarse: cada test empieza sin rutinas."""
     from app.database import get_db
+
     with get_db() as conn:
         conn.execute("DELETE FROM inbox WHERE item_type='rutina'")
 
@@ -19,7 +21,9 @@ def _item(client, iid):
 
 
 def _rutina(client, **extra):
-    return client.post("/api/items", json={"text": "Mañana", "type": "rutina", "due_time": "07:00", **extra}).json()["id"]
+    return client.post("/api/items", json={"text": "Mañana", "type": "rutina", "due_time": "07:00", **extra}).json()[
+        "id"
+    ]
 
 
 def test_pasos_con_duracion_y_horario(client):
@@ -31,9 +35,18 @@ def test_pasos_con_duracion_y_horario(client):
     assert (sa["text"], sa["duration_min"], sa["type"], sa["parent_id"]) == ("Ducha", 10, "rutina", rid)
     assert _item(client, b)["duration_min"] == 20 and _item(client, c)["duration_min"] is None
     # en el calendario: con horario, cada bloque va en su hora (sin duración, un cuarto de hora)
-    es = [x for x in client.get("/api/calendar/entries", params={"start": HOY.isoformat(), "end": HOY.isoformat()}).json()["entries"]
-          if x["kind"] == "routine" and x.get("routine_id") == rid]
-    assert [(x["title"], x["start"][11:], x["end"][11:]) for x in es] == [("Ducha", "07:00", "07:10"), ("Desayuno", "07:10", "07:30"), ("Agua", "07:30", "07:45")]
+    es = [
+        x
+        for x in client.get("/api/calendar/entries", params={"start": HOY.isoformat(), "end": HOY.isoformat()}).json()[
+            "entries"
+        ]
+        if x["kind"] == "routine" and x.get("routine_id") == rid
+    ]
+    assert [(x["title"], x["start"][11:], x["end"][11:]) for x in es] == [
+        ("Ducha", "07:00", "07:10"),
+        ("Desayuno", "07:10", "07:30"),
+        ("Agua", "07:30", "07:45"),
+    ]
     # y en Hoy se juntan otra vez en su rutina
     hoy = next(x for x in client.get("/api/today").json()["rutinas"] if x["item_id"] == rid)
     assert [s["title"] for s in hoy["steps"]] == ["Ducha", "Desayuno", "Agua"] and not hoy["done"]
@@ -70,20 +83,31 @@ def test_plantillas_de_rutina(client):
     manana = next(t for t in lista if t["key"] == "b:manana")
     assert manana["builtin"] and manana["steps"][0]["at"] == "07:30" and manana["total_min"] > 0
     # crear desde la de serie, con otra hora y los pasos editados
-    rid = client.post("/api/routine-templates/apply", json={"key": "b:manana", "due_time": "08:00",
-                                                           "steps": [{"title": "Agua", "duration_min": 2}, {"title": "Ducha", "duration_min": 10}]}).json()["id"]
+    rid = client.post(
+        "/api/routine-templates/apply",
+        json={
+            "key": "b:manana",
+            "due_time": "08:00",
+            "steps": [{"title": "Agua", "duration_min": 2}, {"title": "Ducha", "duration_min": 10}],
+        },
+    ).json()["id"]
     it = _item(client, rid)
     assert it["type"] == "rutina" and it["due_time"] == "08:00" and it["text"] == "Rutina de mañana"
     kids = [i for i in client.get("/api/items").json()["items"] if i["parent_id"] == rid]
     kids.sort(key=lambda i: -i["sort_order"])
     # cada paso se queda con su hora: la de la plantilla es solo el punto de partida
-    assert [(k["text"], k["duration_min"], k["due_time"]) for k in kids] == [("Agua", 2, "08:00"), ("Ducha", 10, "08:02")]
+    assert [(k["text"], k["duration_min"], k["due_time"]) for k in kids] == [
+        ("Agua", 2, "08:00"),
+        ("Ducha", 10, "08:02"),
+    ]
     # guardar una rutina propia como plantilla y volver a usarla
     saved = client.post("/api/routine-templates", json={"item_id": rid, "name": "Mi mañana"}).json()
     mia = next(t for t in client.get("/api/routine-templates").json()["plantillas"] if t["key"] == saved["key"])
     assert not mia["builtin"] and [s["title"] for s in mia["steps"]] == ["Agua", "Ducha"] and mia["due_time"] == "08:00"
-    rid2 = client.post("/api/routine-templates/apply", json={"key": saved["key"], "title": "Mañana de finde",
-                                                            "repeat": {"freq": "weekly", "days": [5, 6]}}).json()["id"]
+    rid2 = client.post(
+        "/api/routine-templates/apply",
+        json={"key": saved["key"], "title": "Mañana de finde", "repeat": {"freq": "weekly", "days": [5, 6]}},
+    ).json()["id"]
     assert _item(client, rid2)["repeat_text"] == "Fines de semana"
     assert client.delete(f"/api/routine-templates/{saved['id']}").status_code == 200
     assert client.post("/api/routine-templates/apply", json={"key": saved["key"]}).status_code == 404
@@ -100,25 +124,42 @@ def _dia_que_sea(weekday: int) -> str:
 def test_bloques_con_dias_y_hora_fija(client):
     rid = client.post("/api/items", json={"text": "Mi día prueba", "type": "rutina", "due_time": "07:30"}).json()["id"]
     a = client.post("/api/items", json={"text": "Desayunar 20 min", "parent_id": rid, "due_time": "07:30"}).json()["id"]
-    uni = client.post("/api/items", json={"text": "Universidad", "parent_id": rid, "duration_min": 330, "due_time": "08:30"}).json()["id"]
-    sol = client.post("/api/items", json={"text": "Tomar el sol 20 min", "parent_id": rid, "due_time": "14:00"}).json()["id"]
+    uni = client.post(
+        "/api/items", json={"text": "Universidad", "parent_id": rid, "duration_min": 330, "due_time": "08:30"}
+    ).json()["id"]
+    sol = client.post("/api/items", json={"text": "Tomar el sol 20 min", "parent_id": rid, "due_time": "14:00"}).json()[
+        "id"
+    ]
     assert client.patch(f"/api/items/{uni}", json={"step_days": [0, 1, 2, 3, 4]}).status_code == 200
     assert client.patch(f"/api/items/{rid}", json={"step_days": [0]}).status_code == 422  # la rutina no: sus pasos
     lunes, sabado = _dia_que_sea(0), _dia_que_sea(5)
     dl = client.get("/api/routines/day", params={"date": lunes}).json()
     r = next(x for x in dl["rutinas"] if x["id"] == rid)
-    assert [(s["title"], s["at"]) for s in r["steps"]] == [("Desayunar", "07:30"), ("Universidad", "08:30"), ("Tomar el sol", "14:00")]
+    assert [(s["title"], s["at"]) for s in r["steps"]] == [
+        ("Desayunar", "07:30"),
+        ("Universidad", "08:30"),
+        ("Tomar el sol", "14:00"),
+    ]
     ds = client.get("/api/routines/day", params={"date": sabado}).json()
     r = next(x for x in ds["rutinas"] if x["id"] == rid)
-    assert [s["title"] for s in r["steps"]] == ["Desayunar", "Tomar el sol"] and r["otros_dias"][0]["days_text"] == "De lunes a viernes"
+    assert [s["title"] for s in r["steps"]] == ["Desayunar", "Tomar el sol"] and r["otros_dias"][0][
+        "days_text"
+    ] == "De lunes a viernes"
     # el sábado, sin universidad: con los dos pasos de ese día hechos, la rutina queda hecha
     for sid in (a, sol):
         client.patch(f"/api/items/{sid}", json={"done": True, "day": sabado})
-    assert next(x for x in client.get("/api/routines/day", params={"date": sabado}).json()["rutinas"] if x["id"] == rid)["done"]
+    assert next(
+        x for x in client.get("/api/routines/day", params={"date": sabado}).json()["rutinas"] if x["id"] == rid
+    )["done"]
     assert client.patch(f"/api/items/{uni}", json={"done": True, "day": sabado}).status_code == 422  # no toca
     # quitar los días propios: vuelve a todos los de la rutina
     client.patch(f"/api/items/{uni}", json={"step_days": []})
-    assert "Universidad" in [s["title"] for s in next(x for x in client.get("/api/routines/day", params={"date": sabado}).json()["rutinas"] if x["id"] == rid)["steps"]]
+    assert "Universidad" in [
+        s["title"]
+        for s in next(
+            x for x in client.get("/api/routines/day", params={"date": sabado}).json()["rutinas"] if x["id"] == rid
+        )["steps"]
+    ]
 
 
 def test_tarea_asociada_a_un_bloque(client):
@@ -162,7 +203,10 @@ def test_mover_un_bloque_no_le_pone_dias_y_saltar_hoy(client):
     a = client.post("/api/items", json={"text": "Ducha", "parent_id": rid}).json()["id"]
     b = client.post("/api/items", json={"text": "Desayuno", "parent_id": rid}).json()["id"]
     # reordenar dentro de la rutina: el paso sigue los días de la rutina (antes recibía «cada día» y rompía el día)
-    assert client.post(f"/api/items/{b}/move", json={"target": "rutinas", "parent_id": rid, "before_id": a}).status_code == 200
+    assert (
+        client.post(f"/api/items/{b}/move", json={"target": "rutinas", "parent_id": rid, "before_id": a}).status_code
+        == 200
+    )
     hoy = date.today().isoformat()
     dia = client.get(f"/api/routines/day?date={hoy}").json()
     r = next(x for x in dia["rutinas"] if x["id"] == rid)
@@ -197,7 +241,11 @@ def test_cada_paso_a_su_hora_sin_encadenar(client):
     hoy = HOY.isoformat()
     # con huecos: nada empieza porque acabe el anterior, y sin hora no se le inventa una
     r = _dia(client, hoy, rid)
-    assert [(s["id"], s["at"], s["end"]) for s in r["steps"]] == [(a, "08:00", "08:20"), (b, "17:30", "18:30"), (sin, None, None)]
+    assert [(s["id"], s["at"], s["end"]) for s in r["steps"]] == [
+        (a, "08:00", "08:20"),
+        (b, "17:30", "18:30"),
+        (sin, None, None),
+    ]
     # cambiar una hora o una duración no mueve a los demás
     assert client.patch(f"/api/items/{a}", json={"due_time": "09:00", "duration_min": 45}).status_code == 200
     assert _dia(client, hoy, rid)["steps"][1]["at"] == "17:30"
@@ -206,14 +254,24 @@ def test_cada_paso_a_su_hora_sin_encadenar(client):
     assert [s["id"] for s in _dia(client, hoy, rid)["steps"]] == [sin, a, b]
     # quitarle la hora lo devuelve al final; el calendario lo pone en todo el día
     assert client.patch(f"/api/items/{sin}", json={"due_time": ""}).status_code == 200
-    es = [x for x in client.get("/api/calendar/entries", params={"start": hoy, "end": hoy}).json()["entries"] if x.get("routine_id") == rid]
+    es = [
+        x
+        for x in client.get("/api/calendar/entries", params={"start": hoy, "end": hoy}).json()["entries"]
+        if x.get("routine_id") == rid
+    ]
     assert [(x["title"], x["all_day"]) for x in es] == [("Desayunar", False), ("Gimnasio", False), ("Leer", True)]
 
 
 def test_sin_horas_en_los_pasos_la_rutina_sigue_entera_en_el_calendario(client):
     rid = _rutina(client)
     _paso(client, rid, "Ducha 10 min")
-    es = [x for x in client.get("/api/calendar/entries", params={"start": HOY.isoformat(), "end": HOY.isoformat()}).json()["entries"] if x.get("item_id") == rid]
+    es = [
+        x
+        for x in client.get("/api/calendar/entries", params={"start": HOY.isoformat(), "end": HOY.isoformat()}).json()[
+            "entries"
+        ]
+        if x.get("item_id") == rid
+    ]
     assert len(es) == 1 and es[0]["start"].endswith("07:00") and es[0]["steps"][0]["at"] is None
 
 
@@ -223,13 +281,22 @@ def test_un_bloque_no_puede_pisar_a_otro(client):
     b = _paso(client, rid, "Gimnasio 1h", due_time="15:00").json()["id"]
     # por dentro: rechazado sin tocar nada, y con el primer hueco en el que cabe
     r = client.patch(f"/api/items/{b}", json={"due_time": "13:30"})
-    assert r.status_code == 409 and "Universidad" in r.json()["detail"] and "08:30–14:00" in r.json()["detail"] and "14:00." in r.json()["detail"]
+    assert (
+        r.status_code == 409
+        and "Universidad" in r.json()["detail"]
+        and "08:30–14:00" in r.json()["detail"]
+        and "14:00." in r.json()["detail"]
+    )
     assert _item(client, b)["due_time"] == "15:00"
     # tocar justo al final no es chocar
     assert client.patch(f"/api/items/{b}", json={"due_time": "14:00"}).status_code == 200
     # alargar un bloque también cuenta, y un cambio rechazado no guarda nada del resto
     r = client.patch(f"/api/items/{uni}", json={"text": "Otra cosa", "duration_min": 400})
-    assert r.status_code == 409 and _item(client, uni)["text"] == "Universidad" and _item(client, uni)["duration_min"] == 330
+    assert (
+        r.status_code == 409
+        and _item(client, uni)["text"] == "Universidad"
+        and _item(client, uni)["duration_min"] == 330
+    )
     # crear encima también se rechaza y no deja nada a medias
     r = _paso(client, rid, "Dentista", due_time="09:00")
     assert r.status_code == 409 and "Dentista" not in [i["text"] for i in client.get("/api/items").json()["items"]]
@@ -243,8 +310,12 @@ def test_un_bloque_no_puede_pisar_a_otro(client):
 
 
 def test_el_choque_mira_los_dias_y_las_demas_rutinas(client):
-    lv = client.post("/api/items", json={"text": "Clases", "type": "rutina", "repeat": {"freq": "weekly", "days": [0, 1, 2, 3, 4]}}).json()["id"]
-    finde = client.post("/api/items", json={"text": "Finde", "type": "rutina", "repeat": {"freq": "weekly", "days": [5, 6]}}).json()["id"]
+    lv = client.post(
+        "/api/items", json={"text": "Clases", "type": "rutina", "repeat": {"freq": "weekly", "days": [0, 1, 2, 3, 4]}}
+    ).json()["id"]
+    finde = client.post(
+        "/api/items", json={"text": "Finde", "type": "rutina", "repeat": {"freq": "weekly", "days": [5, 6]}}
+    ).json()["id"]
     _paso(client, lv, "Universidad", due_time="09:00", duration_min=60)
     # distintos días: la misma hora vale
     assert _paso(client, finde, "Paseo", due_time="09:00", duration_min=60).status_code == 200
@@ -268,9 +339,19 @@ def test_el_choque_mira_los_dias_y_las_demas_rutinas(client):
 def test_plantilla_con_choques_crea_lo_demas_sin_hora(client):
     rid = _rutina(client)
     _paso(client, rid, "Trabajo", due_time="07:32", duration_min=10)
-    res = client.post("/api/routine-templates/apply", json={"key": "b:manana", "due_time": "07:30", "steps": [
-        {"title": "Agua", "duration_min": 2}, {"title": "Ducha", "duration_min": 10}, {"title": "Desayunar", "duration_min": 15, "due_time": "08:00"},
-        {"title": "Flexible", "duration_min": 5, "due_time": ""}]}).json()
+    res = client.post(
+        "/api/routine-templates/apply",
+        json={
+            "key": "b:manana",
+            "due_time": "07:30",
+            "steps": [
+                {"title": "Agua", "duration_min": 2},
+                {"title": "Ducha", "duration_min": 10},
+                {"title": "Desayunar", "duration_min": 15, "due_time": "08:00"},
+                {"title": "Flexible", "duration_min": 5, "due_time": ""},
+            ],
+        },
+    ).json()
     assert res["sin_hora"] == ["Ducha"]
     kids = {i["text"]: i["due_time"] for i in client.get("/api/items").json()["items"] if i["parent_id"] == res["id"]}
     assert kids == {"Agua": "07:30", "Ducha": None, "Desayunar": "08:00", "Flexible": None}
@@ -278,6 +359,7 @@ def test_plantilla_con_choques_crea_lo_demas_sin_hora(client):
 
 def test_solapes_que_vienen_de_antes_se_avisan(client, app):
     from app.database import get_db
+
     rid = _rutina(client)
     a = _paso(client, rid, "Uno", due_time="10:00", duration_min=60).json()["id"]
     b = _paso(client, rid, "Dos", due_time="12:00", duration_min=30).json()["id"]
@@ -302,7 +384,11 @@ def test_colocar_un_bloque_le_da_la_hora_de_ese_sitio(client):
     olvidado = _paso(client, rid, "Ducha 15 min").json()["id"]
     # el olvidado, que estaba abajo: al soltarlo entre los dos, empieza cuando acaba el de arriba
     r = _colocar(client, olvidado, b)
-    assert r.json()["at"] == "08:20" and _horas(client, rid) == [("Desayuno", "08:00"), ("Ducha", "08:20"), ("Clase", "10:00")]
+    assert r.json()["at"] == "08:20" and _horas(client, rid) == [
+        ("Desayuno", "08:00"),
+        ("Ducha", "08:20"),
+        ("Clase", "10:00"),
+    ]
     # arriba del todo, acaba justo cuando empieza el primero
     assert _colocar(client, b, a).json()["at"] == "07:00"
     # al final, detrás del último
@@ -339,8 +425,19 @@ def test_si_no_cabe_no_se_mueve_nada_sin_permiso(client):
     assert r["status"] == "no_cabe" and r["minutos"] == 30 and r["mover"] == ["Clase", "Café", "Gimnasio"]
     assert _horas(client, rid) == antes
     assert _colocar(client, n, c, push=True).json() == {"status": "success", "at": "08:20", "movidos": 3}
-    assert _horas(client, rid) == [("Desayuno", "08:00"), ("Ducha", "08:20"), ("Clase", "08:50"), ("Café", "09:50"), ("Gimnasio", "10:00"), ("Ducha larga", "12:00")]
-    assert (_item(client, d)["due_time"], _item(client, e)["due_time"], _item(client, g)["due_time"]) == ("09:50", "10:00", "12:00")
+    assert _horas(client, rid) == [
+        ("Desayuno", "08:00"),
+        ("Ducha", "08:20"),
+        ("Clase", "08:50"),
+        ("Café", "09:50"),
+        ("Gimnasio", "10:00"),
+        ("Ducha larga", "12:00"),
+    ]
+    assert (_item(client, d)["due_time"], _item(client, e)["due_time"], _item(client, g)["due_time"]) == (
+        "09:50",
+        "10:00",
+        "12:00",
+    )
 
 
 def test_colocar_respeta_las_demas_rutinas_y_el_dia(client):

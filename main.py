@@ -23,19 +23,25 @@ manualmente al router de la app raiz DESPUES del mount.
 """
 
 import contextlib
+import os
 
-from starlette.middleware.gzip import GZipMiddleware
+# S-6: lo que cree el panel (BDs, copias, logs, subidas, notas nuevas) solo lo lee este usuario: 600 / 700.
+# Va antes de cualquier import del proyecto, que ya crea carpetas (logs) al cargarse.
+os.umask(0o077)
 
-from core.logging_config import setup_logging
+from starlette.middleware.gzip import GZipMiddleware  # noqa: E402
+
+from core.logging_config import setup_logging  # noqa: E402
 
 setup_logging()
 
-from core.auth import AuthMiddleware, router as auth_router  # noqa: E402
-from core.pwa import router as pwa_router  # noqa: E402
-from core.errors import SecurityHeadersMiddleware, install_error_handlers  # noqa: E402
 from app.main import app as cerebro_app  # noqa: E402
-from estudio.main import app as estudio_app  # noqa: E402  # migracion de server.py (aiohttp -> FastAPI)
 from comidas.main import app as comidas_app  # noqa: E402  # macros / recetas / lista de la compra
+from core.auth import AuthMiddleware  # noqa: E402
+from core.auth import router as auth_router  # noqa: E402
+from core.errors import SecurityHeadersMiddleware, install_error_handlers  # noqa: E402
+from core.pwa import router as pwa_router  # noqa: E402
+from estudio.main import app as estudio_app  # noqa: E402  # migracion de server.py (aiohttp -> FastAPI)
 
 app = cerebro_app
 
@@ -53,21 +59,23 @@ for _sub in (cerebro_app, estudio_app, comidas_app):
 # propia CSP y sandbox (core/pwa.py). style-src mantiene 'unsafe-inline' por los atributos style del HTML.
 # img-src admite https/http por las miniaturas del Baúl y las fotos de platos;
 # connect-src admite ws: para el WebSocket directo del navegador al ESP32.
-CSP = "; ".join([
-    "default-src 'self'",
-    "script-src 'self'",
-    "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob: https: http:",
-    "font-src 'self' data:",
-    "connect-src 'self' ws: wss:",
-    "frame-src 'self' blob: data:",
-    "worker-src 'self'",
-    "manifest-src 'self'",
-    "object-src 'none'",
-    "base-uri 'self'",
-    "form-action 'self'",
-    "frame-ancestors 'self'",
-])
+CSP = "; ".join(
+    [
+        "default-src 'self'",
+        "script-src 'self'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: blob: https: http:",
+        "font-src 'self' data:",
+        "connect-src 'self' ws: wss:",
+        "frame-src 'self' blob: data:",
+        "worker-src 'self'",
+        "manifest-src 'self'",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "frame-ancestors 'self'",
+    ]
+)
 
 # Comprime HTML, JS, CSS y JSON (no imágenes, fuentes ni zip: ya lo van)
 app.add_middleware(GZipMiddleware, minimum_size=1024)

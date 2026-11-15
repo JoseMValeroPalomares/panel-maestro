@@ -10,6 +10,7 @@ madrugada (00:45 va después de 23:30).
     horas_sueno(dia)                     horas dormidas la noche anterior (None si falta un dato)
     correlacion(xs, ys)                  r de Pearson (None si no hay variación)
 """
+
 from datetime import date, timedelta
 
 # Umbrales configurables (rend_ajustes). Tipo, etiqueta y límites para validar y pintar los ajustes.
@@ -35,15 +36,30 @@ AJUSTES = {
     "dias_correlacion": ("int", "Días de datos para ver correlaciones", (7, 120)),
 }
 DEFAULTS = {
-    "objetivo_acostarse": "23:30", "limite_acostarse": "00:30", "noches_tarde": 2, "objetivo_sueno_h": 7.5,
-    "pantallas_min_antes": 60, "cafe_min_tras_despertar": 90, "cafe_limite": "14:00", "limite_entreno": "21:30",
-    "bloques_sin_recall": 2, "max_lectura_pasiva": 50, "max_enfoque_min": 240, "dias_sobrecarga": 3,
-    "max_dopamina_semana": 2, "niebla_alerta": 4, "dolor_alerta": 2, "dias_fatiga": 3,
-    "max_desviacion_min": 90, "bloque_max_min": 90, "dias_correlacion": 21,
+    "objetivo_acostarse": "23:30",
+    "limite_acostarse": "00:30",
+    "noches_tarde": 2,
+    "objetivo_sueno_h": 7.5,
+    "pantallas_min_antes": 60,
+    "cafe_min_tras_despertar": 90,
+    "cafe_limite": "14:00",
+    "limite_entreno": "21:30",
+    "bloques_sin_recall": 2,
+    "max_lectura_pasiva": 50,
+    "max_enfoque_min": 240,
+    "dias_sobrecarga": 3,
+    "max_dopamina_semana": 2,
+    "niebla_alerta": 4,
+    "dolor_alerta": 2,
+    "dias_fatiga": 3,
+    "max_desviacion_min": 90,
+    "bloque_max_min": 90,
+    "dias_correlacion": 21,
 }
 
 
 # ── Horas ─────────────────────────────────────────────────────────────────────
+
 
 def minutos(hhmm: str | None) -> int | None:
     if not hhmm or len(hhmm) < 5 or hhmm[2] != ":":
@@ -85,12 +101,14 @@ def _dur(m: int) -> str:
 
 # ── Bloques ───────────────────────────────────────────────────────────────────
 
+
 def resumen_bloques(bloques: list[dict]) -> dict:
     total = sum(b.get("minutos") or 0 for b in bloques)
     n = len(bloques)
     pasiva = sum(b.get("minutos") or 0 for b in bloques if b.get("codificacion") == "lectura")
     return {
-        "n": n, "minutos": total,
+        "n": n,
+        "minutos": total,
         "sin_recall": sum(1 for b in bloques if not b.get("recall")),
         "pct_recall": round(100 * sum(1 for b in bloques if b.get("recall")) / n) if n else None,
         "pct_activa": round(100 * (total - pasiva) / total) if total else None,
@@ -102,6 +120,7 @@ def resumen_bloques(bloques: list[dict]) -> dict:
 
 
 # ── Semáforos ─────────────────────────────────────────────────────────────────
+
 
 def _luz(puntos: int, motivos: list[str], ok: str) -> dict:
     nivel = "verde" if puntos == 0 else ("ambar" if puntos <= 2 else "rojo")
@@ -192,7 +211,12 @@ def semaforo_rotacion(bloques: list[dict], aj: dict) -> dict:
         p.append((2, f"{r['degradados']} de {r['n']} bloques en estado degradado."))
     largos = [b for b in bloques if (b.get("minutos") or 0) > aj["bloque_max_min"] and b.get("pausas") != "sistematico"]
     if largos:
-        p.append((1, f"{len(largos)} bloque{'s' if len(largos) > 1 else ''} de más de {aj['bloque_max_min']} min sin pausas sistemáticas."))
+        p.append(
+            (
+                1,
+                f"{len(largos)} bloque{'s' if len(largos) > 1 else ''} de más de {aj['bloque_max_min']} min sin pausas sistemáticas.",
+            )
+        )
     if r["minutos"] > aj["max_enfoque_min"]:
         p.append((1, f"{_dur(r['minutos'])} de enfoque, por encima de {_dur(aj['max_enfoque_min'])}."))
     if r["sin_pausas"] * 2 > r["n"]:
@@ -213,6 +237,7 @@ def semaforos(dia: dict | None, aj: dict) -> dict:
 
 # ── Reglas automáticas ────────────────────────────────────────────────────────
 
+
 def _atras(fecha: str, n: int) -> list[str]:
     d = date.fromisoformat(fecha)
     return [(d - timedelta(days=i)).isoformat() for i in range(n)]
@@ -228,16 +253,28 @@ def alertas(dias: dict[str, dict], fecha: str, aj: dict) -> list[dict]:
     noches = [dias.get(f) or {} for f in _atras(fecha, n)]
     if lim is not None and all((noche(d.get("acostarse")) or 0) > lim for d in noches):
         horas = ", ".join(d["acostarse"] for d in reversed(noches))
-        out.append({"id": "circadiana", "nivel": "rojo", "titulo": "Alerta circadiana",
-                    "texto": f"{n} noches seguidas acostándote después de las {aj['limite_acostarse']} ({horas}). "
-                             "Adelanta la luz de la mañana y corta pantallas antes."})
+        out.append(
+            {
+                "id": "circadiana",
+                "nivel": "rojo",
+                "titulo": "Alerta circadiana",
+                "texto": f"{n} noches seguidas acostándote después de las {aj['limite_acostarse']} ({horas}). "
+                "Adelanta la luz de la mañana y corta pantallas antes.",
+            }
+        )
 
     # Termorregulación: entreno que termina tarde
     fin = minutos(hoy.get("entreno_fin"))
     if hoy.get("entreno") and fin is not None and fin > (minutos(aj["limite_entreno"]) or 1440):
-        out.append({"id": "termorregulacion", "nivel": "ambar", "titulo": "Termorregulación y sueño",
-                    "texto": f"El entreno terminó a las {hoy['entreno_fin']}, después de las {aj['limite_entreno']}: "
-                             "la temperatura corporal alta retrasa el sueño. Ducha templada y cena ligera."})
+        out.append(
+            {
+                "id": "termorregulacion",
+                "nivel": "ambar",
+                "titulo": "Termorregulación y sueño",
+                "texto": f"El entreno terminó a las {hoy['entreno_fin']}, después de las {aj['limite_entreno']}: "
+                "la temperatura corporal alta retrasa el sueño. Ducha templada y cena ligera.",
+            }
+        )
 
     # Ilusión de competencia: bloques sin recall o predominio de lectura pasiva
     r = resumen_bloques(hoy.get("bloques") or [])
@@ -247,24 +284,42 @@ def alertas(dias: dict[str, dict], fecha: str, aj: dict) -> list[dict]:
     if r["pct_pasiva"] is not None and r["pct_pasiva"] > aj["max_lectura_pasiva"]:
         motivos.append(f"un {r['pct_pasiva']} % del tiempo en lectura pasiva")
     if motivos:
-        out.append({"id": "ilusion", "nivel": "rojo", "titulo": "Riesgo de ilusión de competencia",
-                    "texto": f"Hoy: {' y '.join(motivos)}. Empieza cada bloque recuperando de memoria y pasa la lectura a esquema, código o problemas."})
+        out.append(
+            {
+                "id": "ilusion",
+                "nivel": "rojo",
+                "titulo": "Riesgo de ilusión de competencia",
+                "texto": f"Hoy: {' y '.join(motivos)}. Empieza cada bloque recuperando de memoria y pasa la lectura a esquema, código o problemas.",
+            }
+        )
 
     # Sobrecarga: más de X min de enfoque durante N días seguidos
     n = int(aj["dias_sobrecarga"])
     tot = [resumen_bloques((dias.get(f) or {}).get("bloques") or [])["minutos"] for f in _atras(fecha, n)]
     if all(t > aj["max_enfoque_min"] for t in tot):
-        out.append({"id": "sobrecarga", "nivel": "rojo", "titulo": "Riesgo de sobrecarga",
-                    "texto": f"{n} días seguidos con más de {_dur(aj['max_enfoque_min'])} de enfoque efectivo "
-                             f"({', '.join(_dur(t) for t in reversed(tot))}). Plantéate mañana un día de recuperación: "
-                             "repaso ligero, luz y movimiento."})
+        out.append(
+            {
+                "id": "sobrecarga",
+                "nivel": "rojo",
+                "titulo": "Riesgo de sobrecarga",
+                "texto": f"{n} días seguidos con más de {_dur(aj['max_enfoque_min'])} de enfoque efectivo "
+                f"({', '.join(_dur(t) for t in reversed(tot))}). Plantéate mañana un día de recuperación: "
+                "repaso ligero, luz y movimiento.",
+            }
+        )
 
     # Blindaje de dopamina: veces en los últimos 7 días
     veces = [f for f in _atras(fecha, 7) if (dias.get(f) or {}).get("dopamina")]
     if len(veces) > aj["max_dopamina_semana"]:
-        out.append({"id": "dopamina", "nivel": "ambar", "titulo": "Fallo del blindaje de dopamina",
-                    "texto": f"{len(veces)} días con ocio digital antes de las 19:00 en la última semana "
-                             f"(máximo {aj['max_dopamina_semana']}). Déjalo como recompensa después del último bloque."})
+        out.append(
+            {
+                "id": "dopamina",
+                "nivel": "ambar",
+                "titulo": "Fallo del blindaje de dopamina",
+                "texto": f"{len(veces)} días con ocio digital antes de las 19:00 en la última semana "
+                f"(máximo {aj['max_dopamina_semana']}). Déjalo como recompensa después del último bloque.",
+            }
+        )
 
     # Fatiga persistente: niebla o cefalea N días seguidos aun durmiendo lo suficiente. Sin diagnósticos.
     n = int(aj["dias_fatiga"])
@@ -276,10 +331,16 @@ def alertas(dias: dict[str, dict], fecha: str, aj: dict) -> list[dict]:
         return sintoma and h is not None and h >= aj["objetivo_sueno_h"]
 
     if all(fatiga(d) for d in racha):
-        out.append({"id": "fatiga", "nivel": "rojo", "titulo": "Fatiga persistente",
-                    "texto": f"{n} días seguidos con niebla mental ≥ {aj['niebla_alerta']} o dolor de cabeza ≥ {aj['dolor_alerta']} "
-                             "pese a dormir lo suficiente. Prioriza el descanso y baja la carga; si se mantiene o empeora, "
-                             "pide valoración médica. Esto no es un diagnóstico."})
+        out.append(
+            {
+                "id": "fatiga",
+                "nivel": "rojo",
+                "titulo": "Fatiga persistente",
+                "texto": f"{n} días seguidos con niebla mental ≥ {aj['niebla_alerta']} o dolor de cabeza ≥ {aj['dolor_alerta']} "
+                "pese a dormir lo suficiente. Prioriza el descanso y baja la carga; si se mantiene o empeora, "
+                "pide valoración médica. Esto no es un diagnóstico.",
+            }
+        )
 
     # Desajuste circadiano: desviación media de la hora de acostarse o despertar en la última semana
     semana = [dias.get(f) or {} for f in _atras(fecha, 7)]
@@ -290,14 +351,21 @@ def alertas(dias: dict[str, dict], fecha: str, aj: dict) -> list[dict]:
         media = sum(xs) / len(xs)
         desv = sum(abs(x - media) for x in xs) / len(xs)
         if desv > aj["max_desviacion_min"]:
-            out.append({"id": "desajuste", "nivel": "ambar", "titulo": "Desajuste circadiano",
-                        "texto": f"Tu hora de {nombre} varía de media {round(desv)} min esta semana (máximo {aj['max_desviacion_min']}). "
-                                 "Fija una hora de despertar, también el fin de semana: es la que ancla el reloj."})
+            out.append(
+                {
+                    "id": "desajuste",
+                    "nivel": "ambar",
+                    "titulo": "Desajuste circadiano",
+                    "texto": f"Tu hora de {nombre} varía de media {round(desv)} min esta semana (máximo {aj['max_desviacion_min']}). "
+                    "Fija una hora de despertar, también el fin de semana: es la que ancla el reloj.",
+                }
+            )
             break
     return out
 
 
 # ── Correlaciones ─────────────────────────────────────────────────────────────
+
 
 def correlacion(xs: list[float], ys: list[float]) -> float | None:
     n = len(xs)

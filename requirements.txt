@@ -1,4 +1,4 @@
-# Dependencias directas, fijadas a las versiones probadas (Python 3.14).
+# Dependencias directas, fijadas a las versiones probadas (Python 3.14). Las transitivas, en requirements.lock.
 # Instalar: pip install -r requirements.txt   ·   Tests: pip install -r requirements-dev.txt
 
 # --- Servidor web ---

@@ -1,3 +1,9 @@
 -r requirements.txt
 pytest==8.4.2
 playwright==1.64.0  # tests de navegador (tests/e2e); usa el Chromium de ~/.cache/ms-playwright
+
+# --- Calidad (C-1, C-3, T-1): configuración en pyproject.toml ---
+ruff==0.17.5        # lint + formato: ruff check . · ruff format .
+mypy==2.4.1         # tipos, de momento solo core/: mypy
+pytest-cov==7.1.0   # cobertura: python -m pytest --cov --cov-report=term
+pip-audit==2.10.1   # vulnerabilidades conocidas: scripts/revisar_dependencias.sh

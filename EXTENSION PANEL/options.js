@@ -1,4 +1,7 @@
-/* options.js — dirección del Panel, token e inicio de sesión automático; «Probar conexión» antes de guardar. */
+/* options.js — dirección del Panel, token y entrada automática con el token; «Probar conexión» antes de guardar.
+   Permisos (2.9, S-4): la extensión no tiene acceso fijo a ninguna web. Al guardar o probar se pide permiso solo para
+   el origen del Panel; YouTube, solo si se usa. permissions.request tiene que llamarse dentro del clic, antes de
+   cualquier await (si no, Firefox lo rechaza). */
 'use strict';
 
 const $ = (id) => document.getElementById(id);
@@ -12,10 +15,21 @@ function show(type, text) {
 }
 const formCfg = () => ({ baseUrl: Panel.normalizeUrl($('baseUrl').value), token: $('token').value.trim() });
 
+// Pide (dentro del gesto del usuario) el permiso para el origen del Panel; devuelve la promesa de la respuesta
+function askHost(baseUrl) {
+  const pattern = Panel.hostPattern(baseUrl);
+  if (!pattern || !browser.permissions?.request) return Promise.resolve(Boolean(pattern));
+  return browser.permissions.request({ origins: [pattern] }).catch(() => false);
+}
+
 // Prueba la configuración del formulario (sin guardarla). prefix: «Guardado. » al guardar
-async function test(prefix = '') {
+async function test(prefix = '', granted = Promise.resolve(true)) {
   const cfg = formCfg();
   if (!cfg.baseUrl || !cfg.token) { show('error', 'Escribe la dirección del Panel y el token'); return false; }
+  if (!(await granted)) {
+    show('error', `${prefix}Sin permiso para ${new URL(cfg.baseUrl).host}, la extensión no puede hablar con el Panel. Pulsa otra vez y acepta el aviso de Firefox.`);
+    return false;
+  }
   $('test').disabled = true;
   try {
     const st = await Panel.status(cfg);
@@ -31,25 +45,25 @@ async function load() {
   const cfg = await Panel.getConfig();
   $('baseUrl').value = cfg.baseUrl;
   $('token').value = cfg.token;
-  const { autoLogin = true, loginPassword = '' } = await browser.storage.local.get(['autoLogin', 'loginPassword']);
+  const { autoLogin = true } = await browser.storage.local.get('autoLogin');
   $('autoLogin').checked = autoLogin;
-  $('loginPassword').value = loginPassword;
-  syncAutoLogin();
   const { ytAuto = true, ytPct = 50 } = await browser.storage.local.get(['ytAuto', 'ytPct']);
   $('ytAuto').checked = ytAuto;
   $('ytPct').value = ytPct;
+  syncYoutubePermission();
   (cfg.baseUrl ? $('token') : $('baseUrl')).focus();
 }
 
-$('test').addEventListener('click', () => test());
+$('test').addEventListener('click', () => test('', askHost(formCfg().baseUrl)));
 $('form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const cfg = formCfg();
+  const granted = cfg.baseUrl && cfg.token ? askHost(cfg.baseUrl) : Promise.resolve(false);  // antes de cualquier await
   if (!cfg.baseUrl || !cfg.token) { show('error', 'Escribe la dirección del Panel y el token'); return; }
-  const login = { autoLogin: $('autoLogin').checked, loginPassword: $('loginPassword').value };
-  await browser.storage.local.set({ ...cfg, ...login });
+  await browser.storage.local.set({ ...cfg, autoLogin: $('autoLogin').checked });
+  await browser.storage.local.remove('loginPassword');  // de versiones anteriores a la 2.9
   $('baseUrl').value = cfg.baseUrl;
-  await test('Guardado. ');
+  await test('Guardado. ', granted);
   browser.runtime.sendMessage({ type: 'refresh' }).catch(() => {});
 });
 // Botón del ojo: muestra u oculta el campo (what: «el token», «la contraseña»)
@@ -61,17 +75,25 @@ function toggleVisible(btn, input, what) {
   btn.querySelector('use').setAttribute('href', `icons.svg#i-${show ? 'eye-off' : 'eye'}`);
 }
 $('toggleToken').addEventListener('click', (e) => toggleVisible(e.currentTarget, $('token'), 'el token'));
-$('togglePassword').addEventListener('click', (e) => toggleVisible(e.currentTarget, $('loginPassword'), 'la contraseña'));
+$('autoLogin').addEventListener('change', () => browser.storage.local.set({ autoLogin: $('autoLogin').checked }));
 
-// La contraseña se conserva aunque se desactive: solo se atenúa el campo
-function syncAutoLogin() {
-  const set = $('autoLogin').closest('fieldset');
-  if ($('autoLogin').checked) delete set.dataset.off; else set.dataset.off = '';
+// YouTube: permiso solo para youtube.com, pedido al activarlo (o con el botón si falta)
+async function syncYoutubePermission() {
+  $('ytPermRow').hidden = await Panel.hasHost(Panel.YOUTUBE);
 }
-$('autoLogin').addEventListener('change', syncAutoLogin);
+function askYoutube() {
+  return (browser.permissions?.request ? browser.permissions.request({ origins: [Panel.YOUTUBE] }) : Promise.resolve(true))
+    .catch(() => false).then((ok) => { syncYoutubePermission(); return ok; });
+}
+$('ytPerm').addEventListener('click', () => askYoutube());
 
 // YouTube: se guarda al cambiar (sin pasar por «Guardar»)
-$('ytAuto').addEventListener('change', () => browser.storage.local.set({ ytAuto: $('ytAuto').checked }));
+$('ytAuto').addEventListener('change', () => {
+  const on = $('ytAuto').checked;
+  const asked = on ? askYoutube() : Promise.resolve(true);  // dentro del clic
+  browser.storage.local.set({ ytAuto: on });
+  asked.then((ok) => { if (!ok) { $('ytAuto').checked = false; browser.storage.local.set({ ytAuto: false }); } });
+});
 $('ytPct').addEventListener('change', () => {
   const v = Math.min(100, Math.max(10, Number($('ytPct').value) || 50));
   $('ytPct').value = v;

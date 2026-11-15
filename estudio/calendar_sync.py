@@ -26,6 +26,7 @@ Estado de la última vez: estudio/calendar_sync_v2.json (fuera de git). La prime
 «última vez»: los tres lados se unen (los eventos de iCloud y del ESP32 entran en el Panel con
 su mismo uid) y nada se borra.
 """
+
 import asyncio
 import datetime as dt
 import json
@@ -47,6 +48,7 @@ TZ = ZoneInfo("Europe/Madrid")
 STATE_FILE = config.CALENDAR_STATE
 SYNC_INTERVAL_SEC = 480
 EMPTY_GUARD = 3
+ESP_EMPTY_RESEND = 2  # lecturas vacías seguidas del ESP32 antes de darlo por reiniciado y reenviarle todo
 ESP32_TYPES = ("examen", "entrega", "evento")
 
 STATUS: dict[str, dict] = {"icloud": {"state": "idle"}, "esp32": {"state": "idle"}}
@@ -64,12 +66,19 @@ def request_sync() -> None:
 # Formatos
 # ─────────────────────────────────────────────
 
+
 def canon(row) -> dict:
     """Evento del Panel → forma comparable con iCloud."""
     start, end, all_day = row["start"], row["end"], bool(row["all_day"])
     if all_day and not end:
         end = (dt.date.fromisoformat(start[:10]) + dt.timedelta(days=1)).isoformat()
-    out = {"title": (row["title"] or "").strip(), "start": start, "end": end, "all_day": all_day, "kind": row["kind"] or "evento"}
+    out = {
+        "title": (row["title"] or "").strip(),
+        "start": start,
+        "end": end,
+        "all_day": all_day,
+        "kind": row["kind"] or "evento",
+    }
     loc = (row["location"] if "location" in row.keys() else None) or ""
     if loc.strip():
         out["location"] = loc.strip()
@@ -105,9 +114,16 @@ def three_way(local: dict, remote: dict, last: dict, eq=lambda a, b: a == b, *, 
 
 def find_twin(conn, ev: dict, known_uids: set[str]) -> str | None:
     """Evento del Panel igual (título, día, tipo) que ese lado aún no conoce: es el mismo."""
-    for row in conn.execute("SELECT uid, title, start, kind FROM events WHERE substr(start, 1, 10)=?", (ev["start"][:10],)):
-        if row["uid"] not in known_uids and row["title"].strip().lower() == ev["title"].strip().lower() \
-                and esp_view(canon({**dict(row), "end": None, "all_day": "T" not in row["start"]}))["type"] == esp_view(ev)["type"]:
+    for row in conn.execute(
+        "SELECT uid, title, start, kind FROM events WHERE substr(start, 1, 10)=? AND repeat IS NULL",
+        (ev["start"][:10],),
+    ):
+        if (
+            row["uid"] not in known_uids
+            and row["title"].strip().lower() == ev["title"].strip().lower()
+            and esp_view(canon({**dict(row), "end": None, "all_day": "T" not in row["start"]}))["type"]
+            == esp_view(ev)["type"]
+        ):
             return row["uid"]
     return None
 
@@ -116,23 +132,31 @@ def find_twin(conn, ev: dict, known_uids: set[str]) -> str | None:
 # Panel (tabla events)
 # ─────────────────────────────────────────────
 
+
 def panel_events() -> dict[str, dict]:
     from app.database import get_db
+
     with get_db() as conn:
-        return {r["uid"]: canon(r) for r in conn.execute("SELECT * FROM events")}
+        # Las clases (eventos que se repiten) no salen del Panel: iCloud y el ESP32 solo conocen eventos sueltos
+        return {r["uid"]: canon(r) for r in conn.execute("SELECT * FROM events WHERE repeat IS NULL")}
 
 
-def panel_apply(changes: dict[str, dict], deletes: list[str], source: str, known: set[str], esp_mode=False) -> dict[str, str]:
+def panel_apply(
+    changes: dict[str, dict], deletes: list[str], source: str, known: set[str], esp_mode=False
+) -> dict[str, str]:
     """Escribe en el Panel lo que llega de fuera. Devuelve {uid_de_fuera: uid_del_panel} si se adoptó uno."""
     from app.calendar import _normalize
     from app.database import get_db
     from core import undo
+
     adopted = {}
     with get_db() as conn:
         for uid, ev in changes.items():
             row = conn.execute("SELECT * FROM events WHERE uid=?", (uid,)).fetchone()
             if row is None:
-                twin = find_twin(conn, ev if not esp_mode else {"title": ev["title"], "start": ev["date"], "kind": ev["type"]}, known)
+                twin = find_twin(
+                    conn, ev if not esp_mode else {"title": ev["title"], "start": ev["date"], "kind": ev["type"]}, known
+                )
                 if twin:
                     adopted[uid] = twin
                     continue
@@ -141,27 +165,49 @@ def panel_apply(changes: dict[str, dict], deletes: list[str], source: str, known
                 else:
                     start, end, all_day, kind = ev["start"], ev["end"], ev["all_day"], ev["kind"]
                 start, end = _normalize(start, end, all_day)
-                conn.execute("INSERT INTO events (uid, title, start, end, all_day, kind, location, source, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                             (uid, ev["title"], start, end, int("T" not in start), kind if kind in ("evento", "examen", "entrega", "bloque") else "evento",
-                              ev.get("location"), source, time.time()))
+                conn.execute(
+                    "INSERT INTO events (uid, title, start, end, all_day, kind, location, source, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        uid,
+                        ev["title"],
+                        start,
+                        end,
+                        int("T" not in start),
+                        kind if kind in ("evento", "examen", "entrega", "bloque") else "evento",
+                        ev.get("location"),
+                        source,
+                        time.time(),
+                    ),
+                )
                 continue
             if esp_mode:  # el ESP32 solo sabe el día, el título y el tipo: la hora se conserva
                 old = canon(row)
                 delta = dt.date.fromisoformat(ev["date"]) - dt.date.fromisoformat(old["start"][:10])
-                shift = lambda v: None if v is None else (  # noqa: E731
-                    (dt.datetime.fromisoformat(v) + delta).strftime("%Y-%m-%dT%H:%M") if "T" in v
-                    else (dt.date.fromisoformat(v) + delta).isoformat())
+
+                def shift(v, delta=delta):
+                    if v is None:
+                        return None
+                    if "T" in v:
+                        return (dt.datetime.fromisoformat(v) + delta).strftime("%Y-%m-%dT%H:%M")
+                    return (dt.date.fromisoformat(v) + delta).isoformat()
+
                 kind = row["kind"] if esp_view(old)["type"] == ev["type"] else ev["type"]
-                conn.execute("UPDATE events SET title=?, start=?, end=?, kind=?, updated_at=? WHERE uid=?",
-                             (ev["title"], shift(old["start"]), shift(row["end"]), kind, time.time(), uid))
+                conn.execute(
+                    "UPDATE events SET title=?, start=?, end=?, kind=?, updated_at=? WHERE uid=?",
+                    (ev["title"], shift(old["start"]), shift(row["end"]), kind, time.time(), uid),
+                )
             else:
                 start, end = _normalize(ev["start"], ev["end"], ev["all_day"])
-                conn.execute("UPDATE events SET title=?, start=?, end=?, all_day=?, kind=?, location=?, updated_at=? WHERE uid=?",
-                             (ev["title"], start, end, int("T" not in start), ev["kind"], ev.get("location"), time.time(), uid))
+                conn.execute(
+                    "UPDATE events SET title=?, start=?, end=?, all_day=?, kind=?, location=?, updated_at=? WHERE uid=?",
+                    (ev["title"], start, end, int("T" not in start), ev["kind"], ev.get("location"), time.time(), uid),
+                )
         for uid in deletes:
             row = conn.execute("SELECT * FROM events WHERE uid=?", (uid,)).fetchone()
             if row:
-                undo.save(conn, "event.delete", {"row": dict(row)}, title=f"{row['title']} (borrado en {source})", count=1)
+                undo.save(
+                    conn, "event.delete", {"row": dict(row)}, title=f"{row['title']} (borrado en {source})", count=1
+                )
                 conn.execute("DELETE FROM events WHERE uid=?", (uid,))
     return adopted
 
@@ -169,6 +215,7 @@ def panel_apply(changes: dict[str, dict], deletes: list[str], source: str, known
 # ─────────────────────────────────────────────
 # iCloud (CalDAV, bloqueante: en un hilo)
 # ─────────────────────────────────────────────
+
 
 def _to_local(v) -> tuple[str, bool]:
     if isinstance(v, dt.datetime):
@@ -200,8 +247,16 @@ def icloud_fetch(cal, objects: dict) -> dict[str, dict]:
                     lst = cats.cats if hasattr(cats, "cats") else [cats]
                     cat = str(lst[0]) if lst else cat
                 kind = {"EXAMEN": "examen", "ENTREGA": "entrega", "BLOQUE": "bloque"}.get(cat.upper().strip(), "evento")
-                out[uid] = canon({"title": str(comp.get("SUMMARY", "")), "start": start, "end": end, "all_day": all_day, "kind": kind,
-                                  "location": str(comp.get("LOCATION", "") or "")})
+                out[uid] = canon(
+                    {
+                        "title": str(comp.get("SUMMARY", "")),
+                        "start": start,
+                        "end": end,
+                        "all_day": all_day,
+                        "kind": kind,
+                        "location": str(comp.get("LOCATION", "") or ""),
+                    }
+                )
         except Exception as e:  # noqa: BLE001 — un evento raro no para el resto
             log.warning(f"No se pudo leer un evento de iCloud: {e!r}")
     return out
@@ -221,11 +276,14 @@ def build_ics(uid: str, ev: dict) -> str:
     else:
         s = dt.datetime.fromisoformat(ev["start"]).replace(tzinfo=TZ)
         e.add("dtstart", s)
-        e.add("dtend", dt.datetime.fromisoformat(ev["end"]).replace(tzinfo=TZ) if ev.get("end") else s + dt.timedelta(hours=1))
+        e.add(
+            "dtend",
+            dt.datetime.fromisoformat(ev["end"]).replace(tzinfo=TZ) if ev.get("end") else s + dt.timedelta(hours=1),
+        )
     e.add("categories", [(ev.get("kind") or "evento").upper()])
     if ev.get("location"):
         e.add("location", ev["location"])
-    e.add("dtstamp", dt.datetime.now(dt.timezone.utc))
+    e.add("dtstamp", dt.datetime.now(dt.UTC))
     cal.add_component(e)
     return cal.to_ical().decode("utf-8")
 
@@ -243,6 +301,7 @@ def icloud_upsert(cal, objects: dict, uid: str, ev: dict) -> None:
 # ─────────────────────────────────────────────
 # Estado
 # ─────────────────────────────────────────────
+
 
 def load_state() -> dict:
     """La primera vez no hay «última vez»: todo se trata como nuevo y se une (nada se borra)."""
@@ -274,11 +333,13 @@ def guard(name: str, local: dict, remote: dict, last: dict) -> str | None:
 # Puente
 # ─────────────────────────────────────────────
 
+
 class CalendarSyncBridge:
     def __init__(self, session: aiohttp.ClientSession, esp32_ws_url: str):
         self.session = session
         self.esp32_ws_url = esp32_ws_url
         self._legacy = legacy.IcloudSyncBridge(session, esp32_ws_url)
+        self._esp_empty = 0  # respuestas vacías seguidas de la placa (ver _sync_esp32)
 
     async def run_forever(self):
         global WAKE, LOOP
@@ -327,6 +388,7 @@ class CalendarSyncBridge:
         adopted = panel_apply(plan["to_local"], plan["del_local"], "iCloud", known=set(remote))
         for uid_remote, uid_panel in adopted.items():  # mismo evento con dos uid: el Panel adopta el de iCloud
             from app.database import get_db
+
             with get_db() as conn:
                 conn.execute("UPDATE events SET uid=? WHERE uid=?", (uid_remote, uid_panel))
             plan["to_remote"].pop(uid_panel, None)  # ya está en iCloud con el otro uid: no se sube otra vez
@@ -349,10 +411,17 @@ class CalendarSyncBridge:
                 new_last[uid] = last[uid]
         state["icloud"] = new_last
         n = sum(len(plan[k]) for k in ("to_local", "del_local", "to_remote", "del_remote"))
-        STATUS["icloud"] = {"state": "ok", "at": time.time(), "count": len(new_last), "changes": n,
-                            "error": f"{len(failed)} cambios pendientes" if failed else None}
-        log.info(f"iCloud: {len(remote)} eventos, {n} cambios ({len(plan['to_local'])}+{len(plan['del_local'])} en el Panel, "
-                 f"{len(plan['to_remote'])}+{len(plan['del_remote'])} en iCloud)")
+        STATUS["icloud"] = {
+            "state": "ok",
+            "at": time.time(),
+            "count": len(new_last),
+            "changes": n,
+            "error": f"{len(failed)} cambios pendientes" if failed else None,
+        }
+        log.info(
+            f"iCloud: {len(remote)} eventos, {n} cambios ({len(plan['to_local'])}+{len(plan['del_local'])} en el Panel, "
+            f"{len(plan['to_remote'])}+{len(plan['del_remote'])} en iCloud)"
+        )
 
     async def _sync_esp32(self, state: dict):
         if LINK.state in ("offline", "disabled") and not LINK.can_try():
@@ -361,12 +430,25 @@ class CalendarSyncBridge:
         STATUS["esp32"] = {**STATUS["esp32"], "state": "syncing"}
         remote = await self._legacy._get_esp32_events()
         if remote is None:
-            STATUS["esp32"] = {**STATUS["esp32"], "state": "error" if LINK.state == "online" else "offline",
-                               "error": "El ESP32 no mandó su calendario", "error_at": time.time()}
+            STATUS["esp32"] = {
+                **STATUS["esp32"],
+                "state": "error" if LINK.state == "online" else "offline",
+                "error": "El ESP32 no mandó su calendario",
+                "error_at": time.time(),
+            }
             return
         local = {uid: esp_view(ev) for uid, ev in panel_events().items()}
         last = state["esp32"]
         why = guard("el ESP32", local, remote, last)
+        self._esp_empty = self._esp_empty + 1 if (why and not remote and local) else 0
+        if why and self._esp_empty >= ESP_EMPTY_RESEND:
+            # La placa contesta bien pero vacía un ciclo tras otro: no es una lectura fallida, ha perdido su
+            # calendario (reinicio, firmware nuevo). Sin «última vez» nada se borra en el Panel y se le reenvía todo;
+            # antes la guarda saltaba para siempre y la placa se quedaba sin eventos.
+            log.warning(
+                f"El ESP32 sigue sin eventos tras {self._esp_empty} lecturas: se le reenvía el calendario del Panel"
+            )
+            last, why, self._esp_empty = {}, None, 0
         if why:
             log.warning(f"Sincronía con el ESP32 saltada: {why}")
             STATUS["esp32"] = {**STATUS["esp32"], "state": "error", "error": why, "error_at": time.time()}
@@ -375,20 +457,41 @@ class CalendarSyncBridge:
         adopted = panel_apply(plan["to_local"], plan["del_local"], "el ESP32", known=set(remote), esp_mode=True)
         # Lista final: todo el Panel (los adoptados con el uid del Panel; el ESP32 borra el suyo duplicado)
         full = panel_events()
-        payload = {"type": "calendar_sync_full", "events": [
-            {"uid": uid, **esp_view(ev), **({"time": ev["start"][11:16], "end": (ev["end"] or "")[11:16]} if not ev["all_day"] else {})}
-            for uid, ev in sorted(full.items(), key=lambda kv: kv[1]["start"])]}
+        payload = {
+            "type": "calendar_sync_full",
+            "events": [
+                {
+                    "uid": uid,
+                    **esp_view(ev),
+                    **({"time": ev["start"][11:16], "end": (ev["end"] or "")[11:16]} if not ev["all_day"] else {}),
+                }
+                for uid, ev in sorted(full.items(), key=lambda kv: kv[1]["start"])
+            ],
+        }
         try:
-            async with self.session.ws_connect(self.esp32_ws_url, heartbeat=10, timeout=aiohttp.ClientWSTimeout(ws_close=10)) as ws:
+            async with self.session.ws_connect(
+                self.esp32_ws_url, heartbeat=10, timeout=aiohttp.ClientWSTimeout(ws_close=10)
+            ) as ws:
                 await ws.send_str(json.dumps(payload, ensure_ascii=False))
                 await asyncio.sleep(0.3)
         except Exception as e:  # noqa: BLE001
             LINK.failed(e)
-            STATUS["esp32"] = {**STATUS["esp32"], "state": "error", "error": "No se pudo mandar la lista al ESP32", "error_at": time.time()}
+            STATUS["esp32"] = {
+                **STATUS["esp32"],
+                "state": "error",
+                "error": "No se pudo mandar la lista al ESP32",
+                "error_at": time.time(),
+            }
             return
         state["esp32"] = {uid: esp_view(ev) for uid, ev in full.items()}
         n = sum(len(plan[k]) for k in ("to_local", "del_local", "to_remote", "del_remote"))
-        STATUS["esp32"] = {"state": "ok", "at": time.time(), "count": len(full), "changes": n + len(adopted), "error": None}
+        STATUS["esp32"] = {
+            "state": "ok",
+            "at": time.time(),
+            "count": len(full),
+            "changes": n + len(adopted),
+            "error": None,
+        }
         log.info(f"ESP32: {len(remote)} eventos, {n} cambios; enviados {len(full)}")
 
 

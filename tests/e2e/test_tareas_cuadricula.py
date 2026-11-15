@@ -1,5 +1,7 @@
 """Tareas: el botón que pasa de la lista a una cuadrícula con las tareas en filas y sus pasos a la vista."""
+
 import pytest
+
 
 @pytest.fixture()
 def celdas(api):
@@ -64,7 +66,9 @@ def test_arrastrar_entre_columnas(page, server, api, celdas):
     page.goto(f"{server}/tareas")
     page.click("[data-view=matriz]")
     card(page, "Celda D").wait_for()
-    order = lambda: [t for t in page.locator(".il-list > .il-item > .il-row .il-text").all_inner_texts() if t.startswith("Celda")]
+    order = lambda: [
+        t for t in page.locator(".il-list > .il-item > .il-row .il-text").all_inner_texts() if t.startswith("Celda")
+    ]
     before = order()
     with page.expect_response(lambda r: "/move" in r.url):
         src = card(page, before[-1]).locator(":scope > .il-row [data-drag-handle]").bounding_box()
@@ -75,7 +79,9 @@ def test_arrastrar_entre_columnas(page, server, api, celdas):
         page.mouse.move(dst["x"] + 6, dst["y"] + 3, steps=14)
         page.wait_for_timeout(120)
         page.mouse.up()
-    page.wait_for_function("(t) => document.querySelector('.il-list > .il-item .il-text').textContent === t", arg=before[-1])
+    page.wait_for_function(
+        "(t) => document.querySelector('.il-list > .il-item .il-text').textContent === t", arg=before[-1]
+    )
     assert order()[0] == before[-1]
 
 
@@ -158,13 +164,17 @@ def test_marcar_un_paso_no_mueve_el_scroll_de_la_tarjeta(page, server, api, celd
     page.keyboard.press("Enter")
     card(page, "Otra tarea").wait_for()
     assert card(page, "Celda B").locator(".il-children").evaluate("el => el.scrollTop") == top
-    api.delete(f"/api/items/{next(i['id'] for i in api.get('/api/items').json()['items'] if i['text'] == 'Otra tarea')}")
+    api.delete(
+        f"/api/items/{next(i['id'] for i in api.get('/api/items').json()['items'] if i['text'] == 'Otra tarea')}"
+    )
 
 
 @pytest.mark.parametrize("width", [1280, 1000])
 def test_el_editor_cabe_en_la_tarjeta_mas_estrecha(page, server, api, celdas, width):
     """Tarea, paso y rutina: nada se sale ni queda recortado, tampoco con la columna más estrecha."""
-    rutina = api.post("/api/items", json={"text": "Rutina de prueba", "type": "rutina", "repeat": {"freq": "daily"}}).json()["id"]
+    rutina = api.post(
+        "/api/items", json={"text": "Rutina de prueba", "type": "rutina", "repeat": {"freq": "daily"}}
+    ).json()["id"]
     paso = next(i["id"] for i in api.get("/api/items").json()["items"] if i["text"] == "Paso de A")
     page.set_viewport_size({"width": width, "height": 900})
     page.goto(f"{server}/tareas")
@@ -181,7 +191,9 @@ def test_el_editor_cabe_en_la_tarjeta_mas_estrecha(page, server, api, celdas, wi
         assert form.evaluate(fits), text
         save = form.locator("[type=submit]")
         save.scroll_into_view_if_needed()
-        assert save.is_visible() and form.evaluate("(f) => !f.closest('.il-children') || getComputedStyle(f.closest('.il-children')).overflowY === 'visible'")
+        assert save.is_visible() and form.evaluate(
+            "(f) => !f.closest('.il-children') || getComputedStyle(f.closest('.il-children')).overflowY === 'visible'"
+        )
         page.keyboard.press("Escape")
         form.wait_for(state="detached")
     api.delete(f"/api/items/{rutina}")
@@ -211,7 +223,9 @@ def test_redimensionar_como_una_ventana(page, server, api, celdas):
     stretch(page, celdas[3], "e", dx=170)
     page.mouse.up()
     wider = d.bounding_box()
-    assert wider["width"] == pytest.approx(before["width"] + 170, abs=40) and wider["height"] == pytest.approx(before["height"], abs=2)
+    assert wider["width"] == pytest.approx(before["width"] + 170, abs=40) and wider["height"] == pytest.approx(
+        before["height"], abs=2
+    )
     assert c.bounding_box()["x"] >= wider["x"] + wider["width"] - 1
 
     # alto: crece con el ratón y el contenido de las otras no se estira
@@ -248,11 +262,15 @@ def test_las_demas_ocupan_el_hueco_de_una_alta(page, server, api, celdas):
     stretch(page, extras[3], "s", dy=260)
     page.mouse.up()
     box = first.bounding_box()
-    cards = page.evaluate("[...document.querySelector('.il-list').children].map((el) => { const r = el.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; })")
+    cards = page.evaluate(
+        "[...document.querySelector('.il-list').children].map((el) => { const r = el.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; })"
+    )
     # hay tarjetas en filas que empiezan a la altura de la alta, y ninguna se pisa
-    assert any(c[1] > box["y"] + 40 and c[1] < box["y"] + box["height"] and c[0] >= box["x"] + box["width"] - 1 for c in cards)
+    assert any(
+        c[1] > box["y"] + 40 and c[1] < box["y"] + box["height"] and c[0] >= box["x"] + box["width"] - 1 for c in cards
+    )
     for i, a in enumerate(cards):
-        for b in cards[i + 1:]:
+        for b in cards[i + 1 :]:
             assert a[2] <= b[0] + 1 or b[2] <= a[0] + 1 or a[3] <= b[1] + 1 or b[3] <= a[1] + 1
     for i in extras:
         api.delete(f"/api/items/{i}")
@@ -281,7 +299,9 @@ def test_tamano_normal_escape_y_teclado(page, server, api, celdas):
     d.locator(":scope > .il-row [data-act=menu]").click()
     page.get_by_role("menuitem", name="Tamaño normal").click()
     box = d.bounding_box()
-    assert box["width"] == pytest.approx(before["width"], abs=1) and box["height"] == pytest.approx(before["height"], abs=1)
+    assert box["width"] == pytest.approx(before["width"], abs=1) and box["height"] == pytest.approx(
+        before["height"], abs=1
+    )
     # doble clic en un borde, lo mismo
     stretch(page, celdas[3], "e", dx=120)
     page.mouse.up()
@@ -325,7 +345,13 @@ def muchas(api):
     """Tarjetas de alturas distintas: es lo que hacía que recolocarlas entrase en bucle."""
     ids = []
     for n in range(24):
-        i = api.post("/api/items", json={"text": f"Mezcla {n:02d}" + (" con un texto largo que ocupa varias líneas en la tarjeta" * (n % 3)), "type": "tarea"}).json()["id"]
+        i = api.post(
+            "/api/items",
+            json={
+                "text": f"Mezcla {n:02d}" + (" con un texto largo que ocupa varias líneas en la tarjeta" * (n % 3)),
+                "type": "tarea",
+            },
+        ).json()["id"]
         for k in range(n % 4):
             api.post("/api/items", json={"text": f"Paso {k} de {n}", "type": "tarea", "parent_id": i})
         ids.append(i)
@@ -337,6 +363,10 @@ def muchas(api):
 def _matriz(page, server):
     page.goto(f"{server}/tareas")
     card(page, "Mezcla 00").wait_for()
+    # Si otros tests dejaron tareas atrasadas, su aviso (P-1) baja la cuadrícula: se cierra, como haría el usuario
+    page.wait_for_function("window.Atrasadas && Atrasadas.data !== null")
+    if page.locator("[data-late-hide]").count():
+        page.click("[data-late-hide]")
     page.click("[data-view=matriz]")
     page.wait_for_timeout(200)
 
@@ -344,7 +374,9 @@ def _matriz(page, server):
 def _visibles(page, n=9):
     return page.locator(".il-list > .il-item").evaluate_all(
         "(l, n) => l.map((e) => { const r = e.getBoundingClientRect(); return { id: Number(e.dataset.id), x: r.x, y: r.y, w: r.width, h: r.height }; })"
-        ".filter((r) => r.y > 0 && r.y + r.h < 640).slice(0, n)", n)
+        ".filter((r) => r.y > 0 && r.y + r.h < 640).slice(0, n)",
+        n,
+    )
 
 
 def _agarrar(page, c):
@@ -363,7 +395,8 @@ def test_marcar_una_tarea_no_devuelve_arriba(page, server, api, muchas):
     _matriz(page, server)
     page.evaluate("document.querySelector('.page-body').scrollTop = 500")
     objetivo = page.locator(".il-list > .il-item > .il-row .card-check").evaluate_all(
-        "(l) => { const b = l.find((x) => { const r = x.getBoundingClientRect(); return r.top > 150 && r.bottom < 800; }); b.id = 'el-check'; return b.getAttribute('aria-label'); }")
+        "(l) => { const b = l.find((x) => { const r = x.getBoundingClientRect(); return r.top > 150 && r.bottom < 800; }); b.id = 'el-check'; return b.getAttribute('aria-label'); }"
+    )
     assert objetivo
     with page.expect_response(lambda r: "/api/items" in r.url and r.request.method != "GET"):
         page.click("#el-check")
@@ -393,12 +426,17 @@ def test_cruzar_la_rejilla_no_revuelve_las_tarjetas(page, server, api, muchas):
     _matriz(page, server)
     cartas = _visibles(page)
     _agarrar(page, cartas[0])
-    orden = lambda: page.locator(".il-list > .il-item, .il-list > .sortable-placeholder").evaluate_all("(l) => l.map((e) => e.dataset.id || 'hueco')")  # noqa: E731
+    orden = lambda: page.locator(".il-list > .il-item, .il-list > .sortable-placeholder").evaluate_all(
+        "(l) => l.map((e) => e.dataset.id || 'hueco')"
+    )  # noqa: E731
     antes = orden()
     page.mouse.move(cartas[-1]["x"] + 8, cartas[-1]["y"] + 8, steps=6)
     assert orden() == antes  # de camino no se mueve nada; al parar, sí
     page.locator(".il-list .sortable-placeholder").first.wait_for()
-    page.wait_for_function("(a) => [...document.querySelectorAll('.il-list > .il-item, .il-list > .sortable-placeholder')].map((e) => e.dataset.id || 'hueco').join() !== a", arg=",".join(antes))
+    page.wait_for_function(
+        "(a) => [...document.querySelectorAll('.il-list > .il-item, .il-list > .sortable-placeholder')].map((e) => e.dataset.id || 'hueco').join() !== a",
+        arg=",".join(antes),
+    )
     page.keyboard.press("Escape")
     page.mouse.up()
 
@@ -431,7 +469,7 @@ def test_la_pastilla_mete_como_paso_sin_recolocar(page, server, api, celdas):
     assert page.locator(".il-children .sortable-placeholder").count() == 0
     with page.expect_response(lambda r: "/move" in r.url):
         page.mouse.up()
-    page.wait_for_function("(id) => !!document.querySelector(`.il-children [data-id=\"${id}\"]`)", arg=celdas[3])
+    page.wait_for_function('(id) => !!document.querySelector(`.il-children [data-id="${id}"]`)', arg=celdas[3])
     assert next(i for i in api.get("/api/items").json()["items"] if i["id"] == celdas[3])["parent_id"] == celdas[0]
     api.post(f"/api/items/{celdas[3]}/move", json={"target": "inbox"})
 
@@ -452,7 +490,7 @@ def test_una_subtarea_entra_en_cualquier_parte_de_otra_tarjeta(page, server, api
     page.locator(".il-list > .il-item.sortable-nest").wait_for()
     with page.expect_response(lambda r: "/move" in r.url):
         page.mouse.up()
-    page.wait_for_function("(id) => !!document.querySelector(`.il-children [data-id=\"${id}\"]`)", arg=paso)
+    page.wait_for_function('(id) => !!document.querySelector(`.il-children [data-id="${id}"]`)', arg=paso)
     assert next(i for i in api.get("/api/items").json()["items"] if i["id"] == paso)["parent_id"] == celdas[2]
     api.post(f"/api/items/{paso}/move", json={"parent_id": celdas[0]})
 
@@ -517,7 +555,9 @@ def test_el_editor_es_compacto_y_guarda_todo(page, server, api, celdas):
     form = page.locator(f'.il-editor[data-edit="{item}"]')
     form.wait_for()
     assert form.bounding_box()["height"] < 190  # antes, 280 largos
-    tops = form.locator(".il-ed").evaluate_all("(l) => new Set(l.map((e) => Math.round(e.getBoundingClientRect().top))).size")
+    tops = form.locator(".il-ed").evaluate_all(
+        "(l) => new Set(l.map((e) => Math.round(e.getBoundingClientRect().top))).size"
+    )
     assert tops <= 2
     form.locator("[name=category]").fill("Compacta")
     form.locator("[name=priority]").select_option(index=1)
@@ -528,5 +568,11 @@ def test_el_editor_es_compacto_y_guarda_todo(page, server, api, celdas):
     with page.expect_response(lambda r: f"/api/items/{item}" in r.url and r.request.method == "PATCH"):
         form.locator("[type=submit]").click()
     it = next(i for i in api.get("/api/items").json()["items"] if i["id"] == item)
-    assert (it["category"], it["due_date"], it["due_time"], it["duration_min"], it["details"]) == ("Compacta", "2030-05-06", "10:30", 45, "Una nota")
+    assert (it["category"], it["due_date"], it["due_time"], it["duration_min"], it["details"]) == (
+        "Compacta",
+        "2030-05-06",
+        "10:30",
+        45,
+        "Una nota",
+    )
     assert it["priority"]

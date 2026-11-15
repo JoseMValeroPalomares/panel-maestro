@@ -1,10 +1,13 @@
 """CSP sin JS en línea: el panel no tiene manejadores on…= ni <script> en línea; las simulaciones van en /sim."""
+
 import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 FUENTES = ["templates/*.html", "static/*.html", "static/js/*.js", "comidas/static/js/*.js", "estudio/static/*.js"]
-EN_LINEA = re.compile(r"""\son(click|change|input|submit|keydown|keyup|load|error|focus|blur|mouse\w+|pointer\w+)\s*=\s*["']""", re.I)
+EN_LINEA = re.compile(
+    r"""\son(click|change|input|submit|keydown|keyup|load|error|focus|blur|mouse\w+|pointer\w+)\s*=\s*["']""", re.I
+)
 
 
 def _directivas(csp: str) -> dict[str, str]:
@@ -25,12 +28,15 @@ def test_sin_manejadores_ni_scripts_en_linea():
             hit = EN_LINEA.search(texto)
             assert not hit, f"{f.relative_to(ROOT)}: manejador en línea «{hit.group(0).strip()}» (usa data-call)"
             if f.suffix == ".html":
-                assert not re.search(r"<script(?![^>]*\bsrc=)[^>]*>", texto), f"{f.relative_to(ROOT)}: <script> en línea"
+                assert not re.search(r"<script(?![^>]*\bsrc=)[^>]*>", texto), (
+                    f"{f.relative_to(ROOT)}: <script> en línea"
+                )
 
 
 def test_data_call_apunta_a_nombres_validos():
     """data-call="nombre;Objeto.metodo" con data-args en JSON: lo interpreta ui.js:runCall."""
     import json
+
     for f in (ROOT / "templates").glob("*.html"):
         texto = f.read_text(encoding="utf-8")
         for m in re.finditer(r"""data-call="([^"]+)"(?: data-args='([^']*)')?""", texto):
@@ -45,7 +51,25 @@ def test_sim_es_publico_aislado_y_con_su_csp(anon):
     r = anon.get("/sim")
     assert r.status_code == 200 and "sim-ready" in r.text
     d = _directivas(r.headers["content-security-policy"])
-    assert d["sandbox"] == "sandbox allow-scripts"          # sin allow-same-origin: origen opaco
-    assert d["connect-src"] == "connect-src 'none'"         # el código de una nota no puede llamar a la API
+    assert d["sandbox"] == "sandbox allow-scripts"  # sin allow-same-origin: origen opaco
+    assert d["connect-src"] == "connect-src 'none'"  # el código de una nota no puede llamar a la API
     assert d["frame-ancestors"] == "frame-ancestors 'self'"
     assert "'self'" not in d["script-src"]
+
+
+def test_markdown_solo_por_render_markdown():
+    """S-2: el Markdown del usuario se sanea en un único sitio (ui.js:renderMarkdown) sin data-* ni style;
+    un DOMPurify.sanitize suelto con otras opciones dejaría pasar data-call y dispararía acciones del panel."""
+    ui = (ROOT / "static/js/ui.js").read_text(encoding="utf-8")
+    assert "FORBID_ATTR: ['style'], ALLOW_DATA_ATTR: false" in ui
+    for pat in ("static/js/*.js", "comidas/static/js/*.js", "estudio/static/*.js"):
+        for f in ROOT.glob(pat):
+            if f.name == "ui.js":
+                continue
+            texto = f.read_text(encoding="utf-8")
+            assert "DOMPurify.sanitize" not in texto, (
+                f"{f.relative_to(ROOT)}: usa renderMarkdown()/sanitizeHtml() de ui.js"
+            )
+            assert not re.search(r"marked\.parse(Inline)?\(", texto), (
+                f"{f.relative_to(ROOT)}: usa renderMarkdown() de ui.js"
+            )

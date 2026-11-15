@@ -36,6 +36,7 @@ from icalendar import Event as IEvent
 # CONFIGURACION - se lee de .env (ver .env.example), nunca en el codigo
 # =====================================================================
 from core import config as _config
+from core.files import atomic_write
 from core.logging_config import get_logger
 
 from .esp32_link import LINK
@@ -61,6 +62,7 @@ EMPTY_ESP32_SAFETY_THRESHOLD = 3
 
 TYPE_TO_CATEGORY = {"examen": "EXAMEN", "entrega": "ENTREGA", "evento": "EVENTO"}
 CATEGORY_TO_TYPE = {v: k for k, v in TYPE_TO_CATEGORY.items()}
+
 
 # =====================================================================
 # UTILIDADES CALDAV (bloqueantes: se ejecutan en un hilo aparte)
@@ -127,7 +129,7 @@ def _build_ics(uid, date_str, title, etype):
     ev.add("dtstart", day)
     ev.add("dtend", day + datetime.timedelta(days=1))
     ev.add("categories", [TYPE_TO_CATEGORY.get(etype, "EVENTO")])
-    ev.add("dtstamp", datetime.datetime.now(datetime.timezone.utc))
+    ev.add("dtstamp", datetime.datetime.now(datetime.UTC))
     cal.add_component(ev)
     return cal.to_ical().decode("utf-8")
 
@@ -167,6 +169,7 @@ def _generate_uid():
     rand = "".join(random.choices(string.ascii_lowercase + string.digits, k=12))
     return f"{int(datetime.datetime.now().timestamp())}-{rand}@panel-estudio"
 
+
 # =====================================================================
 # ESTADO LOCAL
 # =====================================================================
@@ -180,7 +183,8 @@ def _load_state():
 
 
 def _save_state(state):
-    STATE_FILE.write_text(json.dumps(state, indent=2, ensure_ascii=False))
+    atomic_write(STATE_FILE, json.dumps(state, indent=2, ensure_ascii=False))
+
 
 # =====================================================================
 # FUSION DE TRES VIAS
@@ -267,6 +271,7 @@ def _merge(icloud_events, esp32_events, last_state):
 
     return merged, icloud_upserts, icloud_deletes
 
+
 # =====================================================================
 # PUENTE PRINCIPAL
 # =====================================================================
@@ -274,6 +279,18 @@ class IcloudSyncBridge:
     def __init__(self, session: aiohttp.ClientSession, esp32_ws_url: str):
         self.session = session
         self.esp32_ws_url = esp32_ws_url
+        self._esp_problem = None  # último fallo avisado al leer el calendario del ESP32 (V-4)
+
+    def _esp_report(self, kind: str | None, message: str = "") -> None:
+        """Avisa en el log solo al cambiar de estado, como estudio/esp32_link.py: antes cada ciclo con la placa apagada
+        o muda escribía el mismo aviso (cientos al día). `kind` agrupa los fallos del mismo tipo aunque cambie el detalle."""
+        if kind == self._esp_problem:
+            return
+        if kind is None:
+            log.info("El ESP32 vuelve a mandar su calendario")
+        else:
+            log.warning(message)
+        self._esp_problem = kind
 
     async def run_forever(self):
         if not ICLOUD_USERNAME or not ICLOUD_APP_PASSWORD:
@@ -301,14 +318,19 @@ class IcloudSyncBridge:
                         data = json.loads(msg.data)
                         if data.get("type") == "calendar_list":
                             LINK.seen()
+                            if self._esp_problem is not None:
+                                self._esp_report(None)
                             return _events_from_esp32(data.get("events", []))
-                log.warning(f"El ESP32 cerró la conexión sin mandar el calendario (código {ws.close_code})")
+                self._esp_report(
+                    "cerrada", f"El ESP32 cerró la conexión sin mandar el calendario (código {ws.close_code})"
+                )
         except TimeoutError:
-            log.warning(f"El ESP32 no mandó el calendario en {CALENDAR_REPLY_TIMEOUT_SEC} s")
+            self._esp_report("plazo", f"El ESP32 no mandó el calendario en {CALENDAR_REPLY_TIMEOUT_SEC} s")
         except aiohttp.ClientConnectionError as e:
-            LINK.failed(e)
+            LINK.failed(e)  # sin conexión: los avisos los da LINK, también solo al cambiar de estado
+            self._esp_problem = "conexion"
         except Exception as e:
-            log.warning(f"No se pudo leer el calendario del ESP32: {e!r}")
+            self._esp_report(f"error:{type(e).__name__}", f"No se pudo leer el calendario del ESP32: {e!r}")
         return None
 
     async def _push_to_esp32(self, merged_events):
@@ -340,8 +362,7 @@ class IcloudSyncBridge:
             await asyncio.sleep(2)
             esp32_events = await self._get_esp32_events()
         if esp32_events is None:
-            if LINK.state != "offline":
-                log.info("ESP32 no disponible ahora mismo, se reintentara en el siguiente ciclo")
+            # sin aviso propio: ya lo dio _get_esp32_events (o LINK) al cambiar de estado
             return
         log.info(f"ESP32: {len(esp32_events)} eventos")
 

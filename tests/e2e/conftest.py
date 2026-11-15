@@ -5,15 +5,16 @@ con datos temporales, y lo manejan con Chromium. Nunca tocan los datos reales.
 Navegador: el de PLAYWRIGHT_CHROMIUM o el de la caché ~/.cache/ms-playwright.
 Si no hay ninguno, los tests se saltan (no fallan).
 """
+
 import glob
 import os
-from functools import partial
 import shutil
 import socket
 import subprocess
 import sys
 import tempfile
 import time
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -52,7 +53,8 @@ def dotfiles_env(tmp_path_factory):
     tracked.parent.mkdir(parents=True)
     (repo / "scripts").mkdir()
     (repo / "scripts" / "check-secrets.sh").write_text(
-        "out=$(grep -rIn 'ghp_' stow || true)\nif [ -n \"$out\" ]; then echo \"$out\" | sed 's/^/  ! /'; exit 1; fi\n")
+        "out=$(grep -rIn 'ghp_' stow || true)\nif [ -n \"$out\" ]; then echo \"$out\" | sed 's/^/  ! /'; exit 1; fi\n"
+    )
     live.write_text("uno\ndos\ntres\n")
     tracked.write_text("uno\ndos\ntres\n")
     subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True)
@@ -63,7 +65,9 @@ def dotfiles_env(tmp_path_factory):
     _git(repo, "commit", "-qm", "copia inicial")
     _git(repo, "remote", "add", "origin", str(remote))
     _git(repo, "push", "-q", "-u", "origin", "main")
-    base = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+    base = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True, check=True
+    ).stdout.strip()
     return {"home": home, "repo": repo, "remote": remote, "live": live, "base": base}
 
 
@@ -102,10 +106,31 @@ def _proveedor_ia_falso(tmp: Path) -> dict:
         def do_POST(self):
             body = json.loads(self.rfile.read(int(self.headers["content-length"])))
             partes = body["messages"][-1]["content"].split("=== NOTA ===\n", 1)
-            nota = partes[1] if len(partes) == 2 else "ok"      # la prueba de Ajustes no lleva nota
-            for a, b in (("tension", "tensión"), ("Tension", "Tensión"), ("capitulo", "capítulo"), ("Simbolo", "Símbolo")):
+            nota = partes[1] if len(partes) == 2 else "ok"  # la prueba de Ajustes no lleva nota
+            if "prepara flashcards de repaso" in body["messages"][0]["content"]:  # «Proponer flashcards» (F-4): JSON
+                frases = [
+                    l.strip().rstrip(".")
+                    for l in nota.splitlines()
+                    if len(l.split()) >= 4 and not l.lstrip().startswith(("#", "|", "-", "```")) and ">>" not in l
+                ]
+                tarjetas = [
+                    {"pregunta": f"¿Qué dice la nota sobre «{f.split()[1]}»?", "respuesta": f} for f in frases[:3]
+                ]
+                tarjetas.append({"pregunta": "¿Qué libera la placa motora?", "respuesta": "Acetilcolina"})  # inventada
+                nota = json.dumps({"tarjetas": tarjetas}, ensure_ascii=False)
+            for a, b in (
+                ("tension", "tensión"),
+                ("Tension", "Tensión"),
+                ("capitulo", "capítulo"),
+                ("Simbolo", "Símbolo"),
+            ):
                 nota = nota.replace(a, b)
-            data = json.dumps({"choices": [{"message": {"content": nota}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 50, "completion_tokens": 50}}).encode()
+            data = json.dumps(
+                {
+                    "choices": [{"message": {"content": nota}, "finish_reason": "stop"}],
+                    "usage": {"prompt_tokens": 50, "completion_tokens": 50},
+                }
+            ).encode()
             self.send_response(200)
             self.send_header("content-type", "application/json")
             self.send_header("content-length", str(len(data)))
@@ -116,8 +141,24 @@ def _proveedor_ia_falso(tmp: Path) -> dict:
     srv = HTTPServer(("127.0.0.1", port), H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     f = tmp / "modelos-e2e.json"
-    f.write_text(json.dumps({"max_intentos_total": 4, "reintentos_por_modelo": 1, "modelos": [
-        {"id": "e2e-falso", "proveedor": "Proveedor simulado", "base_url": f"http://127.0.0.1:{port}/v1", "modelo": "modelo-falso", "clave_env": "E2E_IA_KEY", "timeout_s": 10}]}))
+    f.write_text(
+        json.dumps(
+            {
+                "max_intentos_total": 4,
+                "reintentos_por_modelo": 1,
+                "modelos": [
+                    {
+                        "id": "e2e-falso",
+                        "proveedor": "Proveedor simulado",
+                        "base_url": f"http://127.0.0.1:{port}/v1",
+                        "modelo": "modelo-falso",
+                        "clave_env": "E2E_IA_KEY",
+                        "timeout_s": 10,
+                    }
+                ],
+            }
+        )
+    )
     return {"PANEL_LLM_MODELS": str(f), "E2E_IA_KEY": "x", "_srv": srv}
 
 
@@ -129,21 +170,40 @@ def server(dotfiles_env, proyecto_env):
     (tmp / "data" / "notes").mkdir(parents=True)
     (tmp / "data" / "notes" / "plan-e2e.md").write_text(
         "---\ncategory: E2E\nstatus: por-escribir\ntitle: Plan E2E\n---\n\n# Plan\n\n- [ ] Tarea de nota uno\n- [ ] Tarea de nota dos\n",
-        encoding="utf-8")
+        encoding="utf-8",
+    )
     port = _free_port()
-    env = {**os.environ, "PANEL_DATA_DIR": str(tmp / "data"), "PANEL_NOTES_DIR": str(tmp / "data" / "notes"),
-           "PANEL_BRAIN_DB": str(tmp / "data" / "brain.db"), "PANEL_COMIDAS_DB": str(tmp / "comidas.db"),
-           "PANEL_UPLOADS_DIR": str(tmp / "uploads"), "PANEL_BACKUPS_DIR": str(tmp / "backups"),
-           "PANEL_LOGS_DIR": str(tmp / "logs"), "PANEL_TRASH_DIR": str(tmp / "data" / "trash"),
-           "PANEL_DOTFILES_DIR": str(dotfiles_env["repo"]), "PANEL_DOTFILES_HOME": str(dotfiles_env["home"]),
-           "PANEL_DOTFILES_BASE": dotfiles_env["base"], "PANEL_PROJECT_DIR": str(proyecto_env["repo"]),
-           "PANEL_AUTH_DISABLED": "1", "PANEL_DISABLE_BRIDGES": "1", "PANEL_DISABLE_SCHEDULER": "1",
-           "PANEL_LOG_LEVEL": "WARNING",
-           # ESP32 «apagado»: una dirección de documentación (TEST-NET-1) que nunca responde, como la placa sin
-           # corriente; la del .env depende de la red (si otro equipo ocupa esa IP, contesta y el test cambia)
-           "ESP32_HOST": "192.0.2.1", **ia}
-    proc = subprocess.Popen([sys.executable, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", str(port)],
-                            cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    env = {
+        **os.environ,
+        "PANEL_ENV_FILE": str(tmp / ".env"),
+        "PANEL_DATA_DIR": str(tmp / "data"),
+        "PANEL_NOTES_DIR": str(tmp / "data" / "notes"),
+        "PANEL_BRAIN_DB": str(tmp / "data" / "brain.db"),
+        "PANEL_COMIDAS_DB": str(tmp / "comidas.db"),
+        "PANEL_UPLOADS_DIR": str(tmp / "uploads"),
+        "PANEL_BACKUPS_DIR": str(tmp / "backups"),
+        "PANEL_LOGS_DIR": str(tmp / "logs"),
+        "PANEL_TRASH_DIR": str(tmp / "data" / "trash"),
+        "PANEL_DOTFILES_DIR": str(dotfiles_env["repo"]),
+        "PANEL_DOTFILES_HOME": str(dotfiles_env["home"]),
+        "PANEL_DOTFILES_BASE": dotfiles_env["base"],
+        "PANEL_PROJECT_DIR": str(proyecto_env["repo"]),
+        "PANEL_AUTH_DISABLED": "1",
+        "PANEL_DISABLE_BRIDGES": "1",
+        "PANEL_DISABLE_SCHEDULER": "1",
+        "PANEL_LOG_LEVEL": "WARNING",
+        # ESP32 «apagado»: una dirección de documentación (TEST-NET-1) que nunca responde, como la placa sin
+        # corriente; la del .env depende de la red (si otro equipo ocupa esa IP, contesta y el test cambia)
+        "ESP32_HOST": "192.0.2.1",
+        **ia,
+    }
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", str(port)],
+        cwd=ROOT,
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+    )
     base = f"http://127.0.0.1:{port}"
     for _ in range(100):
         try:
@@ -167,6 +227,7 @@ def browser():
     if not exe:
         pytest.skip("No hay Chromium para Playwright (define PLAYWRIGHT_CHROMIUM)")
     from playwright.sync_api import sync_playwright
+
     with sync_playwright() as p:
         b = p.chromium.launch(executable_path=exe, headless=True)
         yield b
@@ -174,7 +235,20 @@ def browser():
 
 
 @pytest.fixture()
-def context(browser):
+def context(browser, server):
+    # vistas que se recuerdan en el servidor: cada test (use «page» o solo «context») empieza con las de por defecto
+    import httpx
+
+    for key, value in (
+        ("inbox-pane", "lista"),
+        ("inbox-type", "all"),
+        ("tareas-filters", None),
+        ("tareas-view", None),
+        ("tareas-sizes", None),
+        ("nav-folded", None),
+        ("calendar-hour-size", None),
+    ):
+        httpx.put(f"{server}/api/prefs/{key}", json={"value": value}, timeout=10)
     ctx = browser.new_context(viewport={"width": 1280, "height": 900}, service_workers="block")
     ctx.on("page", lambda pg: setattr(pg, "wait_for_function", partial(wait_js, pg)))
     yield ctx
@@ -183,10 +257,6 @@ def context(browser):
 
 @pytest.fixture()
 def page(context, server):
-    # vistas que se recuerdan en el servidor: cada test empieza con las de por defecto
-    import httpx
-    for key, value in (("inbox-pane", "lista"), ("inbox-type", "all"), ("tareas-filters", None), ("tareas-view", None), ("tareas-sizes", None), ("nav-folded", None), ("calendar-hour-size", None)):
-        httpx.put(f"{server}/api/prefs/{key}", json={"value": value}, timeout=10)
     pg = context.new_page()
     errors = []
     # Lo que anota el navegador sin que sea un fallo de la app:
@@ -195,8 +265,11 @@ def page(context, server):
     # - la transición entre páginas (@view-transition en ds.css) que Chrome aborta cuando el test navega otra vez
     #   antes de que la página se muestre («Transition was aborted… Page already revealed»);
     # - el 409 de un bloque de rutina que choca con otro: es una respuesta esperada, y la app la enseña en un aviso.
-    benign = ("WebSocket connection to 'ws://192.0.2.1/", "Transition was aborted because of invalid state",
-              "Failed to load resource: the server responded with a status of 409")
+    benign = (
+        "WebSocket connection to 'ws://192.0.2.1/",
+        "Transition was aborted because of invalid state",
+        "Failed to load resource: the server responded with a status of 409",
+    )
     pg.on("pageerror", lambda e: not str(e).startswith(benign) and errors.append(str(e)))
     pg.on("console", lambda m: m.type == "error" and not m.text.startswith(benign) and errors.append(m.text))
     yield pg
@@ -207,5 +280,6 @@ def page(context, server):
 def api(server):
     """Cliente HTTP mínimo contra el servidor de pruebas."""
     import httpx
+
     with httpx.Client(base_url=server, timeout=10) as c:
         yield c

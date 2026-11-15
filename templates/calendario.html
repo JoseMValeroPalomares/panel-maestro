@@ -14,6 +14,7 @@
 <p class="hoy-sub small muted cal-quick-hint" id="calQuickHint" aria-live="polite" hidden></p>
 <div class="cal-page">
   <aside class="cal-side" aria-label="Crear, navegar y programar">
+    <div class="ctx-bar" data-ctx-switch data-ctx-compact></div>
     <section class="panel hoy-card" aria-labelledby="calMiniH"><div class="panel-header"><h2 id="calMiniH">{{ icon('calendar', 'icon-sm') }}Ir a un día</h2></div>
       <div class="panel-body cal-mini" id="calMini"></div></section>
     <section class="panel hoy-card" aria-labelledby="calRutH"><div class="panel-header"><h2 id="calRutH">{{ icon('repeat', 'icon-sm') }}Rutinas de hoy</h2><span class="grow"></span><span class="tiny muted tabular" id="calRutCount"></span></div>
@@ -27,7 +28,7 @@
       <div class="panel-body">
         <ul class="cal-legend cal">
           <li data-kind="event" data-type="evento">Evento</li><li data-kind="event" data-type="examen">Examen</li>
-          <li data-kind="event" data-type="entrega">Entrega</li><li data-kind="task" data-type="tarea">Tarea o bloque</li>
+          <li data-kind="event" data-type="entrega">Entrega</li><li data-kind="event" data-type="clase">Clase</li><li data-kind="task" data-type="tarea">Tarea o bloque</li>
           <li data-kind="task" data-type="idea">Idea</li><li data-kind="routine" data-type="rutina">Rutina</li>
         </ul>
       </div></section>

@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Gancho pre-commit (C-2): lint + formato + unitarios antes de cada commit (~30 s).
+#   Instalar:  scripts/instalar_ganchos.sh
+#   Saltarlo:  git commit --no-verify        Solo lint, sin tests:  PANEL_HOOK_RAPIDO=1 git commit …
+# Comprueba el árbol de trabajo, no solo lo añadido con git add: si dejas cambios sin añadir, cuentan.
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+PY=venv/bin/python
+[[ -x $PY ]] || { echo "pre-commit: falta venv/ (./install.sh y pip install -r requirements-dev.txt)" >&2; exit 1; }
+fail() { echo -e "\033[1;31mpre-commit: $1\033[0m (git commit --no-verify para saltarlo)" >&2; exit 1; }
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+if grep -qE '\.py$' <<<"$staged"; then
+    $PY -m ruff check -q . || fail "ruff check ha encontrado errores (ruff check --fix . arregla los automáticos)"
+    $PY -m ruff format --check -q . || fail "falta formatear: venv/bin/ruff format ."
+    $PY -m mypy >/dev/null || { $PY -m mypy | tail -5; fail "mypy en core/"; }
+fi
+if grep -qE '\.(js|mjs)$' <<<"$staged" && [[ -x node_modules/.bin/eslint ]]; then
+    node_modules/.bin/eslint . || fail "eslint ha encontrado errores"
+fi
+if [[ -z ${PANEL_HOOK_RAPIDO:-} ]] && grep -qE '\.(py|js|html|css|ini|toml|txt)$' <<<"$staged"; then
+    log=$(mktemp)
+    trap 'rm -f "$log"' EXIT
+    $PY -m pytest --ignore=tests/e2e -x -q -p no:cacheprovider >"$log" 2>&1 || { tail -30 "$log"; fail "los unitarios fallan"; }
+fi

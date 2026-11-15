@@ -41,3 +41,11 @@ esp32_deskclock/tools/__pycache__/
 # Capturas de verificación (muestran datos personales)
 docs/capturas/
 estudio/calendar_sync_v2.json
+
+# Calidad (C-1, T-1): cachés de lint/tipos e informes de cobertura
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml

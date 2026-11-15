@@ -28,7 +28,7 @@
 
 <div class="msg" id="setup" data-type="warn" hidden>
   <svg class="icon"><use href="icons.svg#i-key-round"/></svg>
-  <div>Falta conectar la extensión con tu Panel. <button type="button" class="link" id="setupBtn">Configurar</button></div>
+  <div><span id="setupText">Falta conectar la extensión con tu Panel.</span> <button type="button" class="link" id="setupBtn">Configurar</button></div>
 </div>
 
 <form class="pane" id="panel-inbox" role="tabpanel" aria-labelledby="tab-inbox" hidden novalidate>
@@ -67,6 +67,10 @@
     <datalist id="inboxCats"></datalist>
     <div class="chips" id="inboxChips" role="group" aria-label="Categorías recientes" hidden></div>
   </div>
+  <div class="field">
+    <label class="label" for="whereInbox">Dónde va</label>
+    <select class="input" id="whereInbox" data-where><option value="puntual">Puntual</option></select>
+  </div>
   <div class="actions"><span class="hint"><kbd>Ctrl</kbd> + <kbd>Intro</kbd></span><button type="submit" class="btn btn-primary" id="saveInbox"><svg class="icon"><use href="icons.svg#i-send"/></svg>Enviar al Inbox</button></div>
 </form>
 
@@ -98,6 +102,10 @@
     <svg class="icon" aria-hidden="true"><use href="icons.svg#i-circle-check"/></svg>
     <span class="yt-text" id="ytText"></span>
     <button type="button" class="btn btn-sm" id="ytAdd" hidden>Añadir canal</button>
+  </div>
+  <div class="field">
+    <label class="label" for="whereVault">Dónde va</label>
+    <select class="input" id="whereVault" data-where><option value="puntual">Puntual</option></select>
   </div>
   <div class="actions"><span class="hint"><kbd>Ctrl</kbd> + <kbd>Intro</kbd></span><button type="submit" class="btn btn-primary" id="saveVault"><svg class="icon"><use href="icons.svg#i-library"/></svg>Guardar en el Baúl</button></div>
 </form>

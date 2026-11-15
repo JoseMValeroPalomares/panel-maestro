@@ -1,6 +1,6 @@
 /* ==========================================================================
    ui.js — piezas comunes de interfaz (script clásico, sin módulos)
-   Expone: icon, escapeHtml, api, parseTime, copyText, toast, openModal, closeModal, uiConfirm,
+   Expone: icon, escapeHtml, renderMarkdown, sanitizeHtml, api, parseTime, copyText, toast, openModal, closeModal, uiConfirm,
    uiPrompt, openMenu, skeletonRows, emptyState, stateView, showState, openCapture, timeAgo, CATEGORY_COLORS
    Tooltips: cualquier elemento con data-tip (y los botones de solo icono con title) muestra un globo al pasar
    el ratón o con el foco del teclado.
@@ -12,6 +12,23 @@
   function escapeHtml(str) {
     return String(str ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  /* ---------- Markdown saneado (S-2): la única forma de pintar Markdown escrito por el usuario ----------
+     Sin atributos data-* ni style: el despachador data-call (runCall) ejecuta funciones desde atributos, así que el
+     contenido de una nota, una tarea o una bitácora no puede disparar acciones del panel. Lo que el panel añade
+     (wikilinks, simulaciones) se inserta después de sanear. Requiere marked y DOMPurify cargados por la página. */
+  const PURIFY = { USE_PROFILES: { html: true }, FORBID_ATTR: ['style'], ALLOW_DATA_ATTR: false };
+  function sanitizeHtml(html) {
+    return window.DOMPurify ? window.DOMPurify.sanitize(html, PURIFY) : escapeHtml(html);
+  }
+  function renderMarkdown(text, { inline = false, breaks = true } = {}) {
+    const src = String(text ?? '');
+    if (!window.marked || !window.DOMPurify) {
+      return inline ? escapeHtml(src) : `<p>${escapeHtml(src).replace(/\n/g, '<br>')}</p>`;
+    }
+    const opts = { breaks, gfm: true };
+    return sanitizeHtml(inline ? window.marked.parseInline(src, opts) : window.marked.parse(src, opts));
   }
 
   // Sprite con su versión (ver core/templating.asset): así nunca se mezcla con uno viejo en caché
@@ -37,6 +54,7 @@
 
   /* ---------- API ---------- */
   async function api(url, { method = 'GET', body, headers = {}, quiet = false, raw = false } = {}) {
+    if (method !== 'GET') api.writes++;  // ver Calendar (peticiones compartidas, V-2)
     const opts = { method, headers: { ...headers } };
     if (body instanceof FormData) opts.body = body;
     else if (body !== undefined) { opts.body = JSON.stringify(body); opts.headers['Content-Type'] = 'application/json'; }
@@ -51,7 +69,7 @@
     let data = null;
     const text = await res.text();
     try { data = text ? JSON.parse(text) : null; } catch { data = text; }
-    if (res.ok && method !== 'GET') publishChange(url, method);
+    if (res.ok && method !== 'GET' && !body?.dry_run) publishChange(url, method);  // una vista previa no cambia nada
     if (!res.ok) {
       const msg = (data && (data.error || (typeof data.detail === 'string' && data.detail))) || `Error ${res.status}`;
       if (!quiet && res.status !== 401) toast(msg, { type: 'error' });
@@ -59,18 +77,22 @@
       throw error;
     }
     return data;
-  }
+  }  api.writes = 0;
+
 
   /* ---------- Sincronía entre pestañas ----------
      Cada escritura que pasa por api() se anuncia en un BroadcastChannel; las otras
      pestañas del panel (Inbox, Tareas, Notas…) se enteran al instante, y al volver
      el foco a una pestaña se recarga por si algo cambió fuera (otro dispositivo). */
   const channel = 'BroadcastChannel' in window ? new BroadcastChannel('panel-datos') : null;
-  const SYNC_PATHS = /^\/(api\/(items|inbox|notes|bulk\/notes|resources|prefs)|comidas\/api)/;
+  const SYNC_PATHS = /^\/(api\/(items|inbox|notes|bulk\/notes|resources|prefs|contador)|comidas\/api)/;
   let lastLocalChange = 0;
+  // Altas que crean tareas, ideas o rutinas por otra puerta: para las demás pestañas es un cambio en /api/items
+  const AS_ITEMS = /^\/api\/(capture|routines\/rapida|routines\/\d+\/pasos|routine-templates\/apply)$/;
   function publishChange(url, method) {
-    const path = new URL(url, location.href).pathname;
-    if (!SYNC_PATHS.test(path) || path.endsWith('/reviewed')) return;
+    let path = new URL(url, location.href).pathname;
+    if (AS_ITEMS.test(path)) path = '/api/items';
+    if (!SYNC_PATHS.test(path) || path.endsWith('/reviewed') || path.endsWith('/latido')) return;
     lastLocalChange = Date.now();
     channel?.postMessage({ path, method, at: lastLocalChange });
   }
@@ -159,9 +181,38 @@
       el.appendChild(btn);
       duration = Math.max(duration, 6000);
     }
-    toastRegion.appendChild(el);
+    // Con un diálogo modal abierto lo de fuera es inerte y queda bajo el fondo: el aviso (y su «Deshacer») va dentro
+    const modal = [...document.querySelectorAll('dialog[open]')].pop();
+    let region = toastRegion;
+    if (modal) {
+      region = modal.querySelector(':scope > .toast-region');
+      if (!region) {
+        region = document.createElement('div');
+        region.className = 'toast-region';
+        region.setAttribute('role', 'status');
+        region.setAttribute('aria-live', 'polite');
+        modal.appendChild(region);
+        // si el diálogo se cierra con el aviso aún visible (copiar y cerrar, guardar y cerrar…), el aviso sigue fuera
+        modal.addEventListener('close', () => { toastRegion.append(...region.children); region.remove(); }, { once: true });
+      }
+    }
+    region.appendChild(el);
     timer = setTimeout(dismiss, duration);
     return dismiss;
+  }
+
+  /* Aviso de un borrado que fue a la papelera: «Deshacer» lo restaura (POST /api/trash/{db}/{token}/restore) y
+     llama a `after` para repintar. `res` es la respuesta del DELETE ({ undo_token, undo_db }). */
+  function undoToast(message, res, after) {
+    const token = res && res.undo_token;
+    return toast(message, { action: token ? { label: 'Deshacer', onClick: async () => {
+      try {
+        const r = await api(`/api/trash/${res.undo_db || 'brain'}/${encodeURIComponent(token)}/restore`, { method: 'POST' });
+        if (r && r.restored === 0) toast('No se pudo deshacer: ya existe algo igual', { type: 'info' });
+        else toast('Restaurado');
+      } catch { return; }
+      if (after) await after();
+    } } : null });
   }
 
   /* ---------- Modal único (dialog nativo) ----------
@@ -212,7 +263,14 @@
       closeHandlers.delete(dlg);
       if (handler) handler(dlg.returnValue);
       const opener = openers.get(dlg);
-      if (opener && document.contains(opener) && typeof opener.focus === 'function') opener.focus({ preventScroll: true });
+      if (opener && document.contains(opener) && typeof opener.focus === 'function') {
+        opener.focus({ preventScroll: true });
+        // Si el diálogo se quitó del documento con el cursor dentro, la selección se queda allí y lo que se escribe
+        // en el campo que recupera el foco no entra (p. ej. la línea rápida del calendario tras «Más opciones»)
+        if (/^(INPUT|TEXTAREA)$/.test(opener.tagName)) {
+          try { const n = opener.value.length; opener.setSelectionRange(n, n); } catch { /* tipos sin selección (date, number…) */ }
+        }
+      }
     });
     dlg.addEventListener('click', (e) => {
       const closer = e.target.closest('[data-close]');
@@ -387,7 +445,8 @@
       b.addEventListener('click', () => { closeMenu(); item.onClick?.(); });
       el.appendChild(b);
     });
-    document.body.appendChild(el);
+    // Dentro de un diálogo modal todo lo de fuera es inerte: el menú va dentro del diálogo de su botón
+    (anchor.closest('dialog[open]') || document.body).appendChild(el);
     const r = anchor.getBoundingClientRect();
     const mw = el.offsetWidth, mh = el.offsetHeight;
     let left = align === 'end' ? r.right - mw : r.left;
@@ -647,6 +706,8 @@
   function setTheme(name) {
     const root = document.documentElement;
     const apply = () => {
+      // La paleta propia sin CSS todavía (primera vez o en un navegador nuevo): se hace ahora con la guardada
+      if (name === 'propia' && window.TemaPropio && !document.getElementById('themePropia')?.textContent) TemaPropio.apply(TemaPropio.saved());
       root.setAttribute('data-theme', name);
       try { localStorage.setItem('theme', name); } catch {}
       syncTheme();
@@ -655,7 +716,10 @@
     // Fundido de colores (sin él, un salto brusco); nada si se pide reducir el movimiento
     if (!document.startViewTransition || window.matchMedia('(prefers-reduced-motion: reduce)').matches) { apply(); return; }
     root.classList.add('theme-switching');
-    document.startViewTransition(apply).finished.finally(() => root.classList.remove('theme-switching'));
+    // Cambiar de tema muy seguido (flechas en el selector) salta la transición anterior: no es un error
+    const vt = document.startViewTransition(apply);
+    vt.ready.catch(() => {});
+    vt.finished.catch(() => {}).finally(() => root.classList.remove('theme-switching'));
   }
   function syncTheme() {
     const current = document.documentElement.getAttribute('data-theme') || 'mocha';
@@ -833,7 +897,8 @@
     cachePrefs();
     if (JSON.stringify(prefs) !== before) document.dispatchEvent(new CustomEvent('prefs:changed'));
   }
-  const Prefs = { get: prefGet, set: prefSet, load: prefsLoad, get ready() { return prefsReady; } };
+  const prefsCached = Object.keys(prefs).length > 0;
+  const Prefs = { get: prefGet, set: prefSet, load: prefsLoad, cached: prefsCached, get ready() { return prefsReady; } };
   const prefsReady = prefsLoad();
   onDataChange(/^\/api\/prefs/, prefsLoad);
 
@@ -867,13 +932,57 @@
     if (days.length) return { freq: 'weekly', days };
     return current?.freq === 'interval' ? current : null;
   }
+  /* ---------- Franja bajo la cabecera (P-1, P-2) ----------
+     Un sitio común, en todas las páginas, para lo que tiene que verse siempre: el contador en marcha (timer.js) y el
+     aviso de tareas atrasadas (atrasadas.js). topSlot('nombre', orden) da (o crea) su hueco; la franja se oculta sola
+     cuando todos sus huecos están vacíos o con hidden. */
+  function topSlot(name, order = 0) {
+    let strip = document.getElementById('topStrip');
+    if (!strip) {
+      const main = document.getElementById('main');
+      if (!main) return null;
+      strip = document.createElement('div');
+      strip.id = 'topStrip';
+      strip.className = 'topstrip';
+      strip.hidden = true;
+      const header = main.querySelector(':scope > .page-header');
+      if (header) header.after(strip); else main.prepend(strip);
+      new MutationObserver(() => {
+        const empty = ![...strip.children].some((c) => !c.hidden && c.childElementCount);
+        if (strip.hidden !== empty) strip.hidden = empty;  // solo si cambia: si no, el observador se llamaría sin fin
+      }).observe(strip, { subtree: true, childList: true, attributes: true, attributeFilter: ['hidden'] });
+    }
+    let slot = strip.querySelector(`:scope > [data-slot="${name}"]`);
+    if (!slot) {
+      slot = document.createElement('div');
+      slot.dataset.slot = name;
+      slot.className = `topstrip-slot topstrip-${name}`;
+      slot.style.order = String(order);
+      strip.appendChild(slot);
+    }
+    return slot;
+  }
+
+  /* ---------- Sesiones (S-7): cerrar las de los demás dispositivos; esta sigue abierta con una cookie nueva ---------- */
+  async function closeAllSessions() {
+    const ok = await uiConfirm('¿Cerrar las demás sesiones?',
+      'Todos los navegadores donde hayas entrado (el móvil, otro ordenador) tendrán que volver a poner la contraseña. ' +
+      'Este sigue dentro. La extensión y los atajos del escritorio usan su propio token y no se ven afectados.',
+      { confirmLabel: 'Cerrar las demás', danger: true });
+    if (!ok) return;
+    try {
+      await api('/api/sesiones/cerrar-todas', { method: 'POST' });
+      toast('Sesiones cerradas en los demás dispositivos');
+    } catch { /* api() ya avisa del error */ }
+  }
+
   const everyNote = (rule, text) => (rule?.freq === 'interval' ? `Ahora: ${escapeHtml(text.toLowerCase())}. Marca días si prefieres días fijos.` : '');
 
   Object.assign(window, {
   dayPicker, readDays, repeatFromDays, everyNote,
     CATEGORY_COLORS, categoryIndex, categoryColor,
-    icon, escapeHtml, timeAgo, api, parseTime, copyText, toast, openModal, closeModal, uiConfirm, uiAlert, uiPrompt,
-    openMenu, closeMenu, skeletonRows, emptyState, stateView, showState, loadFailed, setTheme, openCapture, refreshInboxBadge, wireAllDialogs, onDataChange, Prefs, uiPick, fuzzyScore,
+    icon, escapeHtml, renderMarkdown, sanitizeHtml, timeAgo, api, parseTime, copyText, toast, undoToast, openModal, closeModal, uiConfirm, uiAlert, uiPrompt,
+    openMenu, closeMenu, closeAllSessions, topSlot, skeletonRows, emptyState, stateView, showState, loadFailed, setTheme, openCapture, refreshInboxBadge, wireAllDialogs, onDataChange, Prefs, uiPick, fuzzyScore,
   });
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

@@ -1,5 +1,6 @@
 """Puentes de Estudio con el ESP32: carátula, fragmento del repaso y fusión con iCloud.
 Sin red: todo lo que se prueba son funciones puras o un WebSocket simulado."""
+
 import asyncio
 import json
 import struct
@@ -89,13 +90,13 @@ def test_fusion_tres_vias():
         last_state={"a": EV, "b": EV, "d": EV, "e": EV},
     )
     assert merged == {"a": EV, "c": EV, "e": otro}  # d se borró en iCloud; e cambió allí
-    assert ups == {"c": EV}                          # c es nuevo en el ESP32
-    assert dels == ["b"]                             # b se borró en el ESP32
+    assert ups == {"c": EV}  # c es nuevo en el ESP32
+    assert dels == ["b"]  # b se borró en el ESP32
 
 
 def test_eventos_del_esp32_sin_uid_reciben_uno():
     evs = icloud_sync._events_from_esp32([{"uid": "", "date": "2026-11-02", "title": " Hola ", "type": "evento"}])
-    (uid, ev), = evs.items()
+    ((uid, ev),) = evs.items()
     assert uid.endswith("@panel-estudio") and ev["title"] == "Hola"
 
 
@@ -113,6 +114,7 @@ class _Msg:
 
 class _FakeWS:
     """WebSocket que responde con difusiones ajenas antes de la lista."""
+
     def __init__(self, messages):
         self.messages, self.sent = messages, []
 
@@ -143,11 +145,13 @@ class _FakeSession:
 
 
 def test_lectura_del_calendario_ignora_otras_difusiones():
-    ws = _FakeWS([
-        {"type": "pomodoro_state", "running": False},
-        {"type": "screen", "screen": 1},
-        {"type": "calendar_list", "events": [{"uid": "u1", **EV}]},
-    ])
+    ws = _FakeWS(
+        [
+            {"type": "pomodoro_state", "running": False},
+            {"type": "screen", "screen": 1},
+            {"type": "calendar_list", "events": [{"uid": "u1", **EV}]},
+        ]
+    )
     bridge = icloud_sync.IcloudSyncBridge(_FakeSession(ws), "ws://esp32/ws")
     events = _run(bridge._get_esp32_events())
     assert ws.sent == [{"type": "calendar_get"}]
@@ -169,11 +173,21 @@ def test_fragmento_sin_formulas_emojis_ni_rayas_sueltas():
 # ---------------------------------------------------------------- pantalla «Notas» del ESP32
 def _nota_db(note_id, **campos):
     from app.database import get_db
+
     with get_db() as conn:
         conn.execute("DELETE FROM notes WHERE id = ?", (note_id,))
-        cols = {"id": note_id, "title": note_id, "category": "Pruebas", "status": "consolidado",
-                "content": "", "encrypted": 0, **campos}
-        conn.execute(f"INSERT INTO notes ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})", list(cols.values()))
+        cols = {
+            "id": note_id,
+            "title": note_id,
+            "category": "Pruebas",
+            "status": "consolidado",
+            "content": "",
+            "encrypted": 0,
+            **campos,
+        }
+        conn.execute(
+            f"INSERT INTO notes ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})", list(cols.values())
+        )
 
 
 class _FakeEvent:
@@ -202,6 +216,7 @@ def test_borrado_fallido_no_resucita_el_evento(monkeypatch, tmp_path):
     def fetch(cal, objects=None):
         objects.update({"a": _FakeEvent(), "b": _FakeEvent(fails=True)})
         return {"a": EV, "b": EV}
+
     monkeypatch.setattr(icloud_sync, "_fetch_icloud_events", fetch)
 
     bridge = icloud_sync.IcloudSyncBridge(None, "ws://esp32/ws")
@@ -212,6 +227,7 @@ def test_borrado_fallido_no_resucita_el_evento(monkeypatch, tmp_path):
 
     async def push(merged):
         pushed.append(merged)
+
     bridge._get_esp32_events, bridge._push_to_esp32 = esp32_events, push
     _run(bridge._sync_once())
     assert pushed == [{"a": EV}]
@@ -228,7 +244,9 @@ def test_lista_de_notas_sin_cifradas_ni_indices(client):
     assert next(n for n in notas if n["id"] == "esp-visible")["category"] == "Física"
     claves = [(n["category"].casefold(), n["title"].casefold()) for n in notas]
     assert claves == sorted(claves)
-    assert all(len(n["id"].encode()) < 72 and len(n["title"].encode()) < 72 and len(n["category"].encode()) < 48 for n in notas)
+    assert all(
+        len(n["id"].encode()) < 72 and len(n["title"].encode()) < 72 and len(n["category"].encode()) < 48 for n in notas
+    )
 
 
 def test_texto_de_nota_limpio_y_recortado(client):
@@ -256,6 +274,7 @@ def test_el_puente_responde_a_las_peticiones_del_esp32(client):
             async def gen():
                 for m in ({"type": "notes_list_request"}, {"type": "note_request", "note_id": "esp-puente"}):
                     yield _Msg(m)
+
             return gen()
 
     ws = WS()

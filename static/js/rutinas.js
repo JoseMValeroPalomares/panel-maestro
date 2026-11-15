@@ -76,18 +76,34 @@
       return;
     }
 
+    // Cada clase va en la primera rutina cuyo horario la contiene; las demás, en su propia tarjeta
+    const owner = new Map();
+    (data.clases || []).forEach((c) => {
+      const r = data.rutinas.find((x) => {
+        const t = x.steps.filter((s) => s.at);
+        return t.length && t[0].at <= c.at && c.at < (t[t.length - 1].end || t[t.length - 1].at);
+      });
+      if (r) owner.set(c, r.id);
+    });
     const card = (r) => {
       const first = r.steps.find((s) => s.at), last = [...r.steps].reverse().find((s) => s.at);
       const range = first ? `${first.at}${last && (last.end || last.at) !== first.at ? `–${last.end || last.at}` : ''}` : (r.due_time || '');
       const hecho = r.steps.filter((s) => s.done).length;
       const current = isToday ? r.steps.findIndex((s) => !s.done && s.at && toMin(s.at) <= nowMin && nowMin < (s.end ? toMin(s.end) : toMin(s.at) + 1)) : -1;
       const next = isToday ? r.steps.findIndex((s) => !s.done) : -1;
-      const line = r.steps.flatMap((s, i) => [gapHTML(r, r.steps[i - 1], s), step(r, s, i === current, i === next && current < 0, past || isToday)]).join('');
+      // Las clases (eventos del calendario) que caen dentro de esta rutina van en su sitio, como bloques fijos
+      const mine = (data.clases || []).filter((c) => owner.get(c) === r.id);
+      const seq = [...r.steps.map((s, i) => ({ s, i })), ...mine.map((c) => ({ c }))]
+        .sort((a, b) => ((a.s || a.c).at || '99:99').localeCompare((b.s || b.c).at || '99:99'));
+      const line = seq.flatMap((x, k) => {
+        const prev = k ? (seq[k - 1].s || seq[k - 1].c) : null;
+        return [gapHTML(r, prev, x.s || x.c), x.c ? classHTML(x.c) : step(r, x.s, x.i === current, x.i === next && current < 0, past || isToday)];
+      }).join('');
       return `<section class="panel rp-card${r.done ? ' is-done' : ''}" data-rid="${r.id}" aria-labelledby="rp-h-${r.id}">
         <header class="rp-head">
           <div class="rp-head-main">
-            <h2 id="rp-h-${r.id}" class="rp-title">${esc(r.title)}</h2>
-            <p class="rp-meta tiny muted">${range ? `<span class="tabular">${range}</span> · ` : ''}${esc(r.repeat_text)}${r.steps.length ? ` · ${hecho} de ${r.steps.length}` : ''}${r.streak?.actual ? ` · <span class="rp-streak">${icon('flame', 'icon-sm')}${r.streak.actual}</span>` : ''}</p>
+            <h2 id="rp-h-${r.id}" class="rp-title"><span data-inline data-act="rename" tabindex="0" role="button" title="Cambiar el nombre" aria-label="${esc(r.title)}: cambiar el nombre">${esc(r.title)}</span></h2>
+            <p class="rp-meta tiny muted">${range ? `<span class="tabular">${range}</span> · ` : ''}<span data-inline data-act="when" tabindex="0" role="button" title="Cambiar los días y la hora (p. ej. «L X V 18:00»)" aria-label="${esc(r.repeat_text)}: cambiar los días y la hora">${esc(r.repeat_text)}</span>${r.steps.length ? ` · ${hecho} de ${r.steps.length}` : ''}${r.streak?.actual ? ` · <span class="rp-streak">${icon('flame', 'icon-sm')}${r.streak.actual}</span>` : ''}</p>
           </div>
           ${isToday && r.steps.length && !r.done ? `<button type="button" class="btn btn-tinted btn-sm" data-act="run">${icon('play', 'icon-sm')}Empezar</button>` : ''}
           <button type="button" class="btn btn-ghost btn-icon btn-sm" data-act="routine-menu" aria-label="Acciones de «${esc(r.title)}»" aria-haspopup="menu">${icon('ellipsis', 'icon-sm')}</button>
@@ -97,7 +113,7 @@
         ${r.tasks.length ? `<div class="rp-loose"><span class="tiny muted">Asociadas a la rutina</span>${tasksHTML(r.tasks)}</div>` : ''}
         <form class="rp-add" data-add="${r.id}">
           <label class="sr-only" for="rp-add-${r.id}">Nuevo bloque de «${esc(r.title)}»</label>
-          <input id="rp-add-${r.id}" class="input input-sm" maxlength="300" placeholder="Nuevo bloque (p. ej. «Gimnasio 1h»)" autocomplete="off">
+          <input id="rp-add-${r.id}" class="input input-sm" maxlength="300" placeholder="Nuevo bloque: «ducha 10m», «18:30 cenar 30m»; pega una lista para varios" autocomplete="off">
           <label class="sr-only" for="rp-add-at-${r.id}">Hora del bloque nuevo</label>
           <input id="rp-add-at-${r.id}" class="input input-sm rp-add-at tabular" type="text" inputmode="numeric" maxlength="5" autocomplete="off" name="at" placeholder="Inicio">
           <label class="sr-only" for="rp-add-end-${r.id}">Hora de fin del bloque nuevo</label>
@@ -110,10 +126,14 @@
     const active = document.activeElement?.closest?.('.rp-time-input');
     const focused = active && `[data-step="${active.closest('[data-step]').dataset.step}"] [data-time="${active.dataset.time}"]`;
     const otras = data.otras.length ? `<p class="small muted rp-others">No tocan este día: ${data.otras.map((o) => `<b>${esc(o.title)}</b> (${esc(o.repeat_text.toLowerCase())})`).join(' · ')}</p>` : '';
-    $('rtPage').innerHTML = data.rutinas.map(card).join('') + otras;
+    const sueltas = (data.clases || []).filter((c) => !owner.has(c));
+    const clasesCard = sueltas.length ? `<section class="panel rp-card rp-classes" aria-labelledby="rp-h-clases"><header class="rp-head"><div class="rp-head-main">
+        <h2 id="rp-h-clases" class="rp-title">Clases</h2><p class="rp-meta tiny muted">Del calendario · se cambian en <a href="/universidad">Universidad → Horario</a></p></div></header>
+        <ol class="rp-line">${sueltas.map(classHTML).join('')}</ol></section>` : '';
+    $('rtPage').innerHTML = clasesCard + data.rutinas.map(card).join('') + otras;
     if (focused) $('rtPage').querySelector(focused)?.focus();  // poner varias horas seguidas con Tab
     // Arrastrar (o Alt + flechas): el bloque toma la hora del sitio donde cae
-    $('rtPage').querySelectorAll('.rp-line').forEach((ol) => {
+    $('rtPage').querySelectorAll('[data-rid] .rp-line').forEach((ol) => {  // las clases no se arrastran
       const rid = Number(ol.closest('[data-rid]').dataset.rid);
       Sortable.create(ol, {
         group: `rp-${rid}`, items: '.rp-step', handle: '[data-drag-handle]', label: `los bloques de «${data.rutinas.find((x) => x.id === rid)?.title || ''}»`,
@@ -128,8 +148,21 @@
     if (!prev?.at || !s.at) return '';
     const from = endMin(prev), to = toMin(s.at);
     if (to - from < MIN_GAP) return '';
-    const taken = data.rutinas.some((o) => o.id !== r.id && o.steps.some((x) => x.at && toMin(x.at) < to && endMin(x) > from));
+    const taken = data.rutinas.some((o) => o.id !== r.id && o.steps.some((x) => x.at && toMin(x.at) < to && endMin(x) > from))
+      || (data.clases || []).some((c) => c !== s && c !== prev && toMin(c.at) < to && endMin(c) > from);
     return taken ? '' : `<li class="rp-gap"><span class="rp-rail" aria-hidden="true"></span><span class="tiny muted">Libre ${fmtMin(to - from)}</span></li>`;
+  }
+
+  // Una clase: bloque fijo (viene del calendario); se edita en Universidad → Horario
+  function classHTML(c) {
+    return `<li class="rp-class" style="--subj:${c.color && window.Ctx ? Ctx.color(c.color) : 'var(--tile-universidad)'}">
+      <span class="rp-time"><span class="tabular rp-fixed-time">${esc(c.at)}</span>${c.end ? `<span class="tabular rp-fixed-time">${esc(c.end)}</span>` : ''}</span>
+      <span class="rp-rail" aria-hidden="true"><span class="rp-dot">${icon('school', 'icon-sm')}</span></span>
+      <div class="rp-body"><div class="rp-row">
+        <a class="rp-step-title" href="/universidad?asignatura=${c.asignatura_id || ''}" title="Clase (calendario)">${esc(c.title)}</a>
+        ${c.location ? `<span class="tiny muted">${icon('map-pin', 'icon-sm')}${esc(c.location)}</span>` : ''}
+        <span class="grow"></span><span class="tag">Clase</span>
+        <span class="tiny muted tabular rp-dur">${c.end ? fmtMin(toMin(c.end) - toMin(c.at)) : ''}</span></div></div></li>`;
   }
 
   function step(r, s, isNow, isNext, canCheck) {
@@ -140,7 +173,7 @@
         <div class="rp-row">
           <button type="button" class="rp-grip" data-drag-handle aria-label="Mover «${esc(s.title)}» (Alt + flechas)" title="Arrastra para colocarlo: toma la hora de ese sitio">${icon('grip-vertical', 'icon-sm')}</button>
           ${canCheck ? `<button type="button" class="card-check small-check is-routine${s.done ? ' done' : ''}" data-act="check" role="checkbox" aria-checked="${s.done}" aria-label="${s.done ? 'Desmarcar' : 'Hecho'}: ${esc(s.title)}">${icon('check', 'icon-sm')}</button>` : ''}
-          <button type="button" class="rp-step-title" data-act="edit-step" title="Editar el bloque">${esc(s.title)}</button>
+          <button type="button" class="rp-step-title" data-act="rename-step" title="Cambiar el nombre (el resto, en ⋯ → Editar el bloque)">${esc(s.title)}</button>
           ${s.clash ? `<span class="tag rp-clash" title="Se solapa con «${esc(s.clash)}»">Se solapa</span>` : ''}
           ${s.skipped ? '<span class="tag">Saltado</span>' : isNow ? '<span class="tag rp-now">Ahora</span>' : isNext ? '<span class="tag">Siguiente</span>' : ''}
           <span class="grow"></span>
@@ -178,7 +211,7 @@
     const r = routineOf(el);
     const sid = Number(el.closest('[data-step]')?.dataset.step);
     const tid = Number(el.closest('[data-task]')?.dataset.task);
-    if (act === 'templates') { Routines.openTemplates(); return; }
+    if (act === 'templates') { Routines.openTemplates({ key: 'b:dia' }); return; }
     if (act === 'new') { newRoutine(); return; }
     if (act === 'run') { await Items.ready(); Routines.run(r.id); return; }
     if (act === 'routine-menu') { routineMenu(r, el); return; }
@@ -193,6 +226,9 @@
       return;
     }
     if (act === 'edit-step') { editStep(stepOf(sid)); return; }
+    if (act === 'rename-step') { renameStep(stepOf(sid), el); return; }
+    if (act === 'rename') { renameRoutine(r, el); return; }
+    if (act === 'when') { editWhen(r, el); return; }
     if (act === 'step-menu') { stepMenu(stepOf(sid), el); return; }
     if (act === 'task-done') {
       const t = [...(r?.tasks || []), ...(r?.steps || []).flatMap((s) => s.tasks)].find((x) => x.id === tid);
@@ -225,6 +261,16 @@
     if (e.key === 'Enter' && e.target.matches('.rp-time-input')) { e.preventDefault(); e.target.blur(); }
   });
 
+  // Nuevo bloque: con Inicio/Fin escritos, como siempre; si no, la línea entiende «18:30 cenar 30m» (POST …/pasos)
+  async function addSteps(rid, text, input) {
+    input.disabled = true;
+    let res;
+    try { res = await api(`/api/routines/${rid}/pasos`, { method: 'POST', body: { pasos: text } }); } catch { input.disabled = false; return false; }
+    input.disabled = false;
+    if (res.sin_hora?.length) toast(`Sin hora (chocaba con otro bloque): ${res.sin_hora.join(', ')}`, { type: 'info' });
+    else if (res.ids.length > 1) toast(`${res.ids.length} bloques añadidos`);
+    return true;
+  }
   $('rtPage').addEventListener('submit', async (e) => {
     const f = e.target.closest('[data-add]');
     if (!f) return;
@@ -232,6 +278,10 @@
     const input = f.querySelector('input');
     const text = input.value.trim();
     if (!text) return;
+    if (!f.at.value.trim() && !f.end.value.trim()) {
+      if (await addSteps(f.dataset.add, text, input)) { input.value = ''; await load(); document.getElementById(`rp-add-${f.dataset.add}`)?.focus(); }
+      return;
+    }
     const at = parseTime(f.at.value), end = parseTime(f.end.value);
     if (at === null || end === null) { toast('Escribe la hora como 17:30', { type: 'info' }); (at === null ? f.at : f.end).focus(); return; }
     if (end && !at) { toast('Pon también a qué hora empieza', { type: 'info' }); f.at.focus(); return; }
@@ -241,6 +291,44 @@
     try { await api('/api/items', { method: 'POST', body: { text, parent_id: Number(f.dataset.add), ...times } }); } catch { input.disabled = false; return; }
     await load();
     document.getElementById(`rp-add-${f.dataset.add}`)?.focus();
+  });
+  // Pegar una lista (varias líneas) en «Nuevo bloque» crea un bloque por línea
+  $('rtPage').addEventListener('paste', async (e) => {
+    const input = e.target.closest?.('[data-add] input:not([name])');
+    const text = e.clipboardData?.getData('text') || '';
+    if (!input || !/\n\s*\S/.test(text.trim())) return;
+    e.preventDefault();
+    const rid = input.closest('[data-add]').dataset.add;
+    if (await addSteps(rid, text, input)) { await load(); document.getElementById(`rp-add-${rid}`)?.focus(); }
+  });
+
+  /* ---------- Un campo en el sitio: nombre de la rutina, nombre del bloque, días y hora ---------- */
+  function renameRoutine(r, el) {
+    Rapido.inline(el, { value: r.title, label: `Nombre de «${r.title}»`, onSave: async (v) => { await patch(r.id, { text: v }); load(); } });
+  }
+  function renameStep(s, el) {
+    Rapido.inline(el, { value: s.title, label: `Nombre del bloque «${s.title}»`, onSave: async (v) => { await patch(s.id, { text: v }); load(); } });
+  }
+  // «L X V 18:00»: lo que se escribe en la línea rápida, para cambiar los días y la hora sin abrir el diálogo
+  const LETTERS = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+  function whenText(r) {
+    const rule = r.repeat || { freq: 'daily' };
+    const days = rule.freq === 'weekly' ? rule.days.map((d) => LETTERS[d]).join(' ') : rule.freq === 'interval' ? `cada ${rule.every} días` : 'cada día';
+    return `${days}${r.due_time ? ` ${r.due_time}` : ''}`;
+  }
+  function editWhen(r, el) {
+    Rapido.inline(el, {
+      value: whenText(r), label: `Días y hora de «${r.title}» (p. ej. L X V 18:00)`, width: '13em',
+      onSave: async (v) => {
+        const { preview: p } = await api('/api/routines/rapida', { method: 'POST', body: { text: `x ${v}`, dry_run: true } });
+        if (p.title !== 'X') { toast(`No entiendo «${p.title.slice(2) || v}»: escribe los días y la hora, p. ej. «L X V 18:00»`, { type: 'info' }); throw new Error('no'); }
+        await patch(r.id, { repeat: p.repeat, due_time: p.due_time || '' });
+        load();
+      },
+    });
+  }
+  $('rtPage').addEventListener('keydown', (e) => {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[data-inline]')) { e.preventDefault(); e.target.click(); }
   });
 
   function routineMenu(r, anchor) {
@@ -405,13 +493,111 @@
     openModal(dlg, { focus: 'input[name=title]', onClose: () => dlg.remove() });
   }
 
-  async function newRoutine() {
-    const name = await uiPrompt('Nueva rutina', { label: 'Nombre', placeholder: 'Mi día', confirmLabel: 'Crear',
-      message: 'Después añade sus bloques en orden. Para empezar con un día completo de ejemplo, usa «Plantillas».' });
-    if (!name?.trim()) return;
-    try { await api('/api/items', { method: 'POST', body: { text: name.trim(), type: 'rutina', due_time: '07:30' } }); } catch { return; }
+  /* ---------- Nueva rutina en una línea (P-3): «Gimnasio L X V 18:00» y los pasos, uno por línea ---------- */
+  const Q = { touched: { days: false, time: false }, last: null };
+  const SCREEN = 'rutinas';
+  function quickBody() {
+    const body = { text: $('rtqLine').value.trim(), pasos: $('rtqSteps').value };
+    if (Q.touched.days) { const rep = repeatFromDays($('rtqDays')); if (rep) body.repeat = rep; }
+    if (Q.touched.time) body.due_time = parseTime($('rtqTime').value) || '';
+    const dur = Number($('rtqDur').value);
+    if (dur > 0) body.dur_defecto = Math.min(600, Math.round(dur));
+    const where = $('rtqWhere').value;
+    if (where && window.Ctx) Object.assign(body, Ctx.whereToPatch(where));
+    return body;
+  }
+  const quickPreview = Rapido.preview(async () => {
+    const body = quickBody();
+    if (!body.text) return null;
+    return api('/api/routines/rapida', { method: 'POST', body: { ...body, dry_run: true }, quiet: true });
+  }, paintQuick);
+  function paintQuick(res) {
+    Q.last = res && !res.error && res.status === 'success' ? res.preview : null;
+    const prev = $('rtqPrev'), list = $('rtqStepsPrev');
+    if (!res) { prev.innerHTML = ''; list.innerHTML = ''; return; }
+    if (res.error || res.status === 'error') { prev.innerHTML = Rapido.chips([{ icon: 'triangle-alert', text: res.message || res.error, kind: 'warn' }]); list.innerHTML = ''; return; }
+    const p = res.preview, last = p.pasos[p.pasos.length - 1];
+    prev.innerHTML = Rapido.chips([
+      { icon: 'repeat', text: `${p.title} · ${p.repeat_text}` },
+      p.due_time && { icon: 'clock', text: p.due_time + (last?.end ? `–${last.end}` : p.duration_min ? `–${hhmm(toMin(p.due_time) + p.duration_min)}` : '') },
+      p.duration_min && !p.pasos.length && { icon: 'timer', text: fmtMin(p.duration_min) },
+      p.pasos.length && { icon: 'list-ordered', text: `${p.pasos.length} paso${p.pasos.length > 1 ? 's' : ''}` },
+      p.donde && { icon: 'map-pin', text: p.donde, kind: 'plain' },
+      p.pasos.length && !p.due_time && { icon: 'info', text: 'Sin hora: los pasos serán flexibles', kind: 'plain' },
+    ]);
+    list.innerHTML = p.pasos.map((x) => `<li><span class="qf-step-time">${x.at ? `${x.at}${x.end ? `–${x.end}` : ''}` : '—'}</span>
+      <span>${esc(x.title)}</span><span class="qf-step-dur${x.dur_defecto ? ' is-default' : ''}">${x.duration_min ? fmtMin(x.duration_min) : ''}</span></li>`).join('');
+    // Lo escrito se refleja en «Más opciones» mientras no se toque allí
+    if (!Q.touched.days) $('rtqDays').querySelectorAll('[data-day]').forEach((c) => { c.checked = p.repeat.freq !== 'weekly' || p.repeat.days.includes(Number(c.dataset.day)); });
+    if (!Q.touched.time) $('rtqTime').value = p.due_time || '';
+  }
+  function resetQuick() {
+    $('rtQuickForm').reset();
+    Q.touched = { days: false, time: false };
+    $('rtqDays').querySelectorAll('[data-day]').forEach((c) => { c.checked = true; });
+    $('rtqDur').value = Rapido.defaults.get(SCREEN, 'dur', '') || '';
+    $('rtqWhere').value = Rapido.defaults.get(SCREEN, 'where', '') || (window.Ctx ? Ctx.forNew() : 'puntual');
+    quickPreview.cancel();
+    paintQuick(null);
+  }
+  let quickReady = false;
+  function setupQuick() {
+    if (quickReady) return;
+    quickReady = true;
+    $('rtqDays').innerHTML = dayPicker({ legend: 'Días (mandan sobre lo escrito)' });
+    $('rtqWhere').innerHTML = window.Ctx ? Ctx.whereOptions({}) : '<option value="puntual">Puntual</option>';
+    Rapido.more($('rtqMore'), SCREEN);
+    resetQuick();
+    const f = $('rtQuickForm');
+    ['rtqLine', 'rtqSteps'].forEach((id) => $(id).addEventListener('input', () => quickPreview()));
+    $('rtqDays').addEventListener('change', () => { Q.touched.days = true; quickPreview(); });
+    $('rtqTime').addEventListener('input', () => { Q.touched.time = true; quickPreview(); });
+    $('rtqDur').addEventListener('input', () => quickPreview());
+    $('rtqWhere').addEventListener('change', () => quickPreview());
+    f.addEventListener('submit', (e) => { e.preventDefault(); saveQuick(false); });
+    f.querySelectorAll('[data-qf-close]').forEach((b) => b.addEventListener('click', closeQuick));
+    Rapido.keys(f, { save: () => saveQuick(false), saveNew: () => saveQuick(true), cancel: closeQuick });
+  }
+  function openQuick() {
+    setupQuick();
+    $('rtQuick').hidden = false;
+    $('rtqLine').focus();
+    $('rtQuick').scrollIntoView({ block: 'nearest' });
+  }
+  // Cerrar no borra lo escrito: al volver a abrir sigue ahí hasta que se crea
+  function closeQuick() { $('rtQuick').hidden = true; $('rtNew').focus(); }
+  let saving = false;
+  async function saveQuick(again) {
+    if (saving) return;
+    const body = quickBody();
+    if (!body.text) { toast('Escribe el nombre de la rutina', { type: 'info' }); $('rtqLine').focus(); return; }
+    if (Q.touched.days && !repeatFromDays($('rtqDays'))) { toast('Elige al menos un día', { type: 'info' }); return; }
+    if (Q.touched.time && parseTime($('rtqTime').value) === null) { toast('Escribe la hora como 17:30', { type: 'info' }); $('rtqTime').focus(); return; }
+    saving = true;
+    $('rtqSave').classList.add('is-loading');
+    let res;
+    try { res = await api('/api/routines/rapida', { method: 'POST', body }); } catch { return; }
+    finally { saving = false; $('rtqSave').classList.remove('is-loading'); }
+    if (res.status === 'error') { toast(res.message, { type: 'error' }); return; }
+    if (body.dur_defecto) Rapido.defaults.set(SCREEN, 'dur', body.dur_defecto);
+    else if ($('rtqDur').value === '') Rapido.defaults.set(SCREEN, 'dur', null);
+    Rapido.defaults.set(SCREEN, 'where', $('rtqWhere').value);
+    toast(res.sin_hora?.length ? `Rutina creada; sin hora (chocaban con otro bloque): ${res.sin_hora.join(', ')}` : `Rutina «${res.preview.title}» creada`,
+      { type: res.sin_hora?.length ? 'info' : 'success' });
+    resetQuick();
+    if (again) $('rtqLine').focus(); else closeQuick();
     load();
   }
+  const newRoutine = openQuick;
+  // «N»: nueva rutina (si no es la tecla de captura)
+  document.addEventListener('keydown', (e) => {
+    const t = e.target;
+    if (e.key.toLowerCase() !== 'n' || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+    if (/^(input|textarea|select)$/i.test(t.tagName) || t.isContentEditable || document.querySelector('dialog[open]')) return;
+    if (Prefs.get('capture-key', 'c') === 'n') return;
+    e.preventDefault();
+    openQuick();
+  });
 
   async function attachTask(s) {
     await Items.ready();
@@ -434,7 +620,7 @@
     load();
   }
 
-  $('rtTemplates').addEventListener('click', () => Routines.openTemplates());
+  $('rtTemplates').addEventListener('click', () => Plantillas.open({ tab: 'rutina' }));
   $('rtNew').addEventListener('click', newRoutine);
   // lo que cambie en otra pestaña o en un diálogo (plantillas, paso a paso…) se ve aquí
   onDataChange(/^\/api\/(items|routines|routine-templates)/, () => load());

@@ -7,6 +7,7 @@ frontmatter (mismo formato que el editor) y después actualiza la caché.
 Las notas borradas no se eliminan: se mueven a data/trash/<token>/ y el
 token permite deshacer.
 """
+
 import os
 import re
 import shutil
@@ -21,9 +22,18 @@ from app.database import get_db
 from app.indexer import sync_notes_to_db
 from app.links import rebuild_all as rebuild_links
 from app.note_tasks import note_has_items, sync_note_items
+from app.notes_core import (
+    MAX_NOTE_CONTENT,
+    MAX_TITLE,
+    VALID_STATUSES,
+    extract_wiki_links,
+    normalize_status,
+    note_path,
+    split_category_path,
+    sync_flashcards,
+    update_index_for_area,
+)
 from app.versions import snapshot as snapshot_version
-from app.notes_core import (MAX_NOTE_CONTENT, MAX_TITLE, VALID_STATUSES, extract_wiki_links, note_path,
-                            normalize_status, split_category_path, sync_flashcards, update_index_for_area)
 from core import config, tabular, undo
 from core.files import atomic_write
 from core.logging_config import get_logger
@@ -50,7 +60,7 @@ def _load(note_id: str):
     path = note_path(note_id)
     if not os.path.exists(path):
         return path, None
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return path, frontmatter.load(f)
 
 
@@ -130,17 +140,28 @@ def bulk_delete(data: NotesSelection):
             if not os.path.exists(path):
                 continue
             rows["notes"] += undo.rows_to_dicts(conn.execute("SELECT * FROM notes WHERE id=?", (note_id,)))
-            rows["graph_edges"] += undo.rows_to_dicts(conn.execute("SELECT * FROM graph_edges WHERE source=? OR target=?", (note_id, note_id)))
+            rows["graph_edges"] += undo.rows_to_dicts(
+                conn.execute("SELECT * FROM graph_edges WHERE source=? OR target=?", (note_id, note_id))
+            )
             rows["graph_nodes"] += undo.rows_to_dicts(conn.execute("SELECT * FROM graph_nodes WHERE id=?", (note_id,)))
-            rows["flashcards"] += undo.rows_to_dicts(conn.execute("SELECT * FROM flashcards WHERE note_id=?", (note_id,)))
+            rows["flashcards"] += undo.rows_to_dicts(
+                conn.execute("SELECT * FROM flashcards WHERE note_id=?", (note_id,))
+            )
             # Sus casillas en la lista de tareas: lo que el .md no guarda (prioridad, fecha, notas) vuelve al restaurar
-            rows["inbox"] += undo.rows_to_dicts(conn.execute("SELECT * FROM inbox WHERE note_id=? AND note_task IS NOT NULL", (note_id,)))
+            rows["inbox"] += undo.rows_to_dicts(
+                conn.execute("SELECT * FROM inbox WHERE note_id=? AND note_task IS NOT NULL", (note_id,))
+            )
             moved.append(note_id)
         if not moved:
             return {"status": "success", "deleted": 0, "undo_token": None}
         titles = [r["title"] or r["id"] for r in rows["notes"]]
-        token = undo.save(conn, "notes.delete", {"ids": moved, "rows": rows},
-                          title=titles[0] if len(titles) == 1 else f"{len(titles)} notas: " + ", ".join(titles[:3]), count=len(moved))
+        token = undo.save(
+            conn,
+            "notes.delete",
+            {"ids": moved, "rows": rows},
+            title=titles[0] if len(titles) == 1 else f"{len(titles)} notas: " + ", ".join(titles[:3]),
+            count=len(moved),
+        )
         trash_name = token
         trash = config.TRASH_DIR / trash_name
         trash.mkdir(parents=True, exist_ok=True)
@@ -179,10 +200,18 @@ def bulk_undo(token: str):
         rows = payload["rows"]
         undo.insert_rows(conn, "notes", [r for r in rows["notes"] if r["id"] in restored])
         undo.insert_rows(conn, "graph_nodes", [r for r in rows["graph_nodes"] if r["id"] in restored])
-        undo.insert_rows(conn, "graph_edges", [r for r in rows["graph_edges"] if r["source"] in restored or r["target"] in restored])
+        undo.insert_rows(
+            conn, "graph_edges", [r for r in rows["graph_edges"] if r["source"] in restored or r["target"] in restored]
+        )
         undo.insert_rows(conn, "flashcards", [r for r in rows["flashcards"] if r["note_id"] in restored])
         # Padres antes que pasos (la clave foránea lo exige). Las copias de antes no traen «inbox»
-        undo.insert_rows(conn, "inbox", sorted((r for r in rows.get("inbox", []) if r["note_id"] in restored), key=lambda r: r["parent_id"] is not None))
+        undo.insert_rows(
+            conn,
+            "inbox",
+            sorted(
+                (r for r in rows.get("inbox", []) if r["note_id"] in restored), key=lambda r: r["parent_id"] is not None
+            ),
+        )
         for r in rows["notes"]:
             if r["id"] in restored:
                 # El archivo vuelve con su fecha de antes: el indexador no lo ve cambiado y sus casillas no volverían solas
@@ -234,14 +263,18 @@ def _store_auto_links(note_id: str, content: str) -> None:
     with get_db() as conn:
         conn.execute("DELETE FROM graph_edges WHERE source=? AND type='auto'", (note_id,))
         for target in extract_wiki_links(content):
-            conn.execute("INSERT OR IGNORE INTO graph_edges (source, target, type) VALUES (?, ?, 'auto')", (note_id, target))
+            conn.execute(
+                "INSERT OR IGNORE INTO graph_edges (source, target, type) VALUES (?, ?, 'auto')", (note_id, target)
+            )
 
 
 @router.get("/export")
 def bulk_export(format: str = "json", ids: str = ""):
     wanted = set(i for i in ids.split(",") if i) if ids else None
     with get_db() as conn:
-        rows = conn.execute("SELECT id, title, category, status, tags, content FROM notes ORDER BY category, title").fetchall()
+        rows = conn.execute(
+            "SELECT id, title, category, status, tags, content FROM notes ORDER BY category, title"
+        ).fetchall()
     notes = [dict(r) for r in rows if wanted is None or r["id"] in wanted]
     for n in notes:
         n["tags"] = [t for t in (n["tags"] or "").split(",") if t]
@@ -283,8 +316,17 @@ async def bulk_import(file: UploadFile = File(...), mode: str = Form("skip"), dr
             result["omitir"].append(note_id)
             continue
         result["sobrescribir" if exists else "crear"].append(note_id)
-        plan.append((note_id, path, title, str(item.get("category") or "General")[:MAX_TITLE],
-                     normalize_status(str(item.get("status") or "por-escribir")), _clean_tags(tags), content))
+        plan.append(
+            (
+                note_id,
+                path,
+                title,
+                str(item.get("category") or "General")[:MAX_TITLE],
+                normalize_status(str(item.get("status") or "por-escribir")),
+                _clean_tags(tags),
+                content,
+            )
+        )
 
     if dry_run:
         return {"status": "preview", **result}

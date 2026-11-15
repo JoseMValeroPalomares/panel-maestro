@@ -13,13 +13,14 @@ Entrada = lo que devuelve /api/graph: nodos `type` category|note (con `depth`, `
   · Sin solapes: cajas de nodo+etiqueta (`caja`) y una relajación con rejilla; `fijados` (posiciones que el usuario quiere
     conservar) no se mueven y los demás los esquivan.
 """
+
 import math
 from collections import defaultdict
 
-GAP_GRUPOS = 170.0      # hueco mínimo entre los círculos de dos grupos
-PASO_ANILLO = 100.0     # distancia mínima entre anillos de profundidad consecutivos
-COMPACTAR = 0.5         # los anillos «holgados» se aprietan y la relajación separa solo lo que se pisa
-MARGEN = 8.0            # margen entre cajas
+GAP_GRUPOS = 170.0  # hueco mínimo entre los círculos de dos grupos
+PASO_ANILLO = 100.0  # distancia mínima entre anillos de profundidad consecutivos
+COMPACTAR = 0.5  # los anillos «holgados» se aprietan y la relajación separa solo lo que se pisa
+MARGEN = 8.0  # margen entre cajas
 SIN_CATEGORIA = "sin categoría"
 
 
@@ -50,7 +51,9 @@ def caja(nodo: dict) -> tuple[float, float]:
     return min(160.0, ancho), 2 * (17 + 16.0 * len(lineas))
 
 
-def disenar(nodos: list[dict], aristas: list[dict], fijados: dict[str, tuple[float, float]] | None = None) -> dict[str, tuple[float, float]]:
+def disenar(
+    nodos: list[dict], aristas: list[dict], fijados: dict[str, tuple[float, float]] | None = None
+) -> dict[str, tuple[float, float]]:
     por_id = {n["id"]: n for n in nodos}
     hijos: dict[str, list[str]] = defaultdict(list)
     tiene_padre = set()
@@ -84,7 +87,9 @@ def disenar(nodos: list[dict], aristas: list[dict], fijados: dict[str, tuple[flo
 
     def ordenar(i: str) -> list[str]:
         h = hijos.get(i, [])
-        return sorted([x for x in h if por_id[x]["type"] == "category"], key=lambda x: (-tamano(x), titulo(x))) + sorted([x for x in h if por_id[x]["type"] == "note"], key=titulo)
+        return sorted(
+            [x for x in h if por_id[x]["type"] == "category"], key=lambda x: (-tamano(x), titulo(x))
+        ) + sorted([x for x in h if por_id[x]["type"] == "note"], key=titulo)
 
     # ── 1. Cada grupo en coordenadas locales (raíz en 0,0) ──
     grupos = []
@@ -189,7 +194,7 @@ def _colocar_grupos(grupos: list[dict]) -> list[tuple[float, float]]:
         angulos = [2 * math.asin(min(1.0, grupos[k]["radio"] / r)) for k in miembros]
         sobra = (2 * math.pi - sum(angulos)) / len(miembros)
         a = -math.pi / 2
-        for k, w in zip(miembros, angulos):
+        for _k, w in zip(miembros, angulos):
             a_c = a + w / 2
             centros.append((r * math.cos(a_c), r * math.sin(a_c)))
             a += w + sobra
@@ -247,6 +252,9 @@ def solapes(pos: dict[str, tuple[float, float]], por_id: dict) -> list[tuple[str
         wa, ha = caja(por_id[ids[a]])
         for b in range(a + 1, len(ids)):
             wb, hb = caja(por_id[ids[b]])
-            if abs(pos[ids[a]][0] - pos[ids[b]][0]) < (wa + wb) / 2 and abs(pos[ids[a]][1] - pos[ids[b]][1]) < (ha + hb) / 2:
+            if (
+                abs(pos[ids[a]][0] - pos[ids[b]][0]) < (wa + wb) / 2
+                and abs(pos[ids[a]][1] - pos[ids[b]][1]) < (ha + hb) / 2
+            ):
                 out.append((ids[a], ids[b]))
     return out

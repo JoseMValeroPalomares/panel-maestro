@@ -1,5 +1,6 @@
 """Algoritmo del grafo automático (app/graph_layout.py): sin solapes, grupos separados, mayor al centro, anillos por
 profundidad, independientes fuera, fijados respetados y rendimiento con cientos de nodos."""
+
 import math
 import random
 import time
@@ -27,24 +28,33 @@ def arbol(grupos: dict[str, dict], independientes: int = 0, seed: int = 1):
         for c in cats:
             for k in range(cfg["notas"]):
                 nid = f"{c}/n{k}"
-                nodos.append({"id": nid, "label": f"Nota {rnd.randint(0, 999)} de {raiz} {k}", "type": "note", "group": raiz})
+                nodos.append(
+                    {"id": nid, "label": f"Nota {rnd.randint(0, 999)} de {raiz} {k}", "type": "note", "group": raiz}
+                )
                 aristas.append({"from": c, "to": nid, "type": "category"})
     if independientes:
-        nodos.append({"id": "cat:sin", "label": "Sin categoría", "type": "category", "depth": 0, "group": "Sin categoría"})
+        nodos.append(
+            {"id": "cat:sin", "label": "Sin categoría", "type": "category", "depth": 0, "group": "Sin categoría"}
+        )
         for k in range(independientes):
             nodos.append({"id": f"ind{k}", "label": f"Suelta {k:03d}", "type": "note", "group": "Sin categoría"})
             aristas.append({"from": "cat:sin", "to": f"ind{k}", "type": "category"})
     return nodos, aristas
 
 
-GRUPOS = {"Física": {"subs": [3, 4], "notas": 3}, "Biología": {"subs": [2, 2], "notas": 2}, "Química": {"subs": [1], "notas": 2}, "Arte": {"subs": [], "notas": 4}}
+GRUPOS = {
+    "Física": {"subs": [3, 4], "notas": 3},
+    "Biología": {"subs": [2, 2], "notas": 2},
+    "Química": {"subs": [1], "notas": 2},
+    "Arte": {"subs": [], "notas": 4},
+}
 
 
 def test_sin_solapes_y_todos_colocados():
     nodos, aristas = arbol(GRUPOS, independientes=12)
     pos = gl.disenar(nodos, aristas)
     por_id = {n["id"]: n for n in nodos}
-    assert set(pos) == {n["id"] for n in nodos if n["id"] != "cat:sin"}      # la raíz ficticia no se dibuja como grupo
+    assert set(pos) == {n["id"] for n in nodos if n["id"] != "cat:sin"}  # la raíz ficticia no se dibuja como grupo
     assert gl.solapes(pos, por_id) == []
 
 
@@ -98,11 +108,11 @@ def test_respeta_fijados_y_los_demas_los_esquivan():
     nodos, aristas = arbol(GRUPOS, independientes=5)
     por_id = {n["id"]: n for n in nodos}
     base = gl.disenar(nodos, aristas)
-    fij = {"cat:Biología": (5.0, 5.0), "ind0": (0.0, 40.0)}                       # encima de otros nodos a propósito
+    fij = {"cat:Biología": (5.0, 5.0), "ind0": (0.0, 40.0)}  # encima de otros nodos a propósito
     pos = gl.disenar(nodos, aristas, fijados=fij)
     assert pos["cat:Biología"] == (5.0, 5.0) and pos["ind0"] == (0.0, 40.0)
     for a, b in gl.solapes(pos, por_id):
-        assert a in fij and b in fij or False, (a, b)                              # solo pueden pisarse dos fijados entre sí
+        assert a in fij and b in fij or False, (a, b)  # solo pueden pisarse dos fijados entre sí
     assert pos != base
 
 

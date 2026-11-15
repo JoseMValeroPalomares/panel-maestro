@@ -9,6 +9,22 @@
   TareasGrid.init();
   ItemList.wireStatus(view, document.querySelector('.status-seg'));
 
+  // Móvil: con tareas en la lista, la captura se pliega en un botón (items.css); tocarlo la abre y queda abierta.
+  // Escape con el campo vacío la vuelve a plegar. En escritorio el botón no se ve y esto no cambia nada
+  const panel = document.querySelector('.tareas .capture-panel');
+  const openBtn = $('captureOpen');
+  const captureText = $('tareasCapture-text');
+  const syncCapture = () => document.querySelector('.tareas').classList.toggle('has-items', Items.state.items.length > 0);
+  const setCaptureOpen = (open) => { panel.classList.toggle('is-open', open); openBtn.setAttribute('aria-expanded', String(open)); };
+  openBtn.addEventListener('click', () => { setCaptureOpen(true); captureText.focus(); });
+  captureText.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || captureText.value || !panel.classList.contains('is-open')) return;
+    setCaptureOpen(false);
+    if (openBtn.offsetParent) openBtn.focus();  // solo se ve en el móvil con tareas
+  });
+  document.addEventListener('items:changed', syncCapture);
+  Items.ready().then(syncCapture).catch(() => {});
+
   // Tipo y categoría se recuerdan (Prefs 'tareas-filters'), salvo al llegar con ?item= (hay que ver esa tarea)
   const FKEY = 'tareas-filters';
   const remember = () => Prefs.set(FKEY, { type: view.filters.type, category: view.filters.category });

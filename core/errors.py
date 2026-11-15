@@ -1,4 +1,5 @@
 """Manejadores de errores globales y cabeceras de seguridad comunes a las tres apps."""
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -21,8 +22,11 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(StarletteHTTPException)
     async def http_error(request: Request, exc: StarletteHTTPException):
         detail = exc.detail if isinstance(exc.detail, str) else "Error"
-        return JSONResponse(status_code=exc.status_code, content={"error": detail, "detail": exc.detail},
-                            headers=getattr(exc, "headers", None))
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"error": detail, "detail": exc.detail},
+            headers=getattr(exc, "headers", None),
+        )
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request: Request, exc: RequestValidationError):
@@ -52,6 +56,10 @@ SECURITY_HEADERS = [
 ]
 
 
+# 180 días; sin includeSubDomains (un nombre *.ts.net o panel.local no manda sobre otros)
+HSTS = b"max-age=15552000"
+
+
 class SecurityHeadersMiddleware:
     """Añade cabeceras de seguridad a todas las respuestas (incluidas las sub-apps)."""
 
@@ -65,6 +73,10 @@ class SecurityHeadersMiddleware:
 
         # ?v=<hash del contenido> (core/templating.asset): esa URL nunca cambia de contenido, no hace falta revalidarla
         versioned = scope.get("query_string", b"").startswith(b"v=")
+        # S-1: HSTS solo si la petición llegó por HTTPS (uvicorn con certificado, o tailscale serve con
+        # X-Forwarded-Proto desde 127.0.0.1: start.sh usa --proxy-headers). Por HTTP no: el navegador la ignoraría
+        # y, en un equipo sin certificado, dejaría el panel inaccesible.
+        https = scope.get("scheme") == "https"
 
         async def send_with_headers(message):
             if message["type"] == "http.response.start":
@@ -75,6 +87,8 @@ class SecurityHeadersMiddleware:
                         headers.append((k, v))
                 if self.csp and b"content-security-policy" not in present:
                     headers.append((b"content-security-policy", self.csp))
+                if https and b"strict-transport-security" not in present:
+                    headers.append((b"strict-transport-security", HSTS))
                 if versioned and message["status"] == 200 and b"cache-control" not in present:
                     headers.append((b"cache-control", b"private, max-age=31536000, immutable"))
                 message["headers"] = headers

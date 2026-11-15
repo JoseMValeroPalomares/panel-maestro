@@ -3,6 +3,7 @@ Calendario de repaso: días estudiados (mapa de calor), flashcards que vencen
 cada día (SM-2, `flashcards.next_review`) y notas que hace tiempo que no se
 repasan (`notes.last_reviewed`).
 """
+
 import time
 from datetime import date, datetime, timedelta
 
@@ -54,27 +55,50 @@ def review_calendar(past_weeks: int = 16, future_days: int = 28):
     for i in range(future_days):
         key = (today + timedelta(days=i)).isoformat()
         items = due_by_day.get(key, [])
-        upcoming.append({"date": key, "flashcards": len(items),
-                         "notes": sorted({c["note_title"] or c["note_id"] for c in items if c["note_id"]})[:5]})
+        upcoming.append(
+            {
+                "date": key,
+                "flashcards": len(items),
+                "notes": sorted({c["note_title"] or c["note_id"] for c in items if c["note_id"]})[:5],
+            }
+        )
 
     stale = sorted(
-        ({"id": n["id"], "title": n["title"], "category": n["category"], "status": n["status"],
-          "days": None if not n["last_reviewed"] else int((now - n["last_reviewed"]) // 86400)}
-         for n in notes if not n["last_reviewed"] or now - n["last_reviewed"] > STALE_DAYS * 86400),
-        key=lambda x: (x["days"] is not None, -(x["days"] or 0)))
+        (
+            {
+                "id": n["id"],
+                "title": n["title"],
+                "category": n["category"],
+                "status": n["status"],
+                "days": None if not n["last_reviewed"] else int((now - n["last_reviewed"]) // 86400),
+            }
+            for n in notes
+            if not n["last_reviewed"] or now - n["last_reviewed"] > STALE_DAYS * 86400
+        ),
+        key=lambda x: (x["days"] is not None, -(x["days"] or 0)),
+    )
 
     streak, cur = 0, today
     while cur.isoformat() in studied:
         streak += 1
         cur -= timedelta(days=1)
-    return {"today": today.isoformat(), "heat": heat, "upcoming": upcoming, "overdue": overdue,
-            "due_today": upcoming[0]["flashcards"], "streak": streak,
-            "studied_days": sum(1 for h in heat if h["studied"]), "stale_notes": stale[:30], "stale_total": len(stale)}
+    return {
+        "today": today.isoformat(),
+        "heat": heat,
+        "upcoming": upcoming,
+        "overdue": overdue,
+        "due_today": upcoming[0]["flashcards"],
+        "streak": streak,
+        "studied_days": sum(1 for h in heat if h["studied"]),
+        "stale_notes": stale[:30],
+        "stale_total": len(stale),
+    }
 
 
 # ─────────────────────────────────────────────
 # Registro de cambios y revisión semanal (item_log, app/routines.py)
 # ─────────────────────────────────────────────
+
 
 @router.get("/week")
 def review_week(start: str | None = None):
@@ -87,8 +111,12 @@ def review_week(start: str | None = None):
     d0 -= timedelta(days=d0.weekday())
     d1 = d0 + timedelta(days=6)
     with get_db() as conn:
-        rows = [dict(r) for r in conn.execute(
-            "SELECT * FROM item_log WHERE day >= ? AND day <= ? ORDER BY at", (d0.isoformat(), d1.isoformat()))]
+        rows = [
+            dict(r)
+            for r in conn.execute(
+                "SELECT * FROM item_log WHERE day >= ? AND day <= ? ORDER BY at", (d0.isoformat(), d1.isoformat())
+            )
+        ]
         alive = {r["id"]: r for r in conn.execute("SELECT id, status, item_type FROM inbox")}
     # El último estado del día manda: hecha y reabierta el mismo día no cuenta
     last: dict[tuple, dict] = {}
@@ -102,13 +130,22 @@ def review_week(start: str | None = None):
         por_dia[r["day"]]["hechas"] += 1
     for r in rutinas:
         por_dia[r["day"]]["rutinas"] += 1
-    fmt = lambda r: {"item_id": r["item_id"], "text": r["text"], "type": r["type"], "day": r["day"], "at": r["at"],  # noqa: E731
-                     "exists": r["item_id"] in alive}
-    return {"from": d0.isoformat(), "to": d1.isoformat(),
-            "hechas": [fmt(r) for r in sorted(hechas, key=lambda r: r["at"], reverse=True)],
-            "rutinas": [fmt(r) for r in sorted(rutinas, key=lambda r: r["at"], reverse=True)],
-            "creadas": sum(1 for r in rows if r["action"] == "created"),
-            "por_dia": por_dia}
+    fmt = lambda r: {
+        "item_id": r["item_id"],
+        "text": r["text"],
+        "type": r["type"],
+        "day": r["day"],
+        "at": r["at"],  # noqa: E731
+        "exists": r["item_id"] in alive,
+    }
+    return {
+        "from": d0.isoformat(),
+        "to": d1.isoformat(),
+        "hechas": [fmt(r) for r in sorted(hechas, key=lambda r: r["at"], reverse=True)],
+        "rutinas": [fmt(r) for r in sorted(rutinas, key=lambda r: r["at"], reverse=True)],
+        "creadas": sum(1 for r in rows if r["action"] == "created"),
+        "por_dia": por_dia,
+    }
 
 
 @router.get("/log")
@@ -116,6 +153,7 @@ def review_log(limit: int = 100, before: float | None = None):
     """Historial de cambios (más reciente primero), paginado con `before`."""
     limit = max(1, min(limit, 500))
     with get_db() as conn:
-        rows = conn.execute("SELECT * FROM item_log WHERE at < ? ORDER BY at DESC LIMIT ?",
-                            (before or time.time() + 1, limit)).fetchall()
+        rows = conn.execute(
+            "SELECT * FROM item_log WHERE at < ? ORDER BY at DESC LIMIT ?", (before or time.time() + 1, limit)
+        ).fetchall()
     return {"entries": [dict(r) for r in rows]}

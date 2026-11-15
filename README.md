@@ -12,7 +12,9 @@ tu propio equipo, funciona sin nube ni cuentas externas y lo usas desde el naveg
 | **Hoy** | El resumen del día: lo siguiente que toca, agenda, rutinas, tareas, comida y gasto. |
 | **Calendario** | Vistas de día, semana, mes y agenda. Se puede sincronizar con iCloud. |
 | **Rutinas** | Tu día en bloques, con horas, días de la semana y seguimiento paso a paso. |
-| **Tareas e Inbox** | Una sola lista de tareas e ideas, en lista o en cuadrícula con tarjetas que cambian de tamaño como ventanas, con prioridades, fechas y tableros para organizar proyectos. |
+| **Tareas e Inbox** | Una sola lista de tareas e ideas, en lista o en cuadrícula con tarjetas que cambian de tamaño como ventanas, con prioridades, fechas y tableros para organizar proyectos. Arriba eliges el contexto: **Puntual**, **Universidad**, **Proyectos** o **Todo** (el mismo filtro en Calendario, Hoy, paleta, Waybar y extensión). |
+| **Universidad** | Como el Baúl, una sección por asignatura con sus temas sacados de su carpeta (solo lectura), estado de cada tema, apuntes con plantilla, entregas y exámenes con cuenta atrás y media, horario de clases y sus tareas ([docs/contextos.md](docs/contextos.md)). |
+| **Proyectos** | Tarjetas con progreso; dentro, tareas en lista o columnas, versiones con registro de cambios, ideas, esquemas, bitácora y Git de solo lectura. |
 | **Notas** | Archivos Markdown con LaTeX, código, enlaces entre notas, flashcards y repaso. |
 | **Grafo** | El mapa de cómo se relacionan tus notas. |
 | **Baúl** | Enlaces y vídeos guardados, con su miniatura y por categorías. |
@@ -73,14 +75,17 @@ Abre <http://127.0.0.1:8900>. Es una copia temporal: al pulsar `Ctrl+C` se borra
 ./install.sh --service
 ```
 
-Crea un servicio de usuario de systemd. Se gestiona con `systemctl --user restart panel-maestro`.
+Instala el servicio de usuario de systemd desde la plantilla `scripts/systemd/panel-maestro.service` (con sus
+protecciones, ver [docs/servicio.md](docs/servicio.md)). Se gestiona con `systemctl --user restart panel-maestro`.
 
 ### Usarlo desde el móvil
 
 El panel escucha en toda tu red local. Con el móvil en la misma wifi, abre `http://<IP-de-tu-equipo>:8000`.
-Para que solo sea accesible desde tu equipo, arráncalo con `HOST=127.0.0.1 ./start.sh`.
+Para que solo sea accesible desde tu equipo, pon `PANEL_HOST=127.0.0.1` en `.env` (o `HOST=127.0.0.1 ./start.sh`).
 
-No lo expongas directamente a internet: para entrar desde fuera de casa usa una VPN como WireGuard o Tailscale.
+Por HTTP la contraseña viaja en claro por la wifi y no se pueden cifrar notas: mejor HTTPS, con Tailscale (también
+desde fuera de casa, sin abrir puertos) o con mkcert. Ver [docs/HTTPS.md](docs/HTTPS.md) y
+[docs/fuera-de-casa.md](docs/fuera-de-casa.md). No lo expongas directamente a internet.
 
 ### Actualizar
 
@@ -105,7 +110,9 @@ Todo se queda en tu equipo, en estas carpetas, y ninguna se sube a git porque es
 | Contraseña y credenciales | `.env` |
 
 Cada noche, a las 03:30, se hace una copia completa en `backups/`. Guarda esa carpeta también fuera del equipo: si se
-estropea el disco, se pierde con él. Para mover el panel a otro equipo, instálalo allí y restaura una copia desde **Copias**.
+estropea el disco, se pierde con él. `PANEL_BACKUP_MIRROR` deja una segunda copia, comprobada, en otra unidad o en una
+carpeta de Syncthing o rclone ([docs/copias.md](docs/copias.md)). Para mover el panel a otro equipo, o recuperarlo desde
+cero, sigue [docs/recuperacion.md](docs/recuperacion.md).
 
 ## Trucos
 
@@ -123,7 +130,8 @@ El panel funciona completo sin nada de esto.
 | **Calendario de iCloud** | Sincronización en las dos direcciones | Rellena `ICLOUD_USERNAME` e `ICLOUD_APP_PASSWORD` en `.env`, con una [contraseña de aplicación](https://account.apple.com) |
 | **Extensión de Firefox** | Guardar páginas y tareas desde el navegador | [EXTENSION PANEL/README.md](EXTENSION%20PANEL/README.md) |
 | **Reloj ESP32** | Pantalla de escritorio con reloj, música, calendario, pomodoro y repaso | [esp32_deskclock/README.md](esp32_deskclock/README.md) y `ESP32_HOST` en `.env` |
-| **Escritorio Linux** | Captura con un atajo y agenda en la Waybar | [docs/escritorio.md](docs/escritorio.md) |
+| **Escritorio Linux** | Captura con un atajo (con `@asignatura` y `#proyecto`) y agenda en la Waybar | [docs/escritorio.md](docs/escritorio.md) |
+| **Abrir carpetas** | Botones «Abrir carpeta» de Universidad y Proyectos (esquema `panelmaestro://`) | `scripts/desktop/abrir/instalar.sh` en el equipo con las carpetas ([docs/contextos.md](docs/contextos.md#abrir-carpetas)) |
 | **Dotfiles** | Subir tu configuración a GitHub desde Copias | [docs/dotfiles.md](docs/dotfiles.md) |
 | **IA de Rendimiento** | Auditoría diaria y semanal con modelos gratuitos y respaldo automático | Una clave en `.env` ([docs/rendimiento.md](docs/rendimiento.md)) |
 
@@ -143,13 +151,19 @@ Después de cambiar `.env`, reinicia el panel. Todas las opciones están explica
 ## Desarrollo
 
 ```bash
-venv/bin/python -m pip install -r requirements-dev.txt
-venv/bin/python -m pytest                     # nunca toca tus datos: usa un directorio temporal
+venv/bin/python -m pip install -r requirements-dev.txt && npm install   # herramientas de tests y lint
+scripts/instalar_ganchos.sh                   # antes de cada commit: ruff, mypy, eslint y unitarios (~30 s)
+venv/bin/ruff check . && venv/bin/ruff format .   # lint y formato (configuración en pyproject.toml)
+venv/bin/mypy && npx eslint .                 # tipos (de momento solo core/) y errores del JavaScript
+venv/bin/python -m pytest --ignore=tests/e2e --cov --cov-report=term   # unitarios con cobertura
+venv/bin/python -m pytest tests/e2e           # navegador (~10 min); nunca tocan tus datos: directorio temporal
+scripts/revisar_dependencias.sh               # una vez al mes: vulnerabilidades y versiones nuevas (solo informa)
 venv/bin/uvicorn main:app --reload            # con recarga automática
 venv/bin/python -m scripts.demo --capturas    # rehace las capturas de este README
 ```
 
-Los tests de navegador necesitan Chromium: `venv/bin/playwright install chromium`; sin él, se saltan.
+Los tests de navegador necesitan Chromium: `venv/bin/playwright install chromium`; sin él, se saltan. En GitHub, cada
+subida pasa lint, unitarios y e2e (`.github/workflows/tests.yml`). `git commit --no-verify` salta el gancho.
 
 Está hecho con FastAPI, SQLite y JavaScript sin frameworks ni CDNs. La arquitectura se explica en [CLAUDE.md](CLAUDE.md) y el
 sistema de diseño, en [DESIGN.md](DESIGN.md).

@@ -6,6 +6,7 @@ Icono de la app: copia los SVG de assets/icons/app/ a static/icons/ y a la exten
 
 Necesita el Chromium que instala Playwright (~/.cache/ms-playwright) o la variable PLAYWRIGHT_CHROMIUM.
 """
+
 import glob
 import os
 import shutil
@@ -47,9 +48,13 @@ def main() -> None:
         page = browser.new_page(device_scale_factor=1)
         for svg, png, size in PNGS:
             page.set_viewport_size({"width": size, "height": size})
-            markup = (SRC / svg).read_text(encoding="utf-8").replace("<svg ", f'<svg width="{size}" height="{size}" ', 1)
+            markup = (
+                (SRC / svg).read_text(encoding="utf-8").replace("<svg ", f'<svg width="{size}" height="{size}" ', 1)
+            )
             page.set_content(f'<html><body style="margin:0;background:transparent">{markup}</body></html>')
-            page.screenshot(path=str(DST / png), omit_background=True, clip={"x": 0, "y": 0, "width": size, "height": size})
+            page.screenshot(
+                path=str(DST / png), omit_background=True, clip={"x": 0, "y": 0, "width": size, "height": size}
+            )
             print(f"static/icons/{png} ({size} px)")
         browser.close()
     print("SVG copiados a static/icons/ y a la extensión")

@@ -1,0 +1,40 @@
+# Plantilla del servicio de usuario del panel (S-5). La instala ./install.sh --service, que cambia @PANEL_DIR@ por la
+# carpeta del proyecto y la copia a ~/.config/systemd/user/. No la edites allí: cambia esta y vuelve a instalar.
+#
+# Protecciones: cada una probada con systemd-run --user contra una copia en el puerto 8811 (docs/servicio.md). El panel
+# necesita leer y escribir en ~ (dotfiles, ~/.ssh para subirlos con git), la carpeta de la universidad (/run/media),
+# el D-Bus de la sesión (playerctl) y poder abrir Firefox (una nota que pide el ESP32). Fuera, a propósito:
+#   - PrivateTmp, ProtectSystem, ProtectKernel*, ProtectControlGroups, ProtectHostname, ProtectClock, ProtectProc,
+#     BindPaths: en un servicio de USUARIO activan PrivateUsers; ssh ve /etc/ssh como de «nobody», se niega a leerlo
+#     y la subida de dotfiles y del panel falla.
+#   - CapabilityBoundingSet=: el gestor de usuario no puede aplicarlo (el servicio no arranca: 218/CAPABILITIES).
+#   - ProtectHome, PrivateDevices, MemoryDenyWriteExecute, RestrictNamespaces, SystemCallFilter: romperían ~, o
+#     Firefox si arranca desde el servicio (GPU, JIT, su propio sandbox).
+
+[Unit]
+Description=Panel Maestro
+Documentation=file://@PANEL_DIR@/docs/servicio.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=@PANEL_DIR@
+# start.sh lee PANEL_HOST, PANEL_PORT, PANEL_SSL_CERT y PANEL_SSL_KEY del .env (docs/HTTPS.md)
+ExecStart=@PANEL_DIR@/start.sh
+Restart=on-failure
+RestartSec=5
+
+# Lo que crea el panel solo lo lee este usuario (S-6; main.py también lo pone)
+UMask=0077
+# Ni setuid/setgid ni capacidades nuevas para nada que lance (git, bash, playerctl)
+NoNewPrivileges=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+# Red (IPv4/IPv6), sockets locales (D-Bus, Wayland) y netlink (lo usa la resolución de nombres)
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+
+[Install]
+WantedBy=default.target

@@ -2,10 +2,11 @@
 Utilidades de las notas sin rutas: límites, identificadores y rutas de archivo, categorías, flashcards del texto e
 índices automáticos por área. No depende de ningún router: lo importan todos los que tocan notas.
 """
+
 import os
 import re
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import frontmatter
 from fastapi import HTTPException
@@ -26,8 +27,9 @@ MAX_TAGS = 50
 
 def extract_wiki_links(content: str) -> list[str]:
     # [[tarea:N]] / [[idea:N]] enlazan elementos de la lista, no notas (app/links.py)
-    raw = [r for r in re.findall(r'\[\[(.+?)\]\]', content) if not re.fullmatch(r'(?:tarea|idea|rutina|item):\d+', r)]
-    return [r.lower().replace(' ', '-').replace('/', '-') for r in raw]
+    raw = [r for r in re.findall(r"\[\[(.+?)\]\]", content) if not re.fullmatch(r"(?:tarea|idea|rutina|item):\d+", r)]
+    return [r.lower().replace(" ", "-").replace("/", "-") for r in raw]
+
 
 def split_category_path(cat_raw: str) -> list[str]:
     """
@@ -39,8 +41,8 @@ def split_category_path(cat_raw: str) -> list[str]:
 
     if not cat_raw or not cat_raw.strip():
         return ["Sin categoría"]
-    normalized = cat_raw.replace('->', ' - ')
-    parts = [p.strip() for p in re.split(r'\s+-\s+', normalized) if p.strip()]
+    normalized = cat_raw.replace("->", " - ")
+    parts = [p.strip() for p in re.split(r"\s+-\s+", normalized) if p.strip()]
     return parts or ["Sin categoría"]
 
 
@@ -54,7 +56,7 @@ def normalize_item_type(item_type: str) -> str:
 
 def slugify(name: str) -> str:
     # Nunca debe producir separadores de ruta: el resultado se usa como nombre de archivo.
-    slug = re.sub(r"[\\/\x00]+", "-", name.lower().strip()).replace(' ', '-')
+    slug = re.sub(r"[\\/\x00]+", "-", name.lower().strip()).replace(" ", "-")
     return re.sub(r"\.{2,}", "-", slug).strip(".") or "sin-nombre"
 
 
@@ -79,18 +81,18 @@ def note_path(note_id: str) -> str:
 
 
 def today_str() -> str:
-    return datetime.now(timezone.utc).astimezone().strftime('%Y-%m-%d')
+    return datetime.now(UTC).astimezone().strftime("%Y-%m-%d")
 
 
 def sync_flashcards(note_id: str, content: str):
     """Extrae líneas 'pregunta >> respuesta' del contenido y sincroniza la
     tabla flashcards: crea las nuevas, borra las que ya no existen en el texto."""
-    pattern = re.compile(r'^\s*(.+?)\s*>>\s*(.+?)\s*$', re.MULTILINE)
+    pattern = re.compile(r"^\s*(.+?)\s*>>\s*(.+?)\s*$", re.MULTILINE)
     found = [(q.strip(), a.strip()) for q, a in pattern.findall(content) if q.strip() and a.strip()]
 
     with get_db() as conn:
         existing = conn.execute("SELECT id, question FROM flashcards WHERE note_id=?", (note_id,)).fetchall()
-        existing_questions = {r['question']: r['id'] for r in existing}
+        existing_questions = {r["question"]: r["id"] for r in existing}
         found_questions = {q for q, _ in found}
 
         for old_q, old_id in existing_questions.items():
@@ -101,10 +103,13 @@ def sync_flashcards(note_id: str, content: str):
             if q in existing_questions:
                 conn.execute("UPDATE flashcards SET answer=? WHERE id=?", (a, existing_questions[q]))
             else:
-                conn.execute('''
+                conn.execute(
+                    """
                     INSERT INTO flashcards (note_id, question, answer, next_review)
                     VALUES (?, ?, ?, ?)
-                ''', (note_id, q, a, time.time()))
+                """,
+                    (note_id, q, a, time.time()),
+                )
         conn.commit()
 
 
@@ -169,7 +174,7 @@ def update_index_for_area(area: str):
     auto_block = AUTO_START + "\n" + "\n".join(render_tree(build_category_tree(area_notes))) + "\n" + AUTO_END
 
     if os.path.exists(filepath):
-        with open(filepath, "r", encoding="utf-8") as f:
+        with open(filepath, encoding="utf-8") as f:
             post = frontmatter.load(f)
     else:
         post = frontmatter.Post("")
@@ -183,8 +188,9 @@ def update_index_for_area(area: str):
     content = post.content or ""
     if AUTO_START in content and AUTO_END in content:
         # con función: una barra invertida en un título no es un escape de la sustitución
-        content = re.sub(re.escape(AUTO_START) + r".*?" + re.escape(AUTO_END),
-                         lambda _: auto_block, content, flags=re.DOTALL)
+        content = re.sub(
+            re.escape(AUTO_START) + r".*?" + re.escape(AUTO_END), lambda _: auto_block, content, flags=re.DOTALL
+        )
     else:
         content = (content.rstrip() + "\n\n" + auto_block) if content.strip() else auto_block
     post.content = content
@@ -192,5 +198,17 @@ def update_index_for_area(area: str):
     atomic_write(filepath, frontmatter.dumps(post))
 
     with get_db() as conn:
-        upsert_note(conn, {"id": note_id, "title": post["title"], "category": area, "category_id": valid_category(conn, post.get("category_id")),
-                           "tags": "", "content": content, "status": "indice", "encrypted": 0, "last_modified": os.path.getmtime(filepath)})
+        upsert_note(
+            conn,
+            {
+                "id": note_id,
+                "title": post["title"],
+                "category": area,
+                "category_id": valid_category(conn, post.get("category_id")),
+                "tags": "",
+                "content": content,
+                "status": "indice",
+                "encrypted": 0,
+                "last_modified": os.path.getmtime(filepath),
+            },
+        )

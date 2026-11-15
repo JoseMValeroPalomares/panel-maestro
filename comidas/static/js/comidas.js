@@ -816,12 +816,14 @@ function renderIngredients() {
       <td><button type="button" class="link-btn" data-edit-ing="${i.id}">${escapeHtml(i.nombre)}</button>
         ${!i.kcal_check.ok ? `<span class="warn-dot" title="Declaradas ${num(i.kcal_check.kcal)} kcal; por macros serían ${num(i.kcal_check.esperadas)}">${icon('triangle-alert', 'icon-sm')}</span>` : ''}</td>
       <td class="hide-mobile"><span class="tag">${escapeHtml(CAT_LABELS[i.categoria] || i.categoria)}</span></td>
-      <td class="num">${num(i.kcal_100g)}</td><td class="num">${num(i.proteinas_100g, 1)}</td><td class="num">${num(i.carbohidratos_100g, 1)}</td><td class="num">${num(i.grasas_100g, 1)}</td>
+      ${[['kcal_100g', 0, 'kcal'], ['proteinas_100g', 1, 'proteínas'], ['carbohidratos_100g', 1, 'hidratos'], ['grasas_100g', 1, 'grasas']].map(([k, d, l]) =>
+        `<td class="num"><button type="button" class="ing-cell tabular" data-ing-cell="${k}" data-ing="${i.id}" aria-label="${escapeHtml(i.nombre)}: ${l} ${num(i[k], d)}; cambiar" title="Cambiar (Intro guarda, Esc cancela)">${num(i[k], d)}</button></td>`).join('')}
       <td class="num hide-mobile">${i.gramos_por_unidad ? num(i.gramos_por_unidad) : '—'}</td>
       <td class="num"><button type="button" class="btn btn-ghost btn-icon btn-sm" data-ing-menu="${i.id}" aria-label="Acciones de ${escapeHtml(i.nombre)}" aria-haspopup="menu">${icon('ellipsis', 'icon-sm')}</button></td>
     </tr>`).join('')}</tbody></table></div>
     <p class="tiny subtle" style="margin-top:var(--sp-2)">${items.length} de ${allIngredients.length} · valores por 100 g</p>`;
   $('ingredientsTable').querySelectorAll('[data-edit-ing]').forEach(b => b.addEventListener('click', () => openIngredientForm(parseInt(b.dataset.editIng, 10))));
+  $('ingredientsTable').querySelectorAll('[data-ing-cell]').forEach(b => b.addEventListener('click', () => editIngredientCell(b)));
   $('ingredientsTable').querySelectorAll('[data-ing-menu]').forEach(b => b.addEventListener('click', () => {
     const ing = allIngredients.find(x => x.id === parseInt(b.dataset.ingMenu, 10));
     openMenu(b, [
@@ -1154,8 +1156,9 @@ function renderBodyTable() {
       <td><button type="button" class="btn btn-ghost btn-icon btn-sm" data-body-del="${r.fecha}" aria-label="Borrar el registro del ${r.fecha}">${icon('trash-2', 'icon-sm')}</button></td></tr>`).join('')}</tbody></table></div>`
     : '<p class="small muted">Sin registros.</p>';
   $('bodyTable').querySelectorAll('[data-body-del]').forEach(b => b.addEventListener('click', async () => {
-    await api(`${API}/body/${b.dataset.bodyDel}`, { method: 'DELETE' });
+    const res = await api(`${API}/body/${b.dataset.bodyDel}`, { method: 'DELETE' });
     loadBody();
+    undoToast('Registro borrado', res, loadBody);
   }));
 }
 
@@ -1223,3 +1226,179 @@ $('btnAddFranja').addEventListener('click', async () => {
   switchTab(['plan', 'platos', 'compra', 'ingredientes', 'objetivos'].includes(tab) ? tab : 'plan');
   await Promise.all([loadPlan(), loadMeals(), loadIngredients(), loadProfile()]);
 })();
+
+
+/* =====================================================================
+   ALTAS RÁPIDAS (P-3): plato e ingrediente en una línea, y un valor del ingrediente en el sitio
+   ===================================================================== */
+const QF = 'comidas';
+// Un valor de la tabla de ingredientes, en el sitio (PATCH con la ficha entera: el servidor la pide completa)
+function editIngredientCell(btn) {
+  const ing = allIngredients.find(x => x.id === Number(btn.dataset.ing));
+  const key = btn.dataset.ingCell;
+  if (!ing) return;
+  Rapido.inline(btn, {
+    value: String(ing[key] ?? 0).replace('.', ','), label: btn.getAttribute('aria-label').replace('; cambiar', ''), width: '5.5em', type: 'text',
+    parse: (v) => { const n = Number(v.replace(',', '.')); return Number.isFinite(n) && n >= 0 && n <= (key === 'kcal_100g' ? 900 : 100) ? n : (toast('Escribe un número por 100 g', { type: 'info' }), null); },
+    onSave: async (n) => {
+      const body = { ...Object.fromEntries(['nombre', 'categoria', 'gramos_por_unidad', 'unidad_nombre', ...ING_FIELDS.map(([, k]) => k)].map(k => [k, ing[k]])), [key]: n };
+      await api(`${API}/ingredients/${ing.id}`, { method: 'PATCH', body });
+      await loadIngredients();
+      loadMeals();
+      document.querySelector(`[data-ing-cell="${key}"][data-ing="${ing.id}"]`)?.focus();
+    },
+  });
+}
+
+/* ---------- Plato ---------- */
+const qm = { ready: false, last: null };
+function quickMealBody() {
+  const b = { texto: $('qmLine').value.trim(), ingredientes: $('qmIngs').value, pasos: $('qmPasos').value };
+  if ($('qmFranja').value) b.franja = $('qmFranja').value;
+  if ($('qmTiempo').value !== '') b.tiempo_preparacion_min = Number($('qmTiempo').value) || 0;
+  if ($('qmUnica').checked) b.es_racion_unica = true;
+  return b;
+}
+const quickMealPreview = Rapido.preview(async () => {
+  const b = quickMealBody();
+  if (!b.texto) return null;
+  return api(`${API}/meals/rapido`, { method: 'POST', body: { ...b, dry_run: true }, quiet: true });
+}, (res) => {
+  qm.last = res && res.status === 'success' ? res : null;
+  if (!res || res.error) { $('qmPrev').innerHTML = res?.error ? Rapido.chips([{ icon: 'triangle-alert', text: res.error, kind: 'warn' }]) : ''; $('qmIngsPrev').innerHTML = ''; return; }
+  const p = res.preview;
+  $('qmPrev').innerHTML = Rapido.chips([
+    { icon: 'utensils', text: p.nombre },
+    { icon: FRANJA_ICONS[p.franja] || 'clock', text: p.franja_nombre, kind: 'plain' },
+    p.tiempo_preparacion_min && { icon: 'timer', text: `${p.tiempo_preparacion_min} min`, kind: 'plain' },
+    p.tags && { icon: 'tag', text: p.tags, kind: 'plain' },
+    p.ingredientes.length && { icon: 'flame', text: `${num(p.kcal_receta)} kcal la receta (${num(p.gramos_receta)} g)` },
+    p.pasos.length && { icon: 'list-ordered', text: `${p.pasos.length} paso${p.pasos.length > 1 ? 's' : ''}`, kind: 'plain' },
+    res.sin_reconocer.length && { icon: 'triangle-alert', text: `${res.sin_reconocer.length} por revisar`, kind: 'warn' },
+  ]);
+  $('qmIngsPrev').innerHTML = p.ingredientes.map(f => `<li class="${f.problema ? 'is-warn' : ''}">
+    <span class="qm-ing-name">${f.ingrediente ? escapeHtml(f.ingrediente.nombre) : escapeHtml(f.texto)}</span>
+    <span class="qm-ing-qty tabular">${f.problema ? escapeHtml(f.problema) : f.unidades ? `${num(f.unidades, 1)} ${escapeHtml(f.unidad_nombre || 'ud.')} · ${num(f.gramos)} g` : `${num(f.gramos)} g`}</span>
+    <span class="qm-ing-kcal tabular">${f.kcal != null ? `${num(f.kcal)} kcal` : ''}</span></li>`).join('');
+}, 250);
+function setupQuickMeal() {
+  if (qm.ready) return;
+  qm.ready = true;
+  $('qmFranja').innerHTML = '<option value="">Según lo escrito (comida)</option>' + FRANJAS.map(f => `<option value="${escapeHtml(f.key)}">${escapeHtml(f.label)}</option>`).join('');
+  Rapido.more($('qmMore'), QF + '-plato');
+  ['qmLine', 'qmIngs', 'qmPasos', 'qmTiempo'].forEach(id => $(id).addEventListener('input', () => quickMealPreview()));
+  ['qmFranja', 'qmUnica'].forEach(id => $(id).addEventListener('change', () => quickMealPreview()));
+  $('qmForm').addEventListener('submit', (e) => { e.preventDefault(); saveQuickMeal(false); });
+  $('qmForm').querySelectorAll('[data-qf-close]').forEach(b => b.addEventListener('click', closeQuickMeal));
+  Rapido.keys($('qmForm'), { save: () => saveQuickMeal(false), saveNew: () => saveQuickMeal(true), cancel: closeQuickMeal });
+}
+function openQuickMeal() {
+  setupQuickMeal();
+  $('qmPanel').hidden = false;
+  $('qmLine').focus();
+}
+function closeQuickMeal() { $('qmPanel').hidden = true; $('qmOpen').focus(); }
+// «Formulario completo»: el diálogo de siempre (foto, ración, ingredientes uno a uno), con el nombre ya puesto
+async function quickMealFull() {
+  const name = (qm.last?.preview?.nombre || $('qmLine').value).trim();
+  await openMealForm();
+  if (name) $('mealNombre').value = name;
+  (qm.last?.preview?.ingredientes || []).filter(f => f.ingrediente && f.gramos).forEach((f, i) => {
+    const data = { id: f.ingrediente.id, nombre: f.ingrediente.nombre, gramos: f.gramos, unidades: f.unidades };
+    const rows = $('ingredientRows').querySelectorAll('.ing-row');
+    if (rows[i] && !rows[i].querySelector('.ing-name').value) rows[i].remove();
+    addIngredientRow(data);
+  });
+  recalcMacros();
+}
+let qmSaving = false;
+async function saveQuickMeal(again) {
+  if (qmSaving) return;
+  const b = quickMealBody();
+  if (!b.texto) { toast('Escribe el nombre del plato', { type: 'info' }); $('qmLine').focus(); return; }
+  qmSaving = true;
+  $('qmSave').classList.add('is-loading');
+  let res;
+  try { res = await api(`${API}/meals/rapido`, { method: 'POST', body: b }); } catch { return; } finally { qmSaving = false; $('qmSave').classList.remove('is-loading'); }
+  toast(`Plato «${res.preview.nombre}» creado`);
+  $('qmForm').reset();
+  quickMealPreview.cancel();
+  $('qmPrev').innerHTML = ''; $('qmIngsPrev').innerHTML = '';
+  qm.last = null;
+  if (again) $('qmLine').focus(); else closeQuickMeal();
+  await loadMeals();
+  loadPlan();
+}
+
+/* ---------- Ingrediente ---------- */
+const qi = { ready: false };
+function quickIngBody() {
+  const b = { texto: $('qiLine').value.trim() };
+  if ($('qiCat').value) b.categoria = $('qiCat').value;
+  if (Number($('qiGpu').value) > 0) b.gramos_por_unidad = Number($('qiGpu').value);
+  if ($('qiUnidad').value.trim()) b.unidad_nombre = $('qiUnidad').value.trim();
+  return b;
+}
+const MACRO_TXT = [['kcal_100g', 'kcal', 0], ['proteinas_100g', 'P', 1], ['carbohidratos_100g', 'H', 1], ['grasas_100g', 'G', 1], ['grasas_saturadas_100g', 'sat.', 1], ['azucares_100g', 'azúc.', 1], ['sal_100g', 'sal', 2]];
+const quickIngPreview = Rapido.preview(async () => {
+  const b = quickIngBody();
+  if (!b.texto) return null;
+  return api(`${API}/ingredients/rapido`, { method: 'POST', body: { ...b, dry_run: true }, quiet: true });
+}, (res) => {
+  if (!res || res.error) { $('qiPrev').innerHTML = ''; return; }
+  const p = res.preview, ok = res.kcal_check?.ok !== false;
+  $('qiPrev').innerHTML = Rapido.chips([
+    { icon: 'apple', text: p.nombre || 'Falta el nombre', kind: p.nombre ? null : 'warn' },
+    { icon: 'tag', text: (CAT_LABELS[p.categoria] || p.categoria) + (p.categoria_adivinada && p.categoria !== 'General' ? ' (adivinada)' : ''), kind: 'plain' },
+    ...MACRO_TXT.filter(([k]) => p[k] != null).map(([k, l, d]) => ({ text: k === 'kcal_100g' ? `${num(p[k], d)} kcal` : `${l} ${num(p[k], d)} g`, kind: 'plain' })),
+    p.kcal_100g == null && { icon: 'triangle-alert', text: 'Faltan las kcal', kind: 'warn' },
+    p.kcal_100g != null && { icon: ok ? 'circle-check' : 'triangle-alert', text: ok ? 'Cuadra con los macros' : `Por macros serían ${num(res.kcal_check.esperadas)} kcal`, kind: ok ? 'plain' : 'warn' },
+  ]);
+}, 250);
+function setupQuickIngredient() {
+  if (qi.ready) return;
+  qi.ready = true;
+  $('qiCat').innerHTML = '<option value="">La que se adivine</option>' + Object.entries(CAT_LABELS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
+  $('qiCat').value = Rapido.defaults.get(QF, 'categoria', '') || '';
+  Rapido.more($('qiMore'), QF + '-ingrediente');
+  ['qiLine', 'qiGpu', 'qiUnidad'].forEach(id => $(id).addEventListener('input', () => quickIngPreview()));
+  $('qiCat').addEventListener('change', () => { Rapido.defaults.set(QF, 'categoria', $('qiCat').value); quickIngPreview(); });
+  $('qiForm').addEventListener('submit', (e) => { e.preventDefault(); saveQuickIngredient(false); });
+  $('qiForm').querySelectorAll('[data-qf-close]').forEach(b => b.addEventListener('click', closeQuickIngredient));
+  // La línea es un textarea para poder pegar la etiqueta entera; Intro guarda igual que en un campo de una línea
+  $('qiForm').addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeQuickIngredient(); return; }
+    if (e.key !== 'Enter' || e.shiftKey || e.isComposing || !e.target.matches('textarea, input')) return;
+    e.preventDefault();
+    saveQuickIngredient(e.ctrlKey || e.metaKey);
+  });
+}
+function openQuickIngredient() {
+  setupQuickIngredient();
+  $('qiPanel').hidden = false;
+  $('qiLine').focus();
+}
+function closeQuickIngredient() { $('qiPanel').hidden = true; $('qiOpen').focus(); }
+function quickIngredientFull() {
+  const name = $('qiLine').value.split(/\d|\n/)[0].trim();
+  openIngredientForm();
+  if (name) $('ingNombre').value = name;
+}
+let qiSaving = false;
+async function saveQuickIngredient(again) {
+  if (qiSaving) return;
+  const b = quickIngBody();
+  if (!b.texto) { toast('Escribe el nombre y sus valores', { type: 'info' }); $('qiLine').focus(); return; }
+  qiSaving = true;
+  $('qiSave').classList.add('is-loading');
+  let res;
+  try { res = await api(`${API}/ingredients/rapido`, { method: 'POST', body: b }); } catch { return; } finally { qiSaving = false; $('qiSave').classList.remove('is-loading'); }
+  if (res.error) { toast(res.error, { type: 'error' }); return; }
+  toast(`Ingrediente «${res.preview.nombre}» creado`);
+  $('qiLine').value = ''; $('qiGpu').value = ''; $('qiUnidad').value = '';
+  quickIngPreview.cancel();
+  $('qiPrev').innerHTML = '';
+  if (again) $('qiLine').focus(); else closeQuickIngredient();
+  await loadIngredients();
+  loadMeals();
+}

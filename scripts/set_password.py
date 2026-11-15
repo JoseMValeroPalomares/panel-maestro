@@ -9,38 +9,30 @@ Fija (o cambia) la contraseña del panel y, opcionalmente, un token de API.
 Escribe PANEL_PASSWORD_HASH (scrypt), PANEL_SESSION_SECRET y, si se pide,
 PANEL_API_TOKEN_HASH en .env. Cambiar la contraseña cierra todas las sesiones.
 """
+
 import argparse
 import getpass
 import secrets
 import sys
 
-from core.config import PROJECT_ROOT
+from core.config import ENV_FILE as ENV_PATH
+from core.envfile import update_env as _update_env
 from core.security import hash_api_token, hash_password
-
-ENV_PATH = PROJECT_ROOT / ".env"
 
 
 def update_env(values: dict[str, str]) -> None:
-    lines = ENV_PATH.read_text(encoding="utf-8").splitlines() if ENV_PATH.exists() else []
-    pending = dict(values)
-    out = []
-    for line in lines:
-        key = line.split("=", 1)[0].strip()
-        if key in pending:
-            out.append(f"{key}={pending.pop(key)}")
-        else:
-            out.append(line)
-    out.extend(f"{k}={v}" for k, v in pending.items())
-    ENV_PATH.write_text("\n".join(out) + "\n", encoding="utf-8")
-    ENV_PATH.chmod(0o600)
+    _update_env(values, ENV_PATH)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--generate", action="store_true", help="genera una contraseña aleatoria")
     parser.add_argument("--api-token", action="store_true", help="genera también un token de API")
-    parser.add_argument("--solo-token", action="store_true",
-                        help="genera solo un token de API nuevo (p. ej. para la extensión de Firefox); el anterior deja de valer")
+    parser.add_argument(
+        "--solo-token",
+        action="store_true",
+        help="genera solo un token de API nuevo (p. ej. para la extensión de Firefox); el anterior deja de valer",
+    )
     args = parser.parse_args()
 
     if args.solo_token:

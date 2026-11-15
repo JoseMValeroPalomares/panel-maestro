@@ -4,7 +4,7 @@
 {% macro capture_form(id, rows=2, compact=False) -%}
 <form class="capture-form{% if compact %} is-compact{% endif %}" id="{{ id }}" data-capture>
   <label class="sr-only" for="{{ id }}-text">Nueva tarea o idea</label>
-  <textarea id="{{ id }}-text" class="textarea" rows="{{ rows }}" maxlength="20000" data-capture-text placeholder="Una tarea o idea (e: para eventos)"></textarea>
+  <textarea id="{{ id }}-text" class="textarea" rows="{{ rows }}" maxlength="20000" data-capture-text placeholder="Tarea o idea: «dentista vie 10:00 !alta»" aria-describedby="{{ id }}-preview"></textarea>
   <div class="row capture-row">
     <div class="segmented" role="group" aria-label="Tipo">
       <button type="button" data-capture-type="tarea" aria-pressed="true">{{ icon('square-check', 'icon-sm') }}Tarea</button>
@@ -13,9 +13,30 @@
     </div>
     <span class="grow"></span>
     <span class="tiny subtle tabular" data-capture-count></span>
-    <span class="tiny subtle hide-mobile capture-hint"><kbd>Ctrl</kbd>+<kbd>Enter</kbd></span>
+    <span class="tiny subtle hide-mobile capture-hint"><kbd>Intro</kbd> guarda · <kbd>Ctrl</kbd>+<kbd>Intro</kbd> y otra</span>
     <button type="submit" class="btn btn-primary btn-sm">Guardar</button>
   </div>
+  <p class="qf-preview capture-preview" id="{{ id }}-preview" data-capture-preview aria-live="polite" hidden></p>
+  <details class="qf-more capture-more" data-capture-more>
+    <summary>{{ icon('chevron-right', 'icon-sm') }}Más opciones</summary>
+    <div class="capture-opts">
+      <div class="capture-opt" data-opt-when>
+        <span class="qf-label" id="{{ id }}-dia">Día</span>
+        <div class="chips capture-days" role="group" aria-labelledby="{{ id }}-dia" data-opt-days></div>
+      </div>
+      <div class="capture-opt-row">
+        <label class="capture-opt" data-opt-when><span class="qf-label">Hora</span>
+          <input class="input input-sm tabular capture-time" data-opt-time inputmode="numeric" maxlength="5" placeholder="10:00" autocomplete="off"></label>
+        <div class="capture-opt" data-opt-when><span class="qf-label" id="{{ id }}-dur">Duración</span>
+          <div class="chips" role="group" aria-labelledby="{{ id }}-dur">{% for m, l in [(15, '15 min'), (30, '30 min'), (60, '1 h'), (90, '1 h 30')] %}<button type="button" class="chip chip-sm" data-opt-dur="{{ m }}" aria-pressed="false">{{ l }}</button>{% endfor %}</div></div>
+        <div class="capture-opt"><span class="qf-label" id="{{ id }}-prio">Prioridad</span>
+          <div class="chips" role="group" aria-labelledby="{{ id }}-prio">{% for k, l in [('alta', 'Alta'), ('media', 'Media'), ('baja', 'Baja')] %}<button type="button" class="chip chip-sm" data-opt-prio="{{ k }}" aria-pressed="false">{{ l }}</button>{% endfor %}</div></div>
+        <label class="capture-opt"><span class="qf-label">Categoría</span>
+          <input class="input input-sm" data-opt-cat maxlength="60" list="{{ id }}-cats" placeholder="Sin categoría" autocomplete="off"><datalist id="{{ id }}-cats"></datalist></label>
+      </div>
+      <p class="tiny muted capture-tokens">También escribiendo: «viernes 10:00 30m», <code>!alta</code>, <code>+Salud</code>, <code>@asignatura</code>, <code>#proyecto</code>.</p>
+    </div>
+  </details>
   <div class="capture-repeat" data-capture-repeat hidden>
     <span data-capture-days></span>
     <label class="sr-only" for="{{ id }}-time">Hora (opcional)</label>

@@ -7,6 +7,7 @@ Migraciones versionadas de las BDs del panel.
 
 Haz una copia antes de revertir (/backups o `cp data/brain.db{,.bak}`).
 """
+
 import argparse
 import sqlite3
 
@@ -17,6 +18,7 @@ from core.migrations import apply_pending, revert, status
 def registry():
     from app.migrations import MIGRATIONS as CEREBRO
     from comidas.migrations import MIGRATIONS as COMIDAS
+
     return {"cerebro": (config.BRAIN_DB, CEREBRO), "comidas": (config.COMIDAS_DB, COMIDAS)}
 
 

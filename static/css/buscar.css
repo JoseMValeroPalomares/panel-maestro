@@ -21,3 +21,14 @@
 .idle-block + .idle-block { margin-top: var(--sp-4); }
 .idle-h { display: flex; align-items: center; justify-content: space-between; font-size: var(--fs-15); margin: 0; color: var(--text-2); }
 .idle-block .chips { flex-wrap: wrap; }
+
+/* Búsqueda única (F-3): un grupo por tipo, con su azulejo */
+.result-group + .result-group { margin-top: var(--sp-4); }
+.result-group-title { display: flex; align-items: center; gap: var(--sp-2); }
+.result-group-title .tile { width: 24px; height: 24px; border-radius: 7px; }
+.result-group-title .tile .icon { width: 14px; height: 14px; }
+.result-list .list-row > .tile { flex: none; margin-top: 1px; }
+.ctx-note { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: var(--sp-1) var(--sp-2); margin: 0; color: var(--text-2); }
+.ctx-note[hidden] { display: none; }
+@media (max-width: 479px) { .ctx-note { align-items: start; } .ctx-note .icon { margin-top: 2px; } .ctx-note .btn { grid-column: 2; justify-self: start; margin-left: calc(-1 * var(--sp-3)); } }
+.result-group .row-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }

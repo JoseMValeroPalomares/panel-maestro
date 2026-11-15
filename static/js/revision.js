@@ -31,7 +31,27 @@
         <span class="tiny muted tabular">${new Date(r.at * 1000).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</span></li>`).join('')}</ul>`).join('');
     };
     $('revList').innerHTML = w.hechas.length ? group(w.hechas) : '<p class="small muted">Nada completado esta semana.</p>';
+    loadTime(w.from, w.to);
     $('revRut').innerHTML = w.rutinas.length ? group(w.rutinas) : '<p class="small muted">Ninguna rutina cumplida esta semana.</p>';
+  }
+
+  // Lo cronometrado con el contador (P-2): una barra por día y lo que más tiempo se llevó
+  const hm = (sec, largo = false) => { const m = Math.round(sec / 60); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60}${largo ? ' min' : ''}` : ''}`; };
+  async function loadTime(from, to) {
+    let t;
+    try { t = await api(`/api/contador/tiempos?desde=${from}&hasta=${to}`, { quiet: true }); } catch { $('revTime').innerHTML = '<p class="small muted">No se pudo cargar el tiempo.</p>'; return; }
+    if (!t.total) { $('revTime').innerHTML = '<p class="small muted">Nada cronometrado esta semana. Empieza el contador desde el menú de una tarea o con Ctrl K → «Empezar contador».</p>'; return; }
+    const days = Object.entries(t.por_dia);
+    const max = Math.max(1, ...days.map(([, v]) => v));
+    $('revTime').innerHTML = `<p><b class="tabular">${hm(t.total, true)}</b> en total</p>
+      <div class="rev-bars rev-bars-time" role="img" aria-label="Tiempo por día: ${days.map(([, v], i) => `${DOW[i]} ${hm(v)}`).join(', ')}">
+        ${days.map(([d, v], i) => `<div class="rev-day" title="${fmt(d, { weekday: 'long', day: 'numeric' })}: ${hm(v)}">
+          <span class="rev-val tabular">${v >= 60 ? hm(v) : ''}</span><span class="rev-bar" style="height:${Math.round(v / max * 100)}%"></span>
+          <span class="rev-dow">${DOW[i]}</span><span></span></div>`).join('')}</div>
+      <h4 class="hoy-h3">Lo que más tiempo se llevó</h4><ul class="hoy-list">${t.elementos.slice(0, 8).map((e) => `<li class="hoy-row">
+        ${icon(e.tipo === 'libre' ? 'timer' : e.tipo === 'idea' ? 'lightbulb' : e.tipo === 'tarea' ? 'square-check' : 'repeat', 'icon-sm')}
+        ${e.existe ? `<a class="hoy-title" href="/tareas?item=${e.item_id}">${esc(e.titulo)}</a>` : `<span class="hoy-title">${esc(e.titulo)}${e.existe === false ? ' <span class="tiny muted">(ya no existe)</span>' : ''}</span>`}
+        <span class="tiny muted tabular">${hm(e.segundos, true)}</span></li>`).join('')}</ul>`;
   }
 
   let before = null;

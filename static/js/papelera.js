@@ -20,7 +20,8 @@
 
   function paint() {
     const labels = [...new Set(entries.map((e) => e.label))];
-    $('trashFilter').innerHTML = labels.length > 1 ? [['', 'Todo'], ...labels.map((l) => [l, l[0].toUpperCase() + l.slice(1) + 's'])]
+    const plural = (l) => { const p = entries.find((e) => e.label === l)?.plural || `${l}s`; return p[0].toUpperCase() + p.slice(1); };
+    $('trashFilter').innerHTML = labels.length > 1 ? [['', 'Todo'], ...labels.map((l) => [l, plural(l)])]
       .map(([k, l]) => `<button type="button" class="chip" data-f="${escapeHtml(k)}" aria-pressed="${filter === k}">${escapeHtml(l)}</button>`).join('') : '';
     const list = entries.filter((e) => !filter || e.label === filter);
     $('trashEmpty').hidden = !entries.length;  // oculto (no deshabilitado) cuando no hay nada

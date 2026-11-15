@@ -1,4 +1,5 @@
 """Hoy, estado de conexiones e índice de la paleta."""
+
 from datetime import date
 
 
@@ -27,7 +28,7 @@ def test_indice_de_la_paleta(client):
     idx = client.get("/api/palette/index").json()
     assert any(n["id"] == "nota-inicial" for n in idx["notes"])
     assert any(i["text"] == "Buscar con Ctrl+K" and i["type"] == "idea" for i in idx["items"])
-    assert set(idx) == {"notes", "items", "meals", "events"}
+    assert set(idx) == {"notes", "items", "meals", "events", "asignaturas", "temas", "proyectos"}
 
 
 def test_portada_de_notas(client):

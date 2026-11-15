@@ -58,8 +58,37 @@
 <section id="tab-platos" class="tab-panel" role="tabpanel" aria-label="Platos" hidden>
   <div class="list-toolbar">
     <div class="search grow">{{ icon('search') }}<input type="search" id="mealSearch" class="input" placeholder="Buscar platos" aria-label="Buscar platos"></div>
-    <button type="button" class="btn btn-primary" data-call="openMealForm">{{ icon('plus') }}<span>Nuevo plato</span></button>
+    <button type="button" class="btn btn-primary" id="qmOpen" data-call="openQuickMeal">{{ icon('plus') }}<span>Nuevo plato</span></button>
   </div>
+  <section class="panel qf-panel" id="qmPanel" aria-labelledby="qmTitle" hidden>
+    <form class="qf" id="qmForm" autocomplete="off" novalidate>
+      <div class="row"><h2 class="section-title grow" id="qmTitle" style="margin:0">Nuevo plato</h2>
+        <button type="button" class="btn btn-ghost btn-sm" data-call="quickMealFull" aria-label="Formulario completo" title="Formulario completo (foto, ración…)">{{ icon('square-pen', 'icon-sm') }}<span class="hide-mobile">Formulario completo</span></button>
+        <button type="button" class="btn btn-ghost btn-icon btn-sm" data-qf-close aria-label="Cerrar sin crear">{{ icon('x', 'icon-sm') }}</button></div>
+      <label class="qf-label" for="qmLine">Nombre <span class="subtle">(y, si quieres, franja, tiempo y +etiquetas)</span></label>
+      <input id="qmLine" class="input qf-line" maxlength="300" placeholder="Tortilla de patatas cena 30 min +casera" aria-describedby="qmPrev">
+      <p class="qf-preview" id="qmPrev" aria-live="polite" data-empty="Escribe el nombre del plato."></p>
+      <label class="qf-label" for="qmIngs">Ingredientes, uno por línea</label>
+      <textarea id="qmIngs" class="textarea" rows="4" maxlength="20000" placeholder="3 huevos&#10;300 g patata&#10;cebolla 50" aria-describedby="qmIngsHelp"></textarea>
+      <p class="tiny muted" id="qmIngsHelp">Cantidad y nombre en cualquier orden: g, kg, ml o unidades («3 huevos»). Se buscan en tus ingredientes; pegar una lista los mete todos.</p>
+      <ul class="qm-ings" id="qmIngsPrev" aria-label="Ingredientes reconocidos"></ul>
+      <label class="qf-label" for="qmPasos">Pasos, uno por línea <span class="subtle">(opcional)</span></label>
+      <textarea id="qmPasos" class="textarea" rows="2" maxlength="40000" placeholder="Freír las patatas&#10;Cuajar con el huevo"></textarea>
+      <details class="qf-more" id="qmMore">
+        <summary>{{ icon('chevron-right', 'icon-sm') }}Más opciones</summary>
+        <div class="qf-more-body">
+          <label class="field"><span class="field-label">Franja</span><select id="qmFranja" class="select"><option value="">Según lo escrito (comida)</option></select></label>
+          <label class="field"><span class="field-label">Tiempo (min)</span><input id="qmTiempo" type="number" class="input input-sm" min="0" max="10000" placeholder="—"></label>
+          <label class="field row-field"><input type="checkbox" id="qmUnica" class="switch"><span>La receta entera es una ración</span></label>
+        </div>
+      </details>
+      <div class="qf-actions">
+        <span class="tiny subtle hide-mobile qf-keys"><kbd>Intro</kbd> en una línea vacía crea · <kbd>Ctrl</kbd>+<kbd>Intro</kbd> crea y empieza otro · <kbd>Esc</kbd> cierra</span>
+        <button type="button" class="btn btn-sm" data-qf-close>Cancelar</button>
+        <button type="submit" class="btn btn-primary btn-sm" id="qmSave">Crear plato</button>
+      </div>
+    </form>
+  </section>
   <div class="chips chips-scroll" id="franjaChips" role="group" aria-label="Franja">
     <button type="button" class="chip" data-franja="" aria-pressed="true">Todas</button>
     <button type="button" class="chip" data-franja="desayuno" aria-pressed="false">Desayuno</button>
@@ -85,8 +114,31 @@
 <section id="tab-ingredientes" class="tab-panel" role="tabpanel" aria-label="Ingredientes" hidden>
   <div class="list-toolbar">
     <div class="search grow">{{ icon('search') }}<input type="search" id="ingSearch" class="input" placeholder="Buscar ingredientes" aria-label="Buscar ingredientes"></div>
-    <button type="button" class="btn btn-primary" data-call="openIngredientForm">{{ icon('plus') }}<span>Nuevo ingrediente</span></button>
+    <button type="button" class="btn btn-primary" id="qiOpen" data-call="openQuickIngredient">{{ icon('plus') }}<span>Nuevo ingrediente</span></button>
   </div>
+  <section class="panel qf-panel" id="qiPanel" aria-labelledby="qiTitle" hidden>
+    <form class="qf" id="qiForm" autocomplete="off" novalidate>
+      <div class="row"><h2 class="section-title grow" id="qiTitle" style="margin:0">Nuevo ingrediente</h2>
+        <button type="button" class="btn btn-ghost btn-sm" data-call="quickIngredientFull" aria-label="Formulario completo" title="Formulario completo (saturadas, azúcares, sal…)">{{ icon('square-pen', 'icon-sm') }}<span class="hide-mobile">Formulario completo</span></button>
+        <button type="button" class="btn btn-ghost btn-icon btn-sm" data-qf-close aria-label="Cerrar sin crear">{{ icon('x', 'icon-sm') }}</button></div>
+      <label class="qf-label" for="qiLine">Nombre y valores por 100 g <span class="subtle">(kcal, proteínas, hidratos, grasas)</span></label>
+      <textarea id="qiLine" class="textarea qf-line" rows="1" maxlength="5000" placeholder="Avena 389 16,9 66,3 6,9 — o pega la tabla de la etiqueta" aria-describedby="qiPrev"></textarea>
+      <p class="qf-preview" id="qiPrev" aria-live="polite" data-empty="Los números sueltos van en orden: kcal, proteínas, hidratos y grasas. También «p 16,9», «grasas 6,9 g»…"></p>
+      <details class="qf-more" id="qiMore">
+        <summary>{{ icon('chevron-right', 'icon-sm') }}Más opciones</summary>
+        <div class="qf-more-body">
+          <label class="field"><span class="field-label">Categoría</span><select id="qiCat" class="select"><option value="">La que se adivine</option></select></label>
+          <label class="field"><span class="field-label">Gramos por unidad</span><input id="qiGpu" type="number" class="input input-sm" min="0" max="5000" step="0.1" placeholder="60"></label>
+          <label class="field"><span class="field-label">Nombre de la unidad</span><input id="qiUnidad" class="input input-sm" maxlength="40" placeholder="huevo"></label>
+        </div>
+      </details>
+      <div class="qf-actions">
+        <span class="tiny subtle hide-mobile qf-keys"><kbd>Intro</kbd> crea · <kbd>Ctrl</kbd>+<kbd>Intro</kbd> crea y empieza otro · <kbd>Esc</kbd> cierra</span>
+        <button type="button" class="btn btn-sm" data-qf-close>Cancelar</button>
+        <button type="submit" class="btn btn-primary btn-sm" id="qiSave">Crear ingrediente</button>
+      </div>
+    </form>
+  </section>
   <div class="chips chips-scroll" id="ingCatChips" role="group" aria-label="Categoría"></div>
   <div id="ingValidation"></div>
   <div id="ingredientsTable"></div>

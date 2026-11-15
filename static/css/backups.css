@@ -16,6 +16,9 @@
 .status-facts div { background: var(--bg-elev-2); border-radius: var(--r-sm); padding: var(--sp-3); min-width: 0; }
 .status-facts dt { font-size: var(--fs-12); color: var(--text-2); font-weight: 500; }
 .status-facts dd { margin: 2px 0 0; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.status-facts .fact-wide { grid-column: 1 / -1; }
+.status-facts .fact-wide[data-state="error"] dd { color: var(--warning-text); }
+.status-facts .fact-note { display: block; margin-top: 2px; font-size: var(--fs-12); font-weight: 400; color: var(--text-2); }
 
 .backup-list .list-row { min-height: 64px; flex-wrap: wrap; }
 .backup-list .row-sub { white-space: normal; }

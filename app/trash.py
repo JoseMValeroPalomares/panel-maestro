@@ -1,9 +1,12 @@
 """
-Papelera única: lo borrado de notas, tareas/ideas/rutinas, eventos, platos, ingredientes y
-comidas del plan (suelto o en lote) queda 30 días en el `undo_log` de su BD (core/undo.py),
+Papelera única: lo borrado de notas, tareas/ideas/rutinas, eventos, platos, ingredientes,
+comidas del plan, economía, rendimiento y los tipos «rows.*» de ROW_KINDS (recursos del Baúl,
+tableros con su lienzo, plantillas, filtros, proyectos, versiones, asignaturas, temas,
+categorías, peso) queda 30 días en el `undo_log` de su BD (core/undo.py),
 con las notas movidas a data/trash/<token>/. Desde aquí se lista, se restaura y se vacía
 (entrada a entrada o entera). Cada día a las 03:40 se purga lo que pasa de 30 días.
 """
+
 import json
 import shutil
 import time
@@ -12,6 +15,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.database import get_db
 from core import config, undo
+from core.files import atomic_write
 from core.logging_config import get_logger
 
 log = get_logger("trash")
@@ -32,12 +36,43 @@ KINDS = {
     ("brain", "rendimiento.dia"): ("registro de rendimiento", "activity"),
 }
 
+# Borrados que solo hay que volver a meter (core/undo.save_rows): tipo → (etiqueta, icono). Valen en las dos BDs
+ROW_KINDS = {
+    "rows.recurso": ("recurso del Baúl", "bookmark"),
+    "rows.tablero": ("tablero", "layout-dashboard"),
+    "rows.plantilla-tablero": ("plantilla de tablero", "layout-template"),
+    "rows.plantilla-rutina": ("plantilla de rutina", "repeat"),
+    "rows.plantilla-dia": ("plantilla de día", "calendar-range"),
+    "rows.filtro": ("filtro guardado", "list-filter"),
+    "rows.categoria": ("categoría", "folder-tree"),
+    "rows.proyecto": ("proyecto", "rocket"),
+    "rows.version": ("versión de proyecto", "milestone"),
+    "rows.asignatura": ("asignatura", "school"),
+    "rows.tema": ("tema", "book-open"),
+    "rows.plantilla-comida": ("plantilla de comidas", "utensils"),
+    "rows.peso": ("registro de peso", "scale"),
+}
+
+
+def plural(label: str) -> str:
+    """«plantilla de tablero» → «plantillas de tablero», «versión de proyecto» → «versiones de proyecto»."""
+    if label == "filtro guardado":
+        return "filtros guardados"
+    first, _, rest = label.partition(" ")
+    first = first[:-2] + "ones" if first.endswith("ón") else first + ("s" if first[-1] in "aeiouáéó" else "es")
+    return f"{first} {rest}".strip()
+
+
+def _meta(db: str, kind: str):
+    return KINDS.get((db, kind)) or ROW_KINDS.get(kind)
+
 
 def _db(name: str):
     if name == "brain":
         return get_db()
     if name == "comidas":
         from comidas.database import get_db as comidas_db
+
         return comidas_db()
     raise HTTPException(status_code=404, detail="Papelera desconocida")
 
@@ -50,7 +85,7 @@ def _item_label(conn, token: str) -> tuple[str, str] | None:
     try:
         rows = json.loads(row["payload"])["rows"]
         types = {r.get("item_type") or "tarea" for r in rows if r.get("parent_id") is None or len(rows) == 1}
-    except (TypeError, ValueError, KeyError):
+    except (TypeError, ValueError, KeyError, AttributeError):  # carga rara: etiqueta genérica, sin romper la lista
         return None
     return ITEM_LABELS.get(types.pop()) if len(types) == 1 else None
 
@@ -60,14 +95,22 @@ def list_entries() -> list[dict]:
     for name in ("brain", "comidas"):
         with _db(name) as conn:
             for e in undo.entries(conn):
-                meta = KINDS.get((name, e["kind"]))
+                meta = _meta(name, e["kind"])
                 if not meta:
                     continue  # otros «deshacer» internos (ediciones en lote…)
                 label, iconn = meta
                 if (name, e["kind"]) == ("brain", "items"):  # una idea o una rutina no es «tarea»
                     label, iconn = _item_label(conn, e["token"]) or meta
-                out.append({**e, "db": name, "label": label, "icon": iconn,
-                            "expires_at": e["created_at"] + undo.TTL_S})
+                out.append(
+                    {
+                        **e,
+                        "db": name,
+                        "label": label,
+                        "plural": plural(label),
+                        "icon": iconn,
+                        "expires_at": e["created_at"] + undo.TTL_S,
+                    }
+                )
     return sorted(out, key=lambda e: -e["created_at"])
 
 
@@ -76,29 +119,39 @@ def restore(db: str, token: str) -> dict:
         kind = next((e["kind"] for e in undo.entries(conn) if e["token"] == token), None)
     if kind is None:
         raise HTTPException(status_code=404, detail="Ya no está en la papelera")
+    if kind in ROW_KINDS:
+        with _db(db) as conn:
+            found = undo.pop(conn, token, "rows.")
+            return {"restored": undo.restore_rows(conn, found[1]) if found else 0, "kind": kind}
     if db == "brain" and kind == "notes.delete":
         from app.bulk import bulk_undo
+
         return {"restored": bulk_undo(token)["restored"], "kind": kind}
     if db == "brain" and kind == "items":
         from app.items import restore as restore_items
+
         return {"restored": restore_items(token), "kind": kind}
     if db == "brain" and kind == "event.delete":
         from app.calendar import restore_event
+
         with get_db() as conn:
             found = undo.pop(conn, token, "event.")
             return {"restored": restore_event(conn, found[1]) if found else 0, "kind": kind}
     if db == "brain" and kind.startswith("finance."):
         from app.finance import restore as restore_finance
+
         with get_db() as conn:
             found = undo.pop(conn, token, "finance.")
             return {"restored": restore_finance(conn, found[1]) if found else 0, "kind": kind}
     if db == "brain" and kind == "rendimiento.dia":
         from app.rendimiento import restore as restore_rendimiento
+
         with get_db() as conn:
             found = undo.pop(conn, token, "rendimiento.")
             return {"restored": restore_rendimiento(conn, found[1]) if found else 0, "kind": kind}
     if db == "comidas":
         from comidas.bulk import bulk_undo as comidas_undo
+
         return {"restored": comidas_undo(token)["restored"], "kind": kind}
     raise HTTPException(status_code=404, detail="No se puede restaurar")
 
@@ -121,7 +174,7 @@ def empty() -> int:
     for name in ("brain", "comidas"):
         with _db(name) as conn:
             for e in undo.entries(conn):
-                if (name, e["kind"]) in KINDS:
+                if _meta(name, e["kind"]):
                     undo.drop(conn, e["token"])
                     _drop_files(e["token"])
                     n += 1
@@ -142,6 +195,29 @@ def purge_expired() -> int:
                 shutil.rmtree(entry, ignore_errors=True)
     if n:
         log.info("Papelera: %d entradas caducadas eliminadas", n)
+    return n
+
+
+PURGE_EVERY_S = 86400
+
+
+def _purge_state_file():
+    return config.DATA_DIR / "programador.json"
+
+
+def purge_if_due() -> int | None:
+    """Vaciado automático como mucho una vez al día, aunque el equipo estuviese apagado a las 03:40 (se llama al
+    arrancar, cada hora y a las 03:40). Devuelve lo purgado, o None si aún no tocaba."""
+    path = _purge_state_file()
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        state = {}
+    if time.time() - float(state.get("trash_purge_at") or 0) < PURGE_EVERY_S:
+        return None
+    n = purge_expired()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write(path, json.dumps({**state, "trash_purge_at": time.time()}, indent=2))
     return n
 
 

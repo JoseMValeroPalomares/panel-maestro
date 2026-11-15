@@ -181,6 +181,8 @@
 .rd-prefill { display: flex; align-items: center; gap: 6px; margin: 0; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-sm); background: var(--accent-soft); color: var(--text); }
 .rd-prefill .icon { color: var(--accent-text); flex-shrink: 0; }
 .rd-sec { display: flex; flex-direction: column; gap: var(--sp-2); }
+.rd-proposed { display: flex; flex-direction: column; gap: var(--sp-1); }
+.rd-proposed p { display: flex; align-items: center; gap: 6px; margin: 0; }
 .rd-sec > h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 var(--sp-1); font-size: var(--fs-15); font-weight: 650; }
 .rd-sec > h3 .icon { color: var(--text-2); }
 .rd-sec > p { margin: 0; }

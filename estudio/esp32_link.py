@@ -12,6 +12,7 @@ por intento (más de mil por hora con la placa apagada). Ahora:
 Varios puentes que fallan a la vez cuentan como un solo intento: un fallo solo suma
 si llega cuando ya tocaba intentar (no dentro de la espera que puso otro).
 """
+
 import asyncio
 import time
 
@@ -19,8 +20,8 @@ from core.logging_config import get_logger
 
 log = get_logger("esp32")
 
-FAST_DELAYS = (3.0, 6.0, 12.0)   # esperas tras el 1.º, 2.º y 3.º fallo seguidos
-PAUSE_SEC = 600.0                # después, «sin conexión» durante 10 min
+FAST_DELAYS = (3.0, 6.0, 12.0)  # esperas tras el 1.º, 2.º y 3.º fallo seguidos
+PAUSE_SEC = 600.0  # después, «sin conexión» durante 10 min
 
 
 class Esp32Link:
@@ -29,12 +30,12 @@ class Esp32Link:
         self.pause = pause
         self._clock = clock
         self._wall = wall
-        self.state = "connecting"    # connecting | online | offline | disabled
+        self.state = "connecting"  # connecting | online | offline | disabled
         self.failures = 0
-        self.next_attempt = 0.0      # reloj monótono
-        self.last_ok = None          # hora de pared del último contacto
+        self.next_attempt = 0.0  # reloj monótono
+        self.last_ok = None  # hora de pared del último contacto
         self.last_error = None
-        self.connected = 0           # puentes conectados ahora mismo
+        self.connected = 0  # puentes conectados ahora mismo
         self._wake = None
 
     # Event perezoso: se crea en el bucle de asyncio que lo usa
@@ -90,8 +91,10 @@ class Esp32Link:
                 log.info(f"El ESP32 no responde ({self.last_error}); se reintentará con espera creciente")
         else:
             if self.state != "offline":
-                log.warning(f"ESP32 sin conexión tras {self.failures} intentos; "
-                            f"siguiente intento en {int(self.pause // 60)} min o al pulsar «Reintentar»")
+                log.warning(
+                    f"ESP32 sin conexión tras {self.failures} intentos; "
+                    f"siguiente intento en {int(self.pause // 60)} min o al pulsar «Reintentar»"
+                )
             self.state = "offline"
             self.next_attempt = self._clock() + self.pause
 
@@ -105,9 +108,14 @@ class Esp32Link:
 
     def status(self) -> dict:
         wait = max(0.0, self.next_attempt - self._clock())
-        return {"state": self.state, "online": self.state == "online", "failures": self.failures,
-                "last_ok": self.last_ok, "last_error": self.last_error,
-                "retry_in": round(wait) if self.state in ("connecting", "offline") and wait else 0}
+        return {
+            "state": self.state,
+            "online": self.state == "online",
+            "failures": self.failures,
+            "last_ok": self.last_ok,
+            "last_error": self.last_error,
+            "retry_in": round(wait) if self.state in ("connecting", "offline") and wait else 0,
+        }
 
 
 LINK = Esp32Link()

@@ -6,6 +6,7 @@
 6. Enlazar tarea ↔ nota desde los dos lados y navegar con un clic.
 Además: notas de una tarea legibles sin editar y marco del texto suelto del tablero.
 """
+
 import pytest
 
 from tests.e2e.test_board import _board, _open, doc, screen
@@ -66,7 +67,9 @@ def test_1_plegados_persisten_en_el_servidor(browser, server, api):
     b = browser.new_context(viewport={"width": 1280, "height": 900}, service_workers="block")
     pb = b.new_page()
     _tareas(pb, server)
-    pb.wait_for_function("() => document.querySelector('[data-il-fold=\"page:g:ideas\"]').getAttribute('aria-expanded') === 'false'")
+    pb.wait_for_function(
+        "() => document.querySelector('[data-il-fold=\"page:g:ideas\"]').getAttribute('aria-expanded') === 'false'"
+    )
     # árbol de la pestaña Notas
     pb.goto(server + "/")
     pb.wait_for_selector(".tree-row")
@@ -152,7 +155,9 @@ def test_6_notas_de_la_tarea_legibles_sin_editar(page, server, api):
     caja.locator("strong").wait_for()
     assert page.locator(f"{CARD.format(tid)} .il-editor").count() == 0  # sin modo edición
     page.click(f"{CARD.format(tid)} [data-act=edit-details]")
-    assert page.locator(f"{CARD.format(tid)} .il-editor textarea[name=details]").evaluate("el => el === document.activeElement")
+    assert page.locator(f"{CARD.format(tid)} .il-editor textarea[name=details]").evaluate(
+        "el => el === document.activeElement"
+    )
 
 
 def test_6_enlazar_tarea_y_nota_desde_los_dos_lados(page, server, api):
@@ -189,7 +194,9 @@ def test_6_enlazar_tarea_y_nota_desde_los_dos_lados(page, server, api):
 
 
 def test_10_marco_del_texto_del_tablero(page, server, api):
-    bid = _board(api, {"nodes": [{"id": "t", "kind": "text", "x": 200, "y": 200, "w": 220, "h": 60, "text": "Texto con marco"}]})
+    bid = _board(
+        api, {"nodes": [{"id": "t", "kind": "text", "x": 200, "y": 200, "w": 220, "h": 60, "text": "Texto con marco"}]}
+    )
     _open(page, server, bid, props=True)
     p = screen(page, 260, 230)
     page.mouse.click(p["x"], p["y"])
@@ -207,6 +214,7 @@ def test_10_marco_del_texto_del_tablero(page, server, api):
 
 def _hoy(n=0):
     from datetime import date, timedelta
+
     return (date.today() + timedelta(days=n)).isoformat()
 
 
@@ -214,8 +222,14 @@ def test_8_evento_en_nota_inbox_y_rutina_en_todos(page, server, api):
     api.post("/api/calendar/events", json={"title": "Evento E2E visible", "start": f"{_hoy(1)}T12:00"})
     rid = _nuevo(api, "Rutina E2E", type="rutina")
     # en una nota con un bloque ```calendario
-    body = {"title": "Nota con agenda", "category": "E2E", "status": "consolidado", "tags": [], "encrypted": False,
-            "content": "# Nota con agenda\n\n```calendario\nvista: agenda\n```\n"}
+    body = {
+        "title": "Nota con agenda",
+        "category": "E2E",
+        "status": "consolidado",
+        "tags": [],
+        "encrypted": False,
+        "content": "# Nota con agenda\n\n```calendario\nvista: agenda\n```\n",
+    }
     api.post("/api/notes/nota-con-agenda", json=body)
     page.goto(server + "/?note=nota-con-agenda")
     page.locator(".cal-embed .cal-chip", has_text="Evento E2E visible").wait_for()
@@ -227,12 +241,14 @@ def test_8_evento_en_nota_inbox_y_rutina_en_todos(page, server, api):
     # completar la rutina desde el calendario → se ve hecha en Tareas y suma a la racha
     page.goto(server + f"/calendario?vista=day&dia={_hoy()}")
     page.locator(f'.cal-chip[data-key="r{rid}@{_hoy()}"] [data-cal-check]').click()
-    page.wait_for_function(f"() => document.querySelector('.cal-chip[data-key=\"r{rid}@{_hoy()}\"]')?.classList.contains('is-done')")
+    page.wait_for_function(
+        f"() => document.querySelector('.cal-chip[data-key=\"r{rid}@{_hoy()}\"]')?.classList.contains('is-done')"
+    )
     page.wait_for_timeout(400)
     it = _items(api)[rid]
     assert it["done"] and it["streak"]["actual"] == 1
     _tareas(page, server)
-    assert page.locator(f'{CARD.format(rid)} > .il-row [data-act=done]').get_attribute("aria-checked") == "true"
+    assert page.locator(f"{CARD.format(rid)} > .il-row [data-act=done]").get_attribute("aria-checked") == "true"
     api.delete("/api/notes/nota-con-agenda")
 
 
@@ -241,13 +257,23 @@ def test_9_arrastrar_tarea_crea_bloque_y_moverlo_la_actualiza(page, server, api)
     page.goto(server + f"/calendario?vista=day&dia={_hoy(2)}")
     page.wait_for_selector(".cal-col")
     # el alto de una hora depende del horario visible: se mide con las etiquetas de 10:00 y 11:00
-    top = page.evaluate("""t => parseFloat([...document.querySelectorAll('.cal-hour')].find((h) => h.textContent === t).style.top)""", "10:00")
-    hour = page.evaluate("""t => parseFloat([...document.querySelectorAll('.cal-hour')].find((h) => h.textContent === t).style.top)""", "11:00") - top
+    top = page.evaluate(
+        """t => parseFloat([...document.querySelectorAll('.cal-hour')].find((h) => h.textContent === t).style.top)""",
+        "10:00",
+    )
+    hour = (
+        page.evaluate(
+            """t => parseFloat([...document.querySelectorAll('.cal-hour')].find((h) => h.textContent === t).style.top)""",
+            "11:00",
+        )
+        - top
+    )
     page.locator(".cal-scroll").evaluate("(el, y) => el.scrollTop = y - 20", top)
     col = page.locator(".cal-col").first.bounding_box()
     sc = page.locator(".cal-scroll").bounding_box()
-    page.locator(f'[data-cal-drag-item="{tid}"]').drag_to(page.locator(".cal-col").first,
-        target_position={"x": 30, "y": top + 4})  # 10:00 (posición dentro de la columna)
+    page.locator(f'[data-cal-drag-item="{tid}"]').drag_to(
+        page.locator(".cal-col").first, target_position={"x": 30, "y": top + 4}
+    )  # 10:00 (posición dentro de la columna)
     page.wait_for_function(f"() => !!document.querySelector('.cal-ev[data-key=\"t{tid}\"]')")
     it = _items(api)[tid]
     assert (it["due_date"], it["due_time"], it["duration_min"]) == (_hoy(2), "10:00", 60)
@@ -271,7 +297,9 @@ def test_14_papelera_borra_y_restaura(page, server, api):
     row = page.locator(".trash-row", has_text="Para la papelera E2E")
     row.wait_for()
     row.locator("[data-restore]").click()
-    page.wait_for_function("() => ![...document.querySelectorAll('.trash-row')].some(r => r.textContent.includes('Para la papelera E2E'))")
+    page.wait_for_function(
+        "() => ![...document.querySelectorAll('.trash-row')].some(r => r.textContent.includes('Para la papelera E2E'))"
+    )
     titles = [e["title"] for e in api.get(f"/api/calendar/entries?start={_hoy(3)}&end={_hoy(3)}").json()["entries"]]
     assert "Para la papelera E2E" in titles
 
@@ -309,7 +337,9 @@ def test_14_hoy_muestra_datos_reales(page, server, api):
 
 def test_4_esp32_desconectado_se_para_con_reintentar(page, server):
     page.goto(server + "/estudio/")
-    page.wait_for_function("() => document.querySelector('#connStatus .conn-label').textContent === 'Sin conexión'", timeout=60000)
+    page.wait_for_function(
+        "() => document.querySelector('#connStatus .conn-label').textContent === 'Sin conexión'", timeout=60000
+    )
     assert page.locator("#offlineNotice").is_visible() and page.locator("#btnRetry").is_visible()
     n = []
     page.on("request", lambda r: n.append(r.url) if "esp32" in r.url else None)
@@ -322,13 +352,39 @@ def test_4_esp32_desconectado_se_para_con_reintentar(page, server):
 
 def test_7_plato_doble_desde_la_interfaz(page, server, api):
     def ing(nombre, k, p, c, g):
-        return api.post("/comidas/api/ingredients", json={"nombre": nombre, "categoria": "General", "kcal_100g": k, "proteinas_100g": p,
-                                                          "carbohidratos_100g": c, "grasas_100g": g}).json()["id"]
+        return api.post(
+            "/comidas/api/ingredients",
+            json={
+                "nombre": nombre,
+                "categoria": "General",
+                "kcal_100g": k,
+                "proteinas_100g": p,
+                "carbohidratos_100g": c,
+                "grasas_100g": g,
+            },
+        ).json()["id"]
+
     a, b = ing("Lechuga E2E", 15, 1.4, 2.9, 0.2), ing("Pollo E2E", 165, 31, 0, 3.6)
-    api.post("/comidas/api/meals", json={"nombre": "Ensalada E2E", "franja": "comida", "tags": "primero", "gramos_recomendados": 200,
-                                         "ingredientes": [{"ingredient_id": a, "gramos": 200}]})
-    api.post("/comidas/api/meals", json={"nombre": "Pollo plancha E2E", "franja": "comida", "tags": "segundo", "gramos_recomendados": 200,
-                                         "ingredientes": [{"ingredient_id": b, "gramos": 200}]})
+    api.post(
+        "/comidas/api/meals",
+        json={
+            "nombre": "Ensalada E2E",
+            "franja": "comida",
+            "tags": "primero",
+            "gramos_recomendados": 200,
+            "ingredientes": [{"ingredient_id": a, "gramos": 200}],
+        },
+    )
+    api.post(
+        "/comidas/api/meals",
+        json={
+            "nombre": "Pollo plancha E2E",
+            "franja": "comida",
+            "tags": "segundo",
+            "gramos_recomendados": 200,
+            "ingredientes": [{"ingredient_id": b, "gramos": 200}],
+        },
+    )
     page.goto(server + "/comidas/")
     page.wait_for_function("() => typeof planState !== 'undefined' && !!planState")
     page.evaluate("switchTab('plan')")

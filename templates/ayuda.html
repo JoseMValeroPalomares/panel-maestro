@@ -1,0 +1,12 @@
+{% extends "_layout.html" %}
+{% block title_icon %}{{ icon('book-open') }}{% endblock %}
+{% block heading %}{{ page_title }}{% endblock %}
+{% block content %}
+<article class="panel ayuda">
+  {# El Markdown viaja escapado en un textarea oculto (su value lo devuelve tal cual) y lo pinta renderMarkdown() #}
+  <textarea id="docSrc" hidden aria-hidden="true">{{ doc }}</textarea>
+  <div class="panel-body prose" id="docBody" data-guias="{{ guias | tojson | forceescape }}"><p class="muted">Cargando…</p></div>
+</article>
+{% endblock %}
+{% block scripts %}<script src="{{ asset('/static/vendor/marked/marked.min.js') }}"></script><script src="{{ asset('/static/vendor/dompurify/purify.min.js') }}"></script>
+<script src="{{ asset('/static/js/ayuda.js') }}"></script>{% endblock %}

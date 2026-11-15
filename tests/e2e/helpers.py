@@ -1,7 +1,9 @@
 """Gestos para los tests de navegador: arrastrar con ratón, con el dedo y esperar a la red."""
+
 import time
 
-from playwright.sync_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeout
+from playwright.sync_api import Error as PlaywrightError
+from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
 
 def mouse_drag(page, source, target, where="top", during=None):
@@ -32,8 +34,10 @@ def touch_drag(page, source, target, where="top", hold_ms=450):
     page.wait_for_timeout(hold_ms)
     steps = 14
     for i in range(1, steps + 1):
-        cdp.send("Input.dispatchTouchEvent", {"type": "touchMove", "touchPoints": [
-            {"x": x0 + (x1 - x0) * i / steps, "y": y0 + (y1 - y0) * i / steps}]})
+        cdp.send(
+            "Input.dispatchTouchEvent",
+            {"type": "touchMove", "touchPoints": [{"x": x0 + (x1 - x0) * i / steps, "y": y0 + (y1 - y0) * i / steps}]},
+        )
         page.wait_for_timeout(16)
     cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
     page.wait_for_load_state("networkidle")
@@ -54,7 +58,9 @@ def wait_js(page, expression, arg=None, timeout=30_000):
             if value:
                 return value
         except PlaywrightError as e:
-            if "context was destroyed" not in str(e):  # una navegación a medias se reintenta; lo demás es un fallo del test
+            if "context was destroyed" not in str(
+                e
+            ):  # una navegación a medias se reintenta; lo demás es un fallo del test
                 raise
         if time.monotonic() > deadline:
             raise PlaywrightTimeout(f"No se cumplió en {timeout} ms: {expression}")

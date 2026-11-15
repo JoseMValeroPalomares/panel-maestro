@@ -126,7 +126,7 @@
   color-scheme: dark;
   --bg: #2d353b; --field: #1e2326; --control: #3e4446;
   --border: #4e5251; --border-strong: #62635f;
-  --text: #d3c6aa; --text-2: #c3b79c; --text-3: #a3ada4; --placeholder: #a3ada4;
+  --text: #d3c6aa; --text-2: #c9bda2; --text-3: #abb5ac; --placeholder: #abb5ac;
   --accent: #7fbbb3; --accent-hover: #93c9c1; --on-accent: #232a2e; --link: #7fbbb3;
   --success: #a7c080; --warning: #e69875; --danger: #e67e80;
   --tile-fg: #232a2e; --tile-inbox: #f5b58b; --tile-baul: #eeccc9; --tile-grafo: #7fc7e4;
@@ -148,7 +148,7 @@
   color-scheme: light;
   --bg: #fffaf3; --field: #f4ede8; --control: #eee9e7;
   --border: #ddd8db; --border-strong: #c9c4cc;
-  --text: #575279; --text-2: #625d84; --text-3: #6a6587; --placeholder: #6a6587;
+  --text: #575279; --text-2: #625d84; --text-3: #635e81; --placeholder: #635e81;
   --accent: #286983; --accent-hover: #1f5a70; --on-accent: #ffffff; --link: #286983;
   --success: #3d7a64; --warning: #8a560c; --danger: #a5566c;
   --tile-fg: #ffffff; --tile-inbox: #c94915; --tile-baul: #a3406c; --tile-grafo: #0f6c90;
@@ -174,6 +174,116 @@
   --accent: #1f5f6b; --accent-hover: #184e58; --on-accent: #ffffff; --link: #1f5f6b;
   --success: #3f6f2f; --warning: #8f5300; --danger: #a63d32;
   --tile-fg: #ffffff; --tile-inbox: #cd480f; --tile-baul: #a63f6a; --tile-grafo: #0b6d8f;
+}
+
+/* Catppuccin Frappé */
+:root[data-theme="frappe"] {
+  color-scheme: dark;
+  --bg: #303446; --field: #232634; --control: #3f4458;
+  --border: #4e5369; --border-strong: #60667e;
+  --text: #c6d0f5; --text-2: #b5bfe2; --text-3: #a5adce; --placeholder: #a5adce;
+  --accent: #8caaee; --accent-hover: #babbf1; --on-accent: #232634; --link: #8caaee;
+  --success: #a6d189; --warning: #ef9f76; --danger: #ea8f91;
+  --tile-fg: #232634; --tile-inbox: #f2af8d; --tile-baul: #eebebe; --tile-grafo: #85c1dc;
+}
+
+/* One Dark */
+:root[data-theme="onedark"] {
+  color-scheme: dark;
+  --bg: #282c34; --field: #1b1f24; --control: #3a3e46;
+  --border: #4c5057; --border-strong: #62656c;
+  --text: #dcdfe4; --text-2: #c0c6d0; --text-3: #abb2bf; --placeholder: #abb2bf;
+  --accent: #61afef; --accent-hover: #7cbcf2; --on-accent: #1b1f24; --link: #61afef;
+  --success: #98c379; --warning: #d19a66; --danger: #e9858d;
+  --tile-fg: #1b1f24; --tile-inbox: #e9ceb4; --tile-baul: #f7dadc; --tile-grafo: #61afef;
+}
+
+/* Ayu Mirage */
+:root[data-theme="ayumirage"] {
+  color-scheme: dark;
+  --bg: #242936; --field: #1a1e29; --control: #353944;
+  --border: #464952; --border-strong: #5a5d63;
+  --text: #cccac2; --text-2: #b8b5ad; --text-3: #a3a8b0; --placeholder: #a3a8b0;
+  --accent: #ffcc66; --accent-hover: #ffd480; --on-accent: #1a1e29; --link: #ffcc66;
+  --success: #d5ff80; --warning: #ffad66; --danger: #ff6666;
+  --tile-fg: #1a1e29; --tile-inbox: #f4ae8b; --tile-baul: #fef3f2; --tile-grafo: #72d6e9;
+}
+
+/* Ayu Claro */
+:root[data-theme="ayuclaro"] {
+  color-scheme: light;
+  --bg: #fcfcfc; --field: #f3f4f5; --control: #e9eaea;
+  --border: #d7d8d9; --border-strong: #c0c2c3;
+  --text: #41464b; --text-2: #575d63; --text-3: #5f666d; --placeholder: #5f666d;
+  --accent: #1f6bad; --accent-hover: #185a93; --on-accent: #ffffff; --link: #1f6bad;
+  --success: #4f6b00; --warning: #985a00; --danger: #c43d3d;
+  --tile-fg: #ffffff; --tile-inbox: #af4c05; --tile-baul: #e33a3a; --tile-grafo: #2d8fb0;
+}
+
+/* Monokai Pro */
+:root[data-theme="monokaipro"] {
+  color-scheme: dark;
+  --bg: #2d2a2e; --field: #19181a; --control: #423f42;
+  --border: #565457; --border-strong: #6f6d6f;
+  --text: #fcfcfa; --text-2: #d6d6d4; --text-3: #c1c0c0; --placeholder: #c1c0c0;
+  --accent: #78dce8; --accent-hover: #a0e8f0; --on-accent: #19181a; --link: #78dce8;
+  --success: #a9dc76; --warning: #fc9867; --danger: #ff7096;
+  --tile-fg: #19181a; --tile-inbox: #fca980; --tile-baul: #ffffff; --tile-grafo: #62d6e4;
+}
+
+/* Night Owl */
+:root[data-theme="nightowl"] {
+  color-scheme: dark;
+  --bg: #0b2942; --field: #010e1a; --control: #1f3b53;
+  --border: #344d64; --border-strong: #4c6378;
+  --text: #d6deeb; --text-2: #c5cfe0; --text-3: #a1b3c9; --placeholder: #a1b3c9;
+  --accent: #82aaff; --accent-hover: #a3c0ff; --on-accent: #011627; --link: #82aaff;
+  --success: #addb67; --warning: #f78c6c; --danger: #f27371;
+  --tile-fg: #011627; --tile-inbox: #f89f84; --tile-baul: #facac9; --tile-grafo: #82ead7;
+}
+
+/* Material Océano */
+:root[data-theme="materialoceano"] {
+  color-scheme: dark;
+  --bg: #151824; --field: #090b10; --control: #272a38;
+  --border: #393c4b; --border-strong: #4e5263;
+  --text: #c8cde8; --text-2: #a6accd; --text-3: #959cbd; --placeholder: #959cbd;
+  --accent: #82aaff; --accent-hover: #a5c1ff; --on-accent: #090b10; --link: #82aaff;
+  --success: #c3e88d; --warning: #f78c6c; --danger: #f07178;
+  --tile-fg: #090b10; --tile-inbox: #f89f84; --tile-baul: #f7b6ba; --tile-grafo: #56ceff;
+}
+
+/* GitHub Oscuro */
+:root[data-theme="githuboscuro"] {
+  color-scheme: dark;
+  --bg: #161b22; --field: #010409; --control: #2b3037;
+  --border: #40454c; --border-strong: #595e65;
+  --text: #e6edf3; --text-2: #c9d1d9; --text-3: #9da7b3; --placeholder: #9da7b3;
+  --accent: #58a6ff; --accent-hover: #79b8ff; --on-accent: #0d1117; --link: #58a6ff;
+  --success: #3fb950; --warning: #d29922; --danger: #f85149;
+  --tile-fg: #0d1117; --tile-inbox: #ffc18a; --tile-baul: #fcafab; --tile-grafo: #58b3ff;
+}
+
+/* GitHub Claro */
+:root[data-theme="githubclaro"] {
+  color-scheme: light;
+  --bg: #ffffff; --field: #f6f8fa; --control: #e9e9ea;
+  --border: #d2d3d4; --border-strong: #b7b9ba;
+  --text: #1f2328; --text-2: #424a53; --text-3: #59636e; --placeholder: #59636e;
+  --accent: #0969da; --accent-hover: #0757b8; --on-accent: #ffffff; --link: #0969da;
+  --success: #1a7f37; --warning: #9a6700; --danger: #cf222e;
+  --tile-fg: #ffffff; --tile-inbox: #ae4200; --tile-baul: #e0444f; --tile-grafo: #085dc2;
+}
+
+/* Gruvbox Claro */
+:root[data-theme="gruvboxclaro"] {
+  color-scheme: light;
+  --bg: #fbf1c7; --field: #f2e5bc; --control: #e8deb8;
+  --border: #d5ccaa; --border-strong: #beb699;
+  --text: #3c3836; --text-2: #504945; --text-3: #5e544b; --placeholder: #5e544b;
+  --accent: #076678; --accent-hover: #065564; --on-accent: #fbf1c7; --link: #076678;
+  --success: #5f5a0a; --warning: #8a5a0c; --danger: #9d0006;
+  --tile-fg: #fbf1c7; --tile-inbox: #a6480b; --tile-baul: #e34039; --tile-grafo: #065260;
 }
 
 :root[data-theme="system"] {

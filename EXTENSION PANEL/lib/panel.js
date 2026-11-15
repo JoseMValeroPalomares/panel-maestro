@@ -23,6 +23,21 @@
     return v.replace(/\/+$/, '');
   }
 
+  // Permiso de host (opcional desde la 2.9, S-4): solo el origen del Panel y YouTube, pedidos en las opciones.
+  // Los patrones de Firefox no llevan puerto: http://192.168.1.41/* vale para cualquier puerto de esa dirección.
+  const YOUTUBE = 'https://www.youtube.com/*';
+  function hostPattern(baseUrl) {
+    try {
+      const u = new URL(normalizeUrl(baseUrl));
+      return `${u.protocol}//${u.hostname}/*`;
+    } catch { return ''; }
+  }
+  async function hasHost(pattern) {
+    if (!pattern) return false;
+    if (!browser.permissions?.contains) return true;   // sin la API (pruebas antiguas): como antes
+    try { return await browser.permissions.contains({ origins: [pattern] }); } catch { return false; }
+  }
+
   async function getConfig() {
     const { baseUrl = '', token = '' } = await browser.storage.local.get(['baseUrl', 'token']);
     return { baseUrl: normalizeUrl(baseUrl), token: String(token || '').trim() };
@@ -32,6 +47,11 @@
   async function request(path, { method = 'GET', body, cfg } = {}) {
     const { baseUrl, token } = cfg || (await getConfig());
     if (!baseUrl || !token) throw new PanelError('config', 'Falta configurar la dirección del Panel y el token');
+    if (!(await hasHost(hostPattern(baseUrl)))) {
+      const e = new PanelError('config', 'Falta el permiso para la dirección del Panel: abre las opciones y pulsa Guardar');
+      e.permission = true;   // es configuración (no se reintenta solo), pero el popup lo explica distinto
+      throw e;
+    }
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
     let res;
@@ -133,5 +153,5 @@
     return t ? `${t}\n\n${ref}` : ref;
   }
 
-  self.Panel = { PanelError, normalizeUrl, getConfig, request, status, send, flush, getQueue, detectType, isWebUrl, composeInbox };
+  self.Panel = { PanelError, normalizeUrl, hostPattern, hasHost, YOUTUBE, getConfig, request, status, send, flush, getQueue, detectType, isWebUrl, composeInbox };
 })();

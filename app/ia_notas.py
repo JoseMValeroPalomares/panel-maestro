@@ -14,6 +14,7 @@ Privacidad: las notas cifradas NO se envían (403); las sensibles solo a modelos
 no se guarda en registros (solo modelo, tokens aproximados, coste y resultado). El texto se lee SIEMPRE del archivo: la
 página guarda antes de pedir la corrección. Cola de un solo trabajo a la vez, límite de tamaño, de ritmo y de tiempo.
 """
+
 import difflib
 import hashlib
 import re
@@ -39,11 +40,11 @@ from core.logging_config import get_logger
 log = get_logger("ia_notas")
 router = APIRouter()
 
-MAX_CHARS = 40_000          # tamaño máximo de la nota que se envía
-MAX_SEGUNDOS = 240          # tiempo máximo de un trabajo
-PETICIONES_POR_10MIN = 8    # límite de ritmo del panel (no el de los proveedores)
+MAX_CHARS = 40_000  # tamaño máximo de la nota que se envía
+MAX_SEGUNDOS = 240  # tiempo máximo de un trabajo
+PETICIONES_POR_10MIN = 8  # límite de ritmo del panel (no el de los proveedores)
 GUIA = config.PROJECT_ROOT / "docs" / "GUIA_NOTAS.md"
-_transport = None           # los tests inyectan un httpx.MockTransport
+_transport = None  # los tests inyectan un httpx.MockTransport
 _pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ia")
 _jobs: dict[str, "Job"] = {}
 _recientes: deque = deque()
@@ -54,7 +55,7 @@ _lock = threading.Lock()
 class Job:
     id: str
     note_id: str
-    estado: str = "cola"          # cola | trabajando | listo | error | cancelado | aplicado
+    estado: str = "cola"  # cola | trabajando | listo | error | cancelado | aplicado
     original: str = ""
     corregido: str = ""
     partes: list = field(default_factory=list)
@@ -69,9 +70,12 @@ class Job:
     tokens: tuple = (0, 0)
     coste: float = 0.0
     sin_claves: bool = False
+    tipo: str = "corregir"  # corregir | flashcards (app/ia_flashcards.py: misma cola, límites y registro)
+    descartadas: list = field(default_factory=list)
 
 
 # ── Lectura de la nota y reglas ───────────────────────────────────────────────
+
 
 def _leer(note_id: str) -> frontmatter.Post:
     path = note_path(note_id)
@@ -93,7 +97,11 @@ def es_sensible(post: frontmatter.Post, pol: dict) -> bool:
     if post.get("sensible"):
         return True
     cat = str(post.get("category") or "").strip().lower()
-    return any(cat == c.strip().lower() or cat.startswith(c.strip().lower() + " - ") for c in pol.get("categorias_sensibles") or [] if c.strip())
+    return any(
+        cat == c.strip().lower() or cat.startswith(c.strip().lower() + " - ")
+        for c in pol.get("categorias_sensibles") or []
+        if c.strip()
+    )
 
 
 def _guia() -> str:
@@ -106,14 +114,16 @@ def _guia() -> str:
 
 def _titulos() -> dict[str, str]:
     with get_db() as conn:
-        return {r["id"]: r["title"] for r in conn.execute("SELECT id, title FROM notes WHERE status != 'indice'").fetchall()}
+        return {
+            r["id"]: r["title"] for r in conn.execute("SELECT id, title FROM notes WHERE status != 'indice'").fetchall()
+        }
 
 
 PROMPT_SISTEMA = """Eres el corrector de notas personales de un estudiante. Recibirás una nota en Markdown y debes devolverla corregida siguiendo la GUÍA.
 Corriges SOLO forma: ortografía, redacción, claridad, estructura de títulos, fórmulas LaTeX, tablas y enlaces entre notas.
 NO inventes datos ni cambies el significado. Si dudas de un dato, déjalo igual y añade justo debajo un comentario `<!-- REVISAR: motivo breve -->`.
 NO añadas etiquetas (#algo, tags:), ni metadatos (---), ni texto fuera de la nota. Conserva exactamente: bloques de código, bloques ```sim y ```calendario,
-fórmulas ($…$, $$…$$), flashcards (`pregunta >> respuesta`), casillas `- [ ]`/`- [x]`, anotaciones `{{resumir|entender|mal: …}}` y marcadores `[[tarea:N]]`.
+fórmulas ($…$, $$…$$), flashcards (`pregunta >> respuesta`), casillas `- [ ]`/`- [x]`, anotaciones `{{resumir|entender|mal|duda|examen|importante: …}}` y marcadores `[[tarea:N]]`.
 Solo enlaza con [[Título]] notas de la lista de TÍTULOS EXISTENTES, con el título exacto. Responde ÚNICAMENTE con el texto Markdown de la nota corregida, sin comentarios previos ni ``` envolventes."""
 
 ESTRICTO = """
@@ -124,12 +134,19 @@ Esta vez sé más conservador: cambia solo lo imprescindible, copia tal cual tod
 
 def _mensajes(nota: str, titulos: dict[str, str], problemas: str | None = None) -> list[dict]:
     lista = "\n".join(f"- {t}" for t in sorted(titulos.values(), key=str.lower))[:12_000]
-    sistema = PROMPT_SISTEMA + ("\n\n=== GUÍA ===\n" + _guia() if _guia() else "") + (ESTRICTO.format(problemas=problemas) if problemas else "")
-    return [{"role": "system", "content": sistema},
-            {"role": "user", "content": f"=== TÍTULOS EXISTENTES ===\n{lista}\n\n=== NOTA ===\n{nota}"}]
+    sistema = (
+        PROMPT_SISTEMA
+        + ("\n\n=== GUÍA ===\n" + _guia() if _guia() else "")
+        + (ESTRICTO.format(problemas=problemas) if problemas else "")
+    )
+    return [
+        {"role": "system", "content": sistema},
+        {"role": "user", "content": f"=== TÍTULOS EXISTENTES ===\n{lista}\n\n=== NOTA ===\n{nota}"},
+    ]
 
 
 # ── Partes (diff) ─────────────────────────────────────────────────────────────
+
 
 def calcular_partes(original: str, corregido: str) -> tuple[list[dict], list]:
     a, b = original.split("\n"), corregido.split("\n")
@@ -153,6 +170,7 @@ def componer(original: str, corregido: str, ops: list, aceptadas: set[int] | Non
 
 
 # ── Trabajo ───────────────────────────────────────────────────────────────────
+
 
 def dividir(texto: str, max_tokens: int) -> list[str]:
     """Parte una nota en trozos de ≈ `max_tokens`, cortando en encabezados o líneas en blanco y nunca dentro de un bloque ```.
@@ -183,12 +201,16 @@ def _ejecutar(job: Job, titulos: dict[str, str], sensible: bool, pol: dict) -> N
     cancelado = lambda: job.cancelar.is_set() or time.time() > limite  # noqa: E731
     usables = [c for c in llm_router.cadena(pol, sensible) if not c["omitido"]]
     if not usables:
-        job.estado, job.error = "error", "Ningún proveedor puede usarse con tu política: " + "; ".join(f"{c['proveedor']}: {c['omitido']}" for c in llm_router.cadena(pol, sensible))
+        job.estado, job.error = (
+            "error",
+            "Ningún proveedor puede usarse con tu política: "
+            + "; ".join(f"{c['proveedor']}: {c['omitido']}" for c in llm_router.cadena(pol, sensible)),
+        )
         return
     cfg = {m["id"]: m for m in llm_router.cargar_config()["modelos"]}
     ultimo: list[str] = []
     gasto = " ".join(m["content"] for m in _mensajes("", titulos))
-    sobrecarga = llm_router.estimar_tokens(gasto)        # sistema + guía + títulos: va en CADA petición
+    sobrecarga = llm_router.estimar_tokens(gasto)  # sistema + guía + títulos: va en CADA petición
 
     def validador(original: str):
         def validar(datos: dict) -> dict:
@@ -198,6 +220,7 @@ def _ejecutar(job: Job, titulos: dict[str, str], sensible: bool, pol: dict) -> N
             if problemas:
                 raise ValueError("; ".join(problemas[:4]))
             return {"texto": texto}
+
         return validar
 
     try:
@@ -214,28 +237,53 @@ def _ejecutar(job: Job, titulos: dict[str, str], sensible: bool, pol: dict) -> N
 
     for c in usables:
         m = cfg[c["id"]]
-        espacio = (m.get("max_entrada_tokens") or 30_000) - sobrecarga - 100   # lo que queda para el texto de cada petición
+        espacio = (
+            (m.get("max_entrada_tokens") or 30_000) - sobrecarga - 100
+        )  # lo que queda para el texto de cada petición
         if espacio < 500:
-            job.intentos.append({"modelo": c["id"], "error": f"contexto demasiado pequeño ({m.get('max_entrada_tokens')} tokens) para la guía y la lista de títulos"})
+            job.intentos.append(
+                {
+                    "modelo": c["id"],
+                    "error": f"contexto demasiado pequeño ({m.get('max_entrada_tokens')} tokens) para la guía y la lista de títulos",
+                }
+            )
             continue
         trozos = dividir(job.original, espacio)
         if len(trozos) > 12:
-            job.intentos.append({"modelo": c["id"], "error": f"la nota necesitaría {len(trozos)} peticiones: demasiadas para este modelo"})
+            job.intentos.append(
+                {
+                    "modelo": c["id"],
+                    "error": f"la nota necesitaría {len(trozos)} peticiones: demasiadas para este modelo",
+                }
+            )
             continue
         salida, res, tin_t, tout_t, coste_t, aviso, fallo = [], None, 0, 0, 0.0, None, False
         for trozo in trozos:
             ttok = llm_router.estimar_tokens(trozo)
-            tout = min(int(ttok * 1.4) + 1200, 16_000)   # +margen: los modelos que razonan gastan tokens antes de responder
-            if m.get("max_tokens_total"):                  # p. ej. Groq: 8 000 tokens por minuto entre entrada y salida
+            tout = min(
+                int(ttok * 1.4) + 1200, 16_000
+            )  # +margen: los modelos que razonan gastan tokens antes de responder
+            if m.get("max_tokens_total"):  # p. ej. Groq: 8 000 tokens por minuto entre entrada y salida
                 tout = max(int(ttok * 1.15), min(tout, m["max_tokens_total"] - sobrecarga - ttok))
             res = None
             for estricto in (False, True):
                 if parar():
                     return
                 try:
-                    res = llm_router.completar(_mensajes(trozo, titulos, "; ".join(ultimo[:6]) if estricto else None), validador(trozo), temperatura=0.2,
-                                               transport=_transport, formato="texto", max_salida=tout, solo_privados=sensible, politica=pol,
-                                               cancelado=cancelado, uso="notas", solo=c["id"], dormir=lambda s: None if _transport else time.sleep(s))
+                    res = llm_router.completar(
+                        _mensajes(trozo, titulos, "; ".join(ultimo[:6]) if estricto else None),
+                        validador(trozo),
+                        temperatura=0.2,
+                        transport=_transport,
+                        formato="texto",
+                        max_salida=tout,
+                        solo_privados=sensible,
+                        politica=pol,
+                        cancelado=cancelado,
+                        uso="notas",
+                        solo=c["id"],
+                        dormir=lambda s: None if _transport else time.sleep(s),
+                    )
                     break
                 except llm_router.LLMError as e:
                     job.intentos.extend(e.intentos or [{"modelo": c["id"], "error": str(e)}])
@@ -258,7 +306,9 @@ def _ejecutar(job: Job, titulos: dict[str, str], sensible: bool, pol: dict) -> N
         if len(trozos) > 1:  # cada trozo ya pasó; el conjunto también debe pasar
             problemas = ia_validacion.validar(job.original, corregido, titulos)
             if problemas:
-                job.intentos.append({"modelo": c["id"], "error": "esquema no válido al unir los trozos: " + "; ".join(problemas[:2])})
+                job.intentos.append(
+                    {"modelo": c["id"], "error": "esquema no válido al unir los trozos: " + "; ".join(problemas[:2])}
+                )
                 continue
         job.intentos.extend(res.intentos)
         job.corregido, job.modelo = corregido, {"id": res.modelo_id, "proveedor": res.proveedor, "modelo": res.modelo}
@@ -273,18 +323,37 @@ def _ejecutar(job: Job, titulos: dict[str, str], sensible: bool, pol: dict) -> N
         t = f"{i['modelo']}: {i['error']}"
         if t not in motivos:
             motivos.append(t)
-    job.error = "Ningún modelo dio una corrección válida (" + ("; ".join(motivos[:6]) or (ultimo[0] if ultimo else "todos fallaron")) + ")."
+    job.error = (
+        "Ningún modelo dio una corrección válida ("
+        + ("; ".join(motivos[:6]) or (ultimo[0] if ultimo else "todos fallaron"))
+        + ")."
+    )
 
 
 def _anotar(job: Job, estado: str, aceptadas: int = 0, version: str | None = None) -> int:
     with get_db() as conn:
         if estado == "propuesta":
-            cur = conn.execute("""INSERT INTO ia_correcciones (note_id, modelo_id, proveedor, modelo, estado, partes, tokens_in, tokens_out, coste)
-                                  VALUES (?,?,?,?,?,?,?,?,?)""", (job.note_id, job.modelo["id"], job.modelo["proveedor"], job.modelo["modelo"], estado,
-                                                                   len(job.partes), job.tokens[0], job.tokens[1], job.coste))
+            cur = conn.execute(
+                """INSERT INTO ia_correcciones (note_id, modelo_id, proveedor, modelo, estado, partes, tokens_in, tokens_out, coste)
+                                  VALUES (?,?,?,?,?,?,?,?,?)""",
+                (
+                    job.note_id,
+                    job.modelo["id"],
+                    job.modelo["proveedor"],
+                    job.modelo["modelo"],
+                    estado,
+                    len(job.partes),
+                    job.tokens[0],
+                    job.tokens[1],
+                    job.coste,
+                ),
+            )
             job.__dict__["fila"] = cur.lastrowid
         else:
-            conn.execute("UPDATE ia_correcciones SET estado=?, aceptadas=?, version=COALESCE(?, version) WHERE id=?", (estado, aceptadas, version, job.__dict__.get("fila")))
+            conn.execute(
+                "UPDATE ia_correcciones SET estado=?, aceptadas=?, version=COALESCE(?, version) WHERE id=?",
+                (estado, aceptadas, version, job.__dict__.get("fila")),
+            )
     return job.__dict__.get("fila", 0)
 
 
@@ -294,6 +363,7 @@ def _limpiar() -> None:
 
 
 # ── Rutas de la nota ──────────────────────────────────────────────────────────
+
 
 @router.get("/api/notes/{note_id}/ia")
 def disponibilidad(note_id: str):
@@ -306,12 +376,27 @@ def disponibilidad(note_id: str):
     else:
         cad = llm_router.cadena(pol, sensible)
         if not cad:
-            out.update(disponible=False, sin_claves=True, motivo="No hay ningún proveedor de IA configurado. Añade una clave (GROQ_API_KEY, OPENROUTER_API_KEY…) "
-                                                                    "o OLLAMA_URL a .env y reinicia el panel; los detalles están en Ajustes → IA.")
+            out.update(
+                disponible=False,
+                sin_claves=True,
+                motivo="No hay ningún proveedor de IA configurado. Añade una clave (GROQ_API_KEY, OPENROUTER_API_KEY…) "
+                "o OLLAMA_URL a .env y reinicia el panel; los detalles están en Ajustes → IA.",
+            )
         elif all(c["omitido"] for c in cad):
-            out.update(disponible=False, motivo="Tu política no permite ningún proveedor para esta nota" + (" (es sensible: solo locales o que no entrenan)" if sensible else "") + ". Revísalo en Ajustes → IA.")
+            out.update(
+                disponible=False,
+                motivo="Tu política no permite ningún proveedor para esta nota"
+                + (" (es sensible: solo locales o que no entrenan)" if sensible else "")
+                + ". Revísalo en Ajustes → IA.",
+            )
     with get_db() as conn:
-        out["ultimas"] = [dict(r) for r in conn.execute("SELECT id, modelo_id, proveedor, modelo, estado, partes, aceptadas, creado, version FROM ia_correcciones WHERE note_id=? ORDER BY id DESC LIMIT 5", (note_id,))]
+        out["ultimas"] = [
+            dict(r)
+            for r in conn.execute(
+                "SELECT id, modelo_id, proveedor, modelo, estado, partes, aceptadas, creado, version FROM ia_correcciones WHERE note_id=? ORDER BY id DESC LIMIT 5",
+                (note_id,),
+            )
+        ]
     return out
 
 
@@ -322,12 +407,16 @@ class SensibleIn(BaseModel):
 @router.put("/api/notes/{note_id}/sensible")
 def marcar_sensible(note_id: str, data: SensibleIn):
     from core.files import atomic_write
+
     post = _leer(note_id)
     if data.sensible:
         post["sensible"] = True
     else:
         post.metadata.pop("sensible", None)
     atomic_write(note_path(note_id), frontmatter.dumps(post))
+    from app import search  # la búsqueda no debe enseñar el cuerpo de una nota sensible (F-3)
+
+    search.invalidate("nota", note_id)
     return {"sensible": data.sensible}
 
 
@@ -340,14 +429,23 @@ def corregir(note_id: str):
     if not original.strip():
         raise HTTPException(400, "La nota está vacía")
     if len(original) > MAX_CHARS:
-        raise HTTPException(413, f"La nota es demasiado larga para corregirla de una vez ({len(original)} de {MAX_CHARS} caracteres). Divídela.")
+        raise HTTPException(
+            413,
+            f"La nota es demasiado larga para corregirla de una vez ({len(original)} de {MAX_CHARS} caracteres). Divídela.",
+        )
     pol = llm_router.leer_politica()
     sensible = es_sensible(post, pol)
     cad = llm_router.cadena(pol, sensible)
     if not cad:
-        raise HTTPException(409, "No hay ningún proveedor de IA configurado: añade una clave a .env (ver Ajustes → IA).")
+        raise HTTPException(
+            409, "No hay ningún proveedor de IA configurado: añade una clave a .env (ver Ajustes → IA)."
+        )
     if all(c["omitido"] for c in cad):
-        raise HTTPException(409, "Tu política no permite ningún proveedor para esta nota: " + "; ".join(f"{c['proveedor']}: {c['omitido']}" for c in cad))
+        raise HTTPException(
+            409,
+            "Tu política no permite ningún proveedor para esta nota: "
+            + "; ".join(f"{c['proveedor']}: {c['omitido']}" for c in cad),
+        )
     with _lock:
         ahora = time.time()
         while _recientes and ahora - _recientes[0] > 600:
@@ -358,7 +456,12 @@ def corregir(note_id: str):
             raise HTTPException(409, "Ya hay una corrección en curso; espera a que termine o cancélala.")
         _recientes.append(ahora)
         _limpiar()
-        job = Job(id=uuid.uuid4().hex[:12], note_id=note_id, original=original, hash=hashlib.sha256(original.encode()).hexdigest())
+        job = Job(
+            id=uuid.uuid4().hex[:12],
+            note_id=note_id,
+            original=original,
+            hash=hashlib.sha256(original.encode()).hexdigest(),
+        )
         _jobs[job.id] = job
     _pool.submit(_ejecutar_seguro, job, _titulos(), sensible, pol)
     return {"job": job.id}
@@ -382,9 +485,28 @@ def _job(job_id: str) -> Job:
 @router.get("/api/ia/jobs/{job_id}")
 def ver_job(job_id: str):
     j = _job(job_id)
-    out = {"estado": j.estado, "error": j.error, "aviso": j.aviso, "intentos": [{"modelo": i["modelo"], "error": i["error"]} for i in j.intentos]}
+    out = {
+        "estado": j.estado,
+        "error": j.error,
+        "aviso": j.aviso,
+        "intentos": [{"modelo": i["modelo"], "error": i["error"]} for i in j.intentos],
+    }
+    if j.tipo == "flashcards":
+        out["tipo"] = "flashcards"
+        if j.estado in ("listo", "aplicado"):
+            out.update(
+                modelo=j.modelo,
+                tarjetas=j.partes,
+                descartadas=j.descartadas,
+                tokens=list(j.tokens),
+                coste=round(j.coste, 5),
+                aviso=j.aviso,
+            )
+        return out
     if j.estado in ("listo", "aplicado"):
-        out.update(modelo=j.modelo, partes=j.partes, sin_cambios=not j.partes, tokens=list(j.tokens), coste=round(j.coste, 5))
+        out.update(
+            modelo=j.modelo, partes=j.partes, sin_cambios=not j.partes, tokens=list(j.tokens), coste=round(j.coste, 5)
+        )
     return out
 
 
@@ -407,7 +529,7 @@ class AplicarIn(BaseModel):
 @router.post("/api/ia/jobs/{job_id}/aplicar")
 def aplicar(job_id: str, data: AplicarIn):
     j = _job(job_id)
-    if j.estado != "listo":
+    if j.estado != "listo" or j.tipo != "corregir":
         raise HTTPException(409, "Esta corrección no está lista o ya se aplicó")
     post = _leer(j.note_id)
     if _cifrada(j.note_id, post):
@@ -422,13 +544,28 @@ def aplicar(job_id: str, data: AplicarIn):
         return {"status": "success", "aplicadas": 0}
     nuevo = componer(j.original, j.corregido, j.ops, None if elegidas == validas else elegidas)
     if elegidas != validas and (problemas := ia_validacion.validar_estructura(nuevo)):
-        raise HTTPException(422, "Esa combinación de partes rompería la nota (" + problemas[0] + "). Acepta también las partes relacionadas.")
+        raise HTTPException(
+            422,
+            "Esa combinación de partes rompería la nota ("
+            + problemas[0]
+            + "). Acepta también las partes relacionadas.",
+        )
     # Para deshacer. snapshot() devuelve None si la última versión ya es idéntica a la actual: entonces vale esa.
     version = versions.snapshot(j.note_id, force=True) or next((p.stem for p in versions._list(j.note_id)), None)
     with get_db() as conn:
         cat = conn.execute("SELECT category_id FROM notes WHERE id=?", (j.note_id,)).fetchone()
-    save_note(j.note_id, NoteData(title=post.get("title") or j.note_id, category=post.get("category") or "General", category_id=cat["category_id"] if cat else None,
-                                  content=nuevo, status=post.get("status") or "por-escribir", tags=list(post.get("tags") or []), encrypted=False))
+    save_note(
+        j.note_id,
+        NoteData(
+            title=post.get("title") or j.note_id,
+            category=post.get("category") or "General",
+            category_id=cat["category_id"] if cat else None,
+            content=nuevo,
+            status=post.get("status") or "por-escribir",
+            tags=list(post.get("tags") or []),
+            encrypted=False,
+        ),
+    )
     j.estado = "aplicado"
     _anotar(j, "aplicada" if elegidas == validas else "parcial", len(elegidas), version)
     return {"status": "success", "aplicadas": len(elegidas), "version": version}
@@ -437,8 +574,10 @@ def aplicar(job_id: str, data: AplicarIn):
 @router.post("/api/notes/{note_id}/ia/deshacer")
 def deshacer(note_id: str):
     with get_db() as conn:
-        r = conn.execute("SELECT id, version FROM ia_correcciones WHERE note_id=? AND estado IN ('aplicada','parcial') AND version IS NOT NULL ORDER BY id DESC LIMIT 1",
-                         (note_id,)).fetchone()
+        r = conn.execute(
+            "SELECT id, version FROM ia_correcciones WHERE note_id=? AND estado IN ('aplicada','parcial') AND version IS NOT NULL ORDER BY id DESC LIMIT 1",
+            (note_id,),
+        ).fetchone()
     if not r:
         raise HTTPException(404, "No hay ninguna corrección de IA que deshacer en esta nota")
     versions.restore_version(note_id, r["version"])
@@ -448,6 +587,7 @@ def deshacer(note_id: str):
 
 
 # ── Ajustes → IA ──────────────────────────────────────────────────────────────
+
 
 @router.get("/api/ia/estado")
 def estado():
@@ -486,8 +626,11 @@ def catalogo():
 @router.get("/api/ia/historial")
 def historial(limit: int = 30):
     with get_db() as conn:
-        rows = conn.execute("""SELECT c.id, c.note_id, n.title, c.proveedor, c.modelo, c.estado, c.partes, c.aceptadas, c.creado
-                               FROM ia_correcciones c LEFT JOIN notes n ON n.id = c.note_id ORDER BY c.id DESC LIMIT ?""", (max(1, min(limit, 200)),)).fetchall()
+        rows = conn.execute(
+            """SELECT c.id, c.note_id, n.title, c.proveedor, c.modelo, c.estado, c.partes, c.aceptadas, c.creado
+                               FROM ia_correcciones c LEFT JOIN notes n ON n.id = c.note_id ORDER BY c.id DESC LIMIT ?""",
+            (max(1, min(limit, 200)),),
+        ).fetchall()
     return {"correcciones": [dict(r) for r in rows]}
 
 
@@ -505,7 +648,7 @@ Es mi panel personal («Panel»): un cuaderno de notas en Markdown con enlaces e
 - Tablas Markdown con fila de cabecera y separador `|---|---|`, mismo número de columnas en todas las filas.
 - Flashcards: una línea `Pregunta >> Respuesta` crea una tarjeta de repaso. Una por línea. Conserva todas.
 - Casillas `- [ ]` / `- [x]`: son tareas reales del panel. No las añadas, quites ni cambies de estado.
-- Anotaciones mías: `{{resumir: …}}`, `{{entender: …}}`, `{{mal: …}}`. No las borres ni las resuelvas.
+- Anotaciones mías: `{{resumir: …}}`, `{{entender: …}}`, `{{mal: …}}`, `{{duda: …}}`, `{{examen: …}}`, `{{importante: …}}`. No las borres ni las resuelvas.
 - Enlaces a tareas `[[tarea:12]]`: déjalos exactamente igual.
 - Calendario incrustado: un bloque ```calendario con líneas `vista: agenda|semana|mes|día` y `días: 7`.
 
@@ -539,5 +682,8 @@ def prompt_para_chat():
     partes = [PROMPT_CONTEXTO.strip()]
     if guia:
         partes.append("# Mis reglas de estilo (guía personal)\n" + guia)
-    partes.append("# Notas existentes (para enlazar con [[Título]])\n" + ("\n".join(f"- {t}" for t in titulos) or "(todavía no hay otras notas)"))
+    partes.append(
+        "# Notas existentes (para enlazar con [[Título]])\n"
+        + ("\n".join(f"- {t}" for t in titulos) or "(todavía no hay otras notas)")
+    )
     return {"prompt": "\n\n".join(partes), "titulos": len(titulos)}

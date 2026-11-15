@@ -1,4 +1,5 @@
 """Fase 9: búsqueda FTS5, backlinks, historial de versiones, filtros guardados y calendario de repaso."""
+
 import time
 
 from app import versions
@@ -6,13 +7,21 @@ from core import config
 
 
 def _nota(client, note_id, title, content, **kw):
-    r = client.post(f"/api/notes/{note_id}", json={"title": title, "category": kw.pop("category", "Buscar - Pruebas"),
-                                                   "content": content, **kw})
+    r = client.post(
+        f"/api/notes/{note_id}",
+        json={"title": title, "category": kw.pop("category", "Buscar - Pruebas"), "content": content, **kw},
+    )
     assert r.status_code == 200, r.text
 
 
 def test_busqueda_fts(client):
-    _nota(client, "fts-corazon", "Fisiología del corazón", "El miocardio bombea sangre. Canción de prueba.", tags=["cardio"])
+    _nota(
+        client,
+        "fts-corazon",
+        "Fisiología del corazón",
+        "El miocardio bombea sangre. Canción de prueba.",
+        tags=["cardio"],
+    )
     _nota(client, "fts-otra", "Otra cosa", "Habla del corazón de pasada")
     r = client.get("/api/search", params={"q": "corazon"}).json()  # sin tilde
     ids = [n["id"] for n in r["notes"]]
@@ -40,7 +49,7 @@ def test_busqueda_no_indexa_contenido_cifrado(client):
 def test_busqueda_en_inbox(client):
     client.post("/api/inbox", json={"content": "Idea sobre electroforesis capilar", "item_type": "nota"})
     r = client.get("/api/search", params={"q": "electroforesis"}).json()
-    assert any("electroforesis" in i["content"] for i in r["inbox"])
+    assert any("electroforesis" in i["text"] and i["type"] == "idea" for i in r["items"])
 
 
 def test_backlinks(client):
@@ -72,8 +81,10 @@ def test_versiones(client, monkeypatch):
     r = client.post(f"/api/notes/ver-n/versions/{oldest}/restore")
     assert r.status_code == 200 and r.json()["previous_version"]
     assert client.get("/api/notes/ver-n").json()["content"].strip() == "uno"
-    contenidos = [client.get(f"/api/notes/ver-n/versions/{v['id']}").json()["content"].strip()
-                  for v in client.get("/api/notes/ver-n/versions").json()["versions"]]
+    contenidos = [
+        client.get(f"/api/notes/ver-n/versions/{v['id']}").json()["content"].strip()
+        for v in client.get("/api/notes/ver-n/versions").json()["versions"]
+    ]
     assert "cuatro" in contenidos  # lo que había antes de restaurar queda guardado
 
     assert client.get("/api/notes/ver-n/versions/../../x").status_code == 404
@@ -88,7 +99,10 @@ def test_version_al_borrar(client):
 
 
 def test_filtros_guardados(client):
-    r = client.post("/api/saved-filters", json={"scope": "notas", "name": "Consolidadas de física", "params": {"chip": "consolidado", "q": "física"}})
+    r = client.post(
+        "/api/saved-filters",
+        json={"scope": "notas", "name": "Consolidadas de física", "params": {"chip": "consolidado", "q": "física"}},
+    )
     fid = r.json()["id"]
     fs = client.get("/api/saved-filters", params={"scope": "notas"}).json()["filters"]
     assert any(f["id"] == fid and f["params"]["chip"] == "consolidado" for f in fs)

@@ -19,6 +19,7 @@ Reglas:
 - Antes de subir pasa scripts/check-secrets.sh: si falla o no está, no se sube nada y el repo queda como estaba.
 - Nunca se fuerza el push.
 """
+
 import difflib
 import hashlib
 import os
@@ -35,6 +36,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query
 
 from core import config
+from core.files import atomic_write, atomic_write_bytes
 from core.logging_config import get_logger
 
 log = get_logger("dotfiles")
@@ -60,10 +62,10 @@ class RepoError(Exception):
 
 @dataclass
 class Change:
-    path: str              # ruta dentro del repo
-    kind: str              # modificado | nuevo | enlace | conflicto | repo (cambio hecho directamente en el repo)
-    before: bytes | None   # lo que hay ahora en el repo (None: no existe)
-    after: bytes | None    # lo que quedará (en «enlace», el destino; en «conflicto», lo que hay en ~)
+    path: str  # ruta dentro del repo
+    kind: str  # modificado | nuevo | enlace | conflicto | repo (cambio hecho directamente en el repo)
+    before: bytes | None  # lo que hay ahora en el repo (None: no existe)
+    after: bytes | None  # lo que quedará (en «enlace», el destino; en «conflicto», lo que hay en ~)
     live: Path | None = None
     live_bytes: bytes | None = None
 
@@ -72,14 +74,24 @@ class Change:
 # Git
 # ─────────────────────────────────────────────
 
+
 def git_env() -> dict:
-    return {**os.environ, "GIT_OPTIONAL_LOCKS": "0", "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C",
-            "GIT_SSH_COMMAND": "ssh -o BatchMode=yes -o ConnectTimeout=15"}  # sin clave utilizable falla, no se cuelga
+    return {
+        **os.environ,
+        "GIT_OPTIONAL_LOCKS": "0",
+        "GIT_TERMINAL_PROMPT": "0",
+        "LC_ALL": "C",
+        "GIT_SSH_COMMAND": "ssh -o BatchMode=yes -o ConnectTimeout=15",
+    }  # sin clave utilizable falla, no se cuelga
 
 
-def run_git(repo: Path, *args: str, timeout: int = 30, check: bool = True, stdin: bytes | None = None) -> subprocess.CompletedProcess:
+def run_git(
+    repo: Path, *args: str, timeout: int = 30, check: bool = True, stdin: bytes | None = None
+) -> subprocess.CompletedProcess:
     try:
-        run = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, input=stdin, timeout=timeout, env=git_env())
+        run = subprocess.run(
+            ["git", "-C", str(repo), *args], capture_output=True, input=stdin, timeout=timeout, env=git_env()
+        )
     except subprocess.TimeoutExpired:
         raise RepoError(504, f"Git no respondió a tiempo ({args[0]})")
     if check and run.returncode:
@@ -134,12 +146,15 @@ def _counts() -> tuple[int, int]:
 
 
 def is_available() -> bool:
-    return (config.DOTFILES_DIR / ".git").exists() and _git("rev-parse", "--verify", "-q", "HEAD", check=False).returncode == 0
+    return (config.DOTFILES_DIR / ".git").exists() and _git(
+        "rev-parse", "--verify", "-q", "HEAD", check=False
+    ).returncode == 0
 
 
 # ─────────────────────────────────────────────
 # Qué ha cambiado
 # ─────────────────────────────────────────────
+
 
 def _home_path(repo_path: str) -> str:
     """stow/<componente>/.config/x -> .config/x"""
@@ -251,7 +266,11 @@ def _dirty(seen: set[str]) -> list[Change]:
         path = os.fsdecode(record[3:])
         if path and path not in seen:
             head = _git("show", f"HEAD:{path}", check=False)
-            changes.append(Change(path, "repo", head.stdout if head.returncode == 0 else None, read_entry(config.DOTFILES_DIR / path)))
+            changes.append(
+                Change(
+                    path, "repo", head.stdout if head.returncode == 0 else None, read_entry(config.DOTFILES_DIR / path)
+                )
+            )
     return changes
 
 
@@ -343,14 +362,24 @@ def diff_payload(path: str, kind: str, before: bytes | None, after: bytes | None
     before, after = before or b"", after or b""
     if b"\0" in before + after:
         return {"path": path, "kind": kind, "binary": True, "lines": [], "truncated": False}
-    lines = list(difflib.unified_diff(before.decode(errors="replace").splitlines(),
-                                      after.decode(errors="replace").splitlines(), lineterm="", n=3))[2:]
-    return {"path": path, "kind": kind, "binary": False, "lines": lines[:MAX_DIFF_LINES], "truncated": len(lines) > MAX_DIFF_LINES}
+    lines = list(
+        difflib.unified_diff(
+            before.decode(errors="replace").splitlines(), after.decode(errors="replace").splitlines(), lineterm="", n=3
+        )
+    )[2:]
+    return {
+        "path": path,
+        "kind": kind,
+        "binary": False,
+        "lines": lines[:MAX_DIFF_LINES],
+        "truncated": len(lines) > MAX_DIFF_LINES,
+    }
 
 
 # ─────────────────────────────────────────────
 # Subir
 # ─────────────────────────────────────────────
+
 
 def _apply(changes: list[Change]) -> None:
     for change in changes:
@@ -382,7 +411,9 @@ def _check_secrets() -> None:
     if not script.is_file():
         raise RepoError(422, "Falta scripts/check-secrets.sh en el repo: sin comprobar secretos no se sube nada.")
     try:
-        run = subprocess.run(["bash", str(script)], cwd=config.DOTFILES_DIR, capture_output=True, text=True, timeout=180)
+        run = subprocess.run(
+            ["bash", str(script)], cwd=config.DOTFILES_DIR, capture_output=True, text=True, timeout=180
+        )
     except subprocess.TimeoutExpired:
         raise RepoError(504, "La comprobación de secretos tardó demasiado: no se ha subido nada.")
     if run.returncode == 0:
@@ -397,12 +428,13 @@ def _check_secrets() -> None:
 
 def _save_ancestors(changes: list[Change], scanned_at: float) -> None:
     BASE_DIR.mkdir(parents=True, exist_ok=True)
-    (BASE_DIR / UPLOADED_MARK).write_text(str(scanned_at))
     for change in changes:
         if change.live_bytes is not None:
             saved = BASE_DIR / change.path
             saved.parent.mkdir(parents=True, exist_ok=True)
-            saved.write_bytes(change.live_bytes)
+            atomic_write_bytes(saved, change.live_bytes)
+    # La marca, al final: un corte a mitad deja la anterior y la próxima vez se vuelve a comparar con lo que hubiera
+    atomic_write(BASE_DIR / UPLOADED_MARK, str(scanned_at))
 
 
 def _commit(applied: list[Change], scanned_at: float) -> str | None:
@@ -422,16 +454,22 @@ def _send() -> None:
         _git("fetch", timeout=90)
         if _counts()[1] and _git("rebase", "@{u}", check=False, timeout=60).returncode:
             _git("rebase", "--abort", check=False)
-            raise RepoError(409, "GitHub tiene cambios que chocan con los de aquí. Queda guardado en ~/dotfiles sin subir: "
-                                     "resuélvelo allí a mano.")
+            raise RepoError(
+                409,
+                "GitHub tiene cambios que chocan con los de aquí. Queda guardado en ~/dotfiles sin subir: "
+                "resuélvelo allí a mano.",
+            )
         if _counts()[0]:
             _git("push", timeout=120)
     except RepoError as e:
         if e.status == 409:
             raise
         log.warning("Dotfiles: %s", e.detail)
-        raise RepoError(502, "No he podido conectar con GitHub (¿sin red o sin acceso con la clave SSH?). Queda guardado "
-                                 "en ~/dotfiles: vuelve a pulsar «Subir a GitHub» y se enviará.")
+        raise RepoError(
+            502,
+            "No he podido conectar con GitHub (¿sin red o sin acceso con la clave SSH?). Queda guardado "
+            "en ~/dotfiles: vuelve a pulsar «Subir a GitHub» y se enviará.",
+        )
 
 
 def publish() -> dict:
@@ -441,7 +479,10 @@ def publish() -> dict:
     try:
         if not is_available():
             raise RepoError(404, "No hay repositorio de dotfiles")
-        if not _text(_git("branch", "--show-current")) or _git("rev-parse", "--verify", "-q", "@{u}", check=False).returncode:
+        if (
+            not _text(_git("branch", "--show-current"))
+            or _git("rev-parse", "--verify", "-q", "@{u}", check=False).returncode
+        ):
             raise RepoError(409, "El repo no está en una rama con remoto (¿rebase a medias?): revísalo en ~/dotfiles.")
         scanned_at = time.time()
         changes = _scan()[0]
@@ -466,6 +507,7 @@ def publish() -> dict:
 # ─────────────────────────────────────────────
 # Rutas
 # ─────────────────────────────────────────────
+
 
 def route_call(fn, *args):
     try:

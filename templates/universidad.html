@@ -1,0 +1,60 @@
+{% extends "_layout.html" %}
+{% from "_items.html" import note_dialog %}
+{% block head %}<link rel="stylesheet" href="{{ asset('/static/css/vault.css') }}"><link rel="stylesheet" href="{{ asset('/static/css/items.css') }}"><link rel="stylesheet" href="{{ asset('/static/css/universidad.css') }}">{% endblock %}
+{% block body_class %}page-universidad{% endblock %}
+{% block title_icon %}{{ icon('school') }}{% endblock %}
+{% block actions %}
+<div class="search hide-mobile vault-search">{{ icon('search') }}
+  <input id="uniSearch" class="input" type="search" placeholder="Buscar temas…" aria-label="Buscar temas" autocomplete="off"></div>
+<button type="button" class="btn btn-ghost" id="uniSyncAll" title="Añade los temas nuevos de las carpetas; no borra nada ni toca los archivos">{{ icon('folder-sync') }}<span class="hide-mobile">Sincronizar</span><span class="sr-only show-mobile">Sincronizar con las carpetas</span></button>
+<button type="button" class="btn btn-primary" id="uniAdd">{{ icon('plus') }}<span class="hide-mobile">Asignatura</span><span class="sr-only show-mobile">Nueva asignatura</span></button>
+<button type="button" class="btn btn-ghost btn-icon" id="uniMenu" aria-label="Más acciones de Universidad" aria-haspopup="menu">{{ icon('ellipsis') }}</button>
+{% endblock %}
+{% block content %}
+<div class="vault uni">
+  {# Arriba: clases de hoy y lo próximo (entregas y exámenes con cuenta atrás) #}
+  <section class="uni-summary" aria-label="Resumen" id="uniSummary">
+    <div class="panel uni-sum-card"><div class="panel-header"><h2>{{ icon('calendar-clock', 'icon-sm') }}Clases de hoy</h2></div>
+      <div class="panel-body" id="uniToday"><span class="skeleton skeleton-line"></span></div></div>
+    <div class="panel uni-sum-card"><div class="panel-header"><h2>{{ icon('flag', 'icon-sm') }}Próximas entregas y exámenes</h2></div>
+      <div class="panel-body" id="uniNext"><span class="skeleton skeleton-line"></span></div></div>
+  </section>
+
+  <div class="vault-controls">
+    <div class="segmented" role="tablist" aria-label="Vista">
+      <button type="button" class="main-tab" data-tab="temas" role="tab" aria-selected="true">{{ icon('book-open', 'icon-sm') }}Temas</button>
+      <button type="button" class="main-tab" data-tab="entregas" role="tab" aria-selected="false">{{ icon('flag', 'icon-sm') }}Entregas y exámenes <span class="badge" id="uniNextBadge" hidden>0</span></button>
+      <button type="button" class="main-tab" data-tab="horario" role="tab" aria-selected="false">{{ icon('calendar-clock', 'icon-sm') }}Horario</button>
+      <button type="button" class="main-tab" data-tab="tareas" role="tab" aria-selected="false">{{ icon('list-todo', 'icon-sm') }}Tareas</button>
+    </div>
+    <div class="search show-mobile">{{ icon('search') }}
+      <input id="uniSearchMobile" class="input" type="search" placeholder="Buscar temas…" aria-label="Buscar temas" autocomplete="off"></div>
+    <div class="filter-bar">
+      <div class="segmented" role="group" aria-label="Estado de los temas" id="uniEstado" data-only="temas">
+        <button type="button" data-estado="" aria-pressed="true">Todos</button>
+        <button type="button" data-estado="sin-ver" aria-pressed="false">Sin ver</button>
+        <button type="button" data-estado="estudiando" aria-pressed="false">Estudiando</button>
+        <button type="button" data-estado="repasado" aria-pressed="false">Repasados</button>
+      </div>
+      <div id="uniChips" class="chips chips-scroll" role="group" aria-label="Asignatura"></div>
+    </div>
+  </div>
+
+  <div id="uniContent" class="vault-content" aria-live="polite">
+    {% for _ in range(2) %}<div class="uni-subject"><span class="skeleton skeleton-card"></span></div>{% endfor %}
+  </div>
+  <section id="uniTareas" class="uni-tareas" hidden aria-label="Tareas de la universidad">
+    <form class="capture-panel uni-capture" id="uniCapture" autocomplete="off">
+      <label class="sr-only" for="uniCaptureText">Nueva tarea de la universidad</label>
+      <input id="uniCaptureText" class="input" maxlength="2000" placeholder="Nueva tarea (p. ej. «práctica 5 viernes»; @sigla la lleva a esa asignatura)…">
+      <label class="sr-only" for="uniCaptureWhere">Asignatura</label>
+      <select id="uniCaptureWhere" class="select input-sm"></select>
+      <button type="submit" class="btn btn-primary">Guardar</button>
+    </form>
+    <div id="uniItemList"></div>
+  </section>
+</div>
+{{ note_dialog() }}
+{% endblock %}
+{% block scripts %}<script src="{{ asset('/static/vendor/marked/marked.min.js') }}"></script><script src="{{ asset('/static/vendor/dompurify/purify.min.js') }}"></script>
+<script src="{{ asset('/static/js/item-list.js') }}"></script><script src="{{ asset('/static/js/item-copy.js') }}"></script><script src="{{ asset('/static/js/universidad.js') }}"></script>{% endblock %}

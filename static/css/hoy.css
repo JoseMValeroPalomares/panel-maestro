@@ -16,6 +16,14 @@
 .hoy-row[data-type="entrega"] .hoy-dot { background: var(--warning); }
 .hoy-title { flex: 1; min-width: 0; color: var(--text); text-decoration: none; overflow-wrap: anywhere; }
 a.hoy-title:hover { color: var(--accent-text); }
+/* U-2 · En táctil, el título (enlace o botón, también en Revisión y Economía) toca en toda la altura de su fila de 44 px,
+   y los enlaces de la línea «También hoy» en 44 px; el aspecto no cambia */
+@media (pointer: coarse) {
+  .hoy-title, #hoyQuiet a { position: relative; }
+  .hoy-row > .card-check { margin-right: 2px; }  /* su zona sobresale 10 px y el hueco es de 8: que no la pise el título */
+  .hoy-title::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: max(100%, var(--touch)); translate: 0 -50%; }
+  #hoyQuiet a::after { content: ""; position: absolute; left: 50%; top: 50%; width: max(100%, var(--touch)); height: var(--touch); translate: -50% -50%; }
+}
 .hoy-streak { display: inline-flex; align-items: center; gap: 2px; color: var(--warning-text); font-weight: 600; font-size: var(--fs-13); }
 .hoy-late { color: var(--danger-text); font-weight: 600; }
 .hoy-h3 { font-size: var(--fs-13); color: var(--text-2); margin: var(--sp-3) 0 var(--sp-1); }
@@ -37,6 +45,9 @@ a.hoy-title:hover { color: var(--accent-text); }
 .rev-bars { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; height: 150px; align-items: end; margin-top: var(--sp-3); }
 .rev-day { display: grid; grid-template-rows: auto 1fr auto auto; height: 100%; justify-items: center; gap: 2px; }
 .rev-bar { align-self: end; width: 70%; max-width: 32px; min-height: 2px; border-radius: 4px 4px 0 0; background: var(--tile-tareas); }
+.rev-time-h { display: flex; align-items: center; gap: 6px; margin-top: var(--sp-6); padding-top: var(--sp-4); border-top: 1px solid var(--separator); }
+.rev-bars-time .rev-bar { background: var(--accent); }
+.rev-bars-time .rev-val { font-size: var(--fs-12); white-space: nowrap; }
 .rev-val { font-size: var(--fs-12); color: var(--text); font-weight: 600; }
 .rev-dow { font-size: var(--fs-12); color: var(--text-2); font-weight: 600; }
 .rev-rut { color: var(--text-2); }
@@ -50,6 +61,14 @@ a.hoy-title:hover { color: var(--accent-text); }
 .hoy-next:hover { text-decoration: none; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
 .hoy-next .icon { color: var(--accent-text); }
 .hoy-next > span:last-child { margin-left: auto; font-size: var(--fs-13); }
+
+/* Aviso de copias (solo si no están al día) */
+.hoy-alert { display: flex; align-items: center; gap: var(--sp-2) var(--sp-3); flex-wrap: wrap; padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-md); background: var(--warning-soft); color: var(--text); font-size: var(--fs-14); }
+.hoy-alert[hidden] { display: none; }
+.hoy-alert > .icon { color: var(--warning-text); flex: none; }
+.hoy-alert-text { flex: 1 1 14rem; min-width: 0; }
+.hoy-alert-actions { display: flex; gap: var(--sp-2); }
 /* Dinero */
 .hoy-money { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); margin-bottom: var(--sp-2); }
 .hoy-money > div { display: flex; flex-direction: column; gap: 2px; }

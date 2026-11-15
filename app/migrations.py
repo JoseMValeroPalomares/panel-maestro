@@ -4,6 +4,7 @@ Migraciones versionadas de brain.db (ver core/migrations.py).
 Cada una guarda lo que cambia en una tabla *_backup para que `down` lo deje
 exactamente como estaba.
 """
+
 import json
 import re
 import sqlite3
@@ -14,12 +15,12 @@ from app import routines
 from app.board_convert import convert_text
 from core.migrations import Migration, has_column
 
-
 # 1 ─ Inbox con un solo nivel de subelementos y tipo coherente con el padre ─────
 # Antes se podía soltar una tarea dentro de una idea y anidar sin límite; el
 # Inbox solo dibuja dos niveles, así que los nietos no se veían. Un elemento
 # intermedio con hijos sube a primer nivel (con sus hijos), y un subelemento
 # de distinto tipo que su padre también sube, conservando su tipo y contenido.
+
 
 def _inbox_one_level_up(conn: sqlite3.Connection) -> None:
     conn.execute("""CREATE TABLE IF NOT EXISTS inbox_r2_backup (
@@ -28,8 +29,10 @@ def _inbox_one_level_up(conn: sqlite3.Connection) -> None:
     has_kids = {r["parent_id"] for r in rows.values() if r["parent_id"] is not None}
 
     def save(r):
-        conn.execute("INSERT OR IGNORE INTO inbox_r2_backup (id, parent_id, item_type, sort_order) VALUES (?, ?, ?, ?)",
-                     (r["id"], r["parent_id"], r["item_type"], r["sort_order"]))
+        conn.execute(
+            "INSERT OR IGNORE INTO inbox_r2_backup (id, parent_id, item_type, sort_order) VALUES (?, ?, ?, ?)",
+            (r["id"], r["parent_id"], r["item_type"], r["sort_order"]),
+        )
 
     top = max([r["sort_order"] or 0 for r in rows.values()] + [0])
     for r in rows.values():
@@ -46,8 +49,10 @@ def _inbox_one_level_up(conn: sqlite3.Connection) -> None:
 
 def _inbox_one_level_down(conn: sqlite3.Connection) -> None:
     for r in conn.execute("SELECT id, parent_id, item_type, sort_order FROM inbox_r2_backup").fetchall():
-        conn.execute("UPDATE inbox SET parent_id=?, item_type=?, sort_order=? WHERE id=?",
-                     (r["parent_id"], r["item_type"], r["sort_order"], r["id"]))
+        conn.execute(
+            "UPDATE inbox SET parent_id=?, item_type=?, sort_order=? WHERE id=?",
+            (r["parent_id"], r["item_type"], r["sort_order"], r["id"]),
+        )
     conn.execute("DROP TABLE inbox_r2_backup")
 
 
@@ -77,7 +82,6 @@ def resources_order_down(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE resources DROP COLUMN sort_order")  # solo era el orden manual
 
 
-
 # 3 ─ Orden manual de las notas dentro de su categoría ─────────────────────────
 def note_order_up(conn: sqlite3.Connection) -> None:
     # Fuera de los .md a propósito: el formato de las notas no cambia
@@ -100,8 +104,10 @@ def boards_v2_up(conn: sqlite3.Connection) -> None:
         new, report = convert_text(r["data"])
         if report is None:
             continue
-        conn.execute("INSERT OR REPLACE INTO board_canvas_legacy (board_id, data, report, migrated_at) VALUES (?, ?, ?, ?)",
-                     (r["board_id"], r["data"], json.dumps(report, ensure_ascii=False), time.time()))
+        conn.execute(
+            "INSERT OR REPLACE INTO board_canvas_legacy (board_id, data, report, migrated_at) VALUES (?, ?, ?, ?)",
+            (r["board_id"], r["data"], json.dumps(report, ensure_ascii=False), time.time()),
+        )
         conn.execute("UPDATE board_canvas SET data=? WHERE board_id=?", (new, r["board_id"]))
 
 
@@ -109,7 +115,6 @@ def boards_v2_down(conn: sqlite3.Connection) -> None:
     for r in conn.execute("SELECT board_id, data FROM board_canvas_legacy").fetchall():
         conn.execute("UPDATE board_canvas SET data=? WHERE board_id=?", (r["data"], r["board_id"]))
     conn.execute("DROP TABLE board_canvas_legacy")
-
 
 
 # 5 ─ Plantillas del tablero ───────────────────────────────────────────────────
@@ -134,8 +139,10 @@ def inbox_meta_down(conn: sqlite3.Connection) -> None:
     # Lo que se hubiera puesto se guarda antes de quitar las columnas
     conn.execute("CREATE TABLE IF NOT EXISTS inbox_meta_backup (id INTEGER PRIMARY KEY, priority TEXT, category TEXT)")
     if has_column(conn, "inbox", "priority"):
-        conn.execute("INSERT OR REPLACE INTO inbox_meta_backup (id, priority, category) "
-                     "SELECT id, priority, category FROM inbox WHERE priority IS NOT NULL OR category IS NOT NULL")
+        conn.execute(
+            "INSERT OR REPLACE INTO inbox_meta_backup (id, priority, category) "
+            "SELECT id, priority, category FROM inbox WHERE priority IS NOT NULL OR category IS NOT NULL"
+        )
         conn.execute("ALTER TABLE inbox DROP COLUMN priority")
         conn.execute("ALTER TABLE inbox DROP COLUMN category")
 
@@ -155,18 +162,27 @@ def items_up(conn: sqlite3.Connection) -> None:
     max_id = conn.execute("SELECT COALESCE(MAX(id), 0) FROM inbox").fetchone()[0]
     conn.execute("INSERT OR REPLACE INTO inbox_r3_meta (key, value) VALUES ('max_id', ?)", (str(max_id),))
     from app.note_tasks import parse_tasks
+
     has_notes = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='notes'").fetchone()
-    notes = {r["id"]: r["content"] for r in conn.execute("SELECT id, content FROM notes WHERE encrypted=0")} if has_notes else {}
+    notes = (
+        {r["id"]: r["content"] for r in conn.execute("SELECT id, content FROM notes WHERE encrypted=0")}
+        if has_notes
+        else {}
+    )
     linked = has_column(conn, "inbox", "note_task")
-    for r in conn.execute(f"SELECT id, content, {'note_id, note_task' if linked else 'NULL AS note_id, NULL AS note_task'} FROM inbox").fetchall():
+    for r in conn.execute(
+        f"SELECT id, content, {'note_id, note_task' if linked else 'NULL AS note_id, NULL AS note_task'} FROM inbox"
+    ).fetchall():
         content, note_id, note_task = r["content"], r["note_id"], r["note_task"]
         if content and content.startswith("---"):
             content = re.sub(r"^---\s*", "", content)
         if note_task is not None and note_task not in {t["text"] for t in parse_tasks(notes.get(note_id) or "")}:
             note_id, note_task = None, None
         if (content, note_id, note_task) != (r["content"], r["note_id"], r["note_task"]):
-            conn.execute("INSERT OR IGNORE INTO inbox_r3_backup (id, content, note_id, note_task) VALUES (?, ?, ?, ?)",
-                         (r["id"], r["content"], r["note_id"], r["note_task"]))
+            conn.execute(
+                "INSERT OR IGNORE INTO inbox_r3_backup (id, content, note_id, note_task) VALUES (?, ?, ?, ?)",
+                (r["id"], r["content"], r["note_id"], r["note_task"]),
+            )
             conn.execute("UPDATE inbox SET content=? WHERE id=?", (content, r["id"]))
             if linked:
                 conn.execute("UPDATE inbox SET note_id=?, note_task=? WHERE id=?", (note_id, note_task, r["id"]))
@@ -188,8 +204,10 @@ def items_down(conn: sqlite3.Connection) -> None:
     # Fechas y notas escritas desde entonces se guardan antes de quitar las columnas
     conn.execute("CREATE TABLE IF NOT EXISTS inbox_items_backup (id INTEGER PRIMARY KEY, due_date TEXT, details TEXT)")
     if has_column(conn, "inbox", "due_date"):
-        conn.execute("INSERT OR REPLACE INTO inbox_items_backup (id, due_date, details) "
-                     "SELECT id, due_date, details FROM inbox WHERE due_date IS NOT NULL OR details IS NOT NULL")
+        conn.execute(
+            "INSERT OR REPLACE INTO inbox_items_backup (id, due_date, details) "
+            "SELECT id, due_date, details FROM inbox WHERE due_date IS NOT NULL OR details IS NOT NULL"
+        )
     conn.execute("DROP INDEX IF EXISTS idx_inbox_note_index")
     for col in ("due_date", "details", "note_index"):
         if has_column(conn, "inbox", col):
@@ -230,7 +248,12 @@ def calendar_up(conn: sqlite3.Connection) -> None:
         notes TEXT, location TEXT, reminder_min INTEGER, source TEXT NOT NULL DEFAULT 'panel',
         created_at REAL DEFAULT (unixepoch()), updated_at REAL DEFAULT (unixepoch()))""")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_events_start ON events(start)")
-    for col, kind in (("due_time", "TEXT"), ("duration_min", "INTEGER"), ("repeat", "TEXT"), ("reminder_min", "INTEGER")):
+    for col, kind in (
+        ("due_time", "TEXT"),
+        ("duration_min", "INTEGER"),
+        ("repeat", "TEXT"),
+        ("reminder_min", "INTEGER"),
+    ):
         if not has_column(conn, "inbox", col):
             conn.execute(f"ALTER TABLE inbox ADD COLUMN {col} {kind}")
     conn.execute("""CREATE TABLE IF NOT EXISTS routine_checks (
@@ -247,16 +270,30 @@ def calendar_up(conn: sqlite3.Connection) -> None:
 
 def calendar_down(conn: sqlite3.Connection) -> None:
     import json as _json
+
     conn.execute("CREATE TABLE IF NOT EXISTS calendar_r6_backup (tabla TEXT, datos TEXT)")
     for table in ("events", "routine_checks", "item_log", "day_templates"):
         if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
             rows = [dict(r) for r in conn.execute(f"SELECT * FROM {table}")]
-            conn.execute("INSERT INTO calendar_r6_backup (tabla, datos) VALUES (?, ?)", (table, _json.dumps(rows, ensure_ascii=False)))
+            conn.execute(
+                "INSERT INTO calendar_r6_backup (tabla, datos) VALUES (?, ?)",
+                (table, _json.dumps(rows, ensure_ascii=False)),
+            )
             conn.execute(f"DROP TABLE {table}")
-    rows = [dict(r) for r in conn.execute("SELECT id, item_type, due_time, duration_min, repeat, reminder_min FROM inbox "
-                                          "WHERE item_type='rutina' OR due_time IS NOT NULL OR duration_min IS NOT NULL OR repeat IS NOT NULL")] \
-        if has_column(conn, "inbox", "repeat") else []
-    conn.execute("INSERT INTO calendar_r6_backup (tabla, datos) VALUES ('inbox', ?)", (_json.dumps(rows, ensure_ascii=False),))
+    rows = (
+        [
+            dict(r)
+            for r in conn.execute(
+                "SELECT id, item_type, due_time, duration_min, repeat, reminder_min FROM inbox "
+                "WHERE item_type='rutina' OR due_time IS NOT NULL OR duration_min IS NOT NULL OR repeat IS NOT NULL"
+            )
+        ]
+        if has_column(conn, "inbox", "repeat")
+        else []
+    )
+    conn.execute(
+        "INSERT INTO calendar_r6_backup (tabla, datos) VALUES ('inbox', ?)", (_json.dumps(rows, ensure_ascii=False),)
+    )
     conn.execute("UPDATE inbox SET item_type='tarea' WHERE item_type='rutina'")
     for col in ("due_time", "duration_min", "repeat", "reminder_min"):
         if has_column(conn, "inbox", col):
@@ -310,11 +347,15 @@ def finance_up(conn: sqlite3.Connection) -> None:
 
 def finance_down(conn: sqlite3.Connection) -> None:
     import json as _json
+
     conn.execute("CREATE TABLE IF NOT EXISTS finance_backup (tabla TEXT, datos TEXT)")  # nada se pierde al deshacer
     for table in FIN_TABLES:
         if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
             rows = [dict(r) for r in conn.execute(f"SELECT * FROM {table}")]
-            conn.execute("INSERT INTO finance_backup (tabla, datos) VALUES (?, ?)", (table, _json.dumps(rows, ensure_ascii=False)))
+            conn.execute(
+                "INSERT INTO finance_backup (tabla, datos) VALUES (?, ?)",
+                (table, _json.dumps(rows, ensure_ascii=False)),
+            )
             conn.execute(f"DROP TABLE {table}")
 
 
@@ -329,7 +370,9 @@ def board_item_up(conn: sqlite3.Connection) -> None:
 
 def board_item_down(conn: sqlite3.Connection) -> None:
     conn.execute("DROP INDEX IF EXISTS idx_boards_item")
-    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='boards'").fetchone() and has_column(conn, "boards", "item_id"):
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='boards'").fetchone() and has_column(
+        conn, "boards", "item_id"
+    ):
         conn.execute("ALTER TABLE boards DROP COLUMN item_id")
 
 
@@ -345,11 +388,15 @@ def finance_plans_up(conn: sqlite3.Connection) -> None:
 
 def finance_plans_down(conn: sqlite3.Connection) -> None:
     import json as _json
+
     conn.execute("CREATE TABLE IF NOT EXISTS finance_backup (tabla TEXT, datos TEXT)")
     for table in ("fin_budgets", "fin_recurring"):
         if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
             rows = [dict(r) for r in conn.execute(f"SELECT * FROM {table}")]
-            conn.execute("INSERT INTO finance_backup (tabla, datos) VALUES (?, ?)", (table, _json.dumps(rows, ensure_ascii=False)))
+            conn.execute(
+                "INSERT INTO finance_backup (tabla, datos) VALUES (?, ?)",
+                (table, _json.dumps(rows, ensure_ascii=False)),
+            )
             conn.execute(f"DROP TABLE {table}")
 
 
@@ -357,13 +404,16 @@ def finance_plans_down(conn: sqlite3.Connection) -> None:
 # Antes, un paso sin hora empezaba cuando acababa el anterior. Ya no hay encadenado: cada paso se queda
 # con la hora que tenía, la del primer día de la semana en que toca (podía cambiar de un día a otro).
 
+
 def step_times_up(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE TABLE IF NOT EXISTS step_times_backup (id INTEGER PRIMARY KEY)")
     hours = {}
     lunes = date(2026, 10, 26)
     for r in conn.execute("SELECT * FROM inbox WHERE item_type='rutina' AND parent_id IS NULL").fetchall():
         rule = routines.parse(r["repeat"])
-        steps = conn.execute("SELECT * FROM inbox WHERE parent_id=? ORDER BY sort_order DESC, created_at DESC", (r["id"],)).fetchall()
+        steps = conn.execute(
+            "SELECT * FROM inbox WHERE parent_id=? ORDER BY sort_order DESC, created_at DESC", (r["id"],)
+        ).fetchall()
         for d in (lunes + timedelta(days=i) for i in range(7)):
             if rule["freq"] != "weekly" or d.weekday() in rule["days"]:
                 for s in routines.schedule(r["due_time"], [dict(x) for x in steps if routines.step_on(x, d)]):
@@ -384,6 +434,7 @@ def step_times_down(conn: sqlite3.Connection) -> None:
 # Un registro por día (la noche anterior + el día), sus bloques de estudio, el objetivo de horas de cada
 # asignatura (los exámenes salen del calendario), los umbrales de las reglas y las auditorías de la IA.
 # Tablas nuevas: deshacer es borrarlas.
+
 
 def rendimiento_up(conn: sqlite3.Connection) -> None:
     conn.execute("""CREATE TABLE IF NOT EXISTS rend_dias (
@@ -418,13 +469,18 @@ def rendimiento_down(conn: sqlite3.Connection) -> None:
 # por cuota, los modelos en enfriamiento tras un 429 y un registro corto de llamadas (sin contenido).
 # La auditoría guarda el hash de lo que se envió, para no repetirla si nada cambió.
 
+
 def rend_ia_up(conn: sqlite3.Connection) -> None:
     conn.execute("""CREATE TABLE IF NOT EXISTS rend_alertas (
         id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT NOT NULL, regla TEXT NOT NULL, nivel TEXT NOT NULL,
         titulo TEXT NOT NULL, texto TEXT NOT NULL, item_id INTEGER, creado REAL NOT NULL DEFAULT (unixepoch()),
         UNIQUE (fecha, regla))""")
-    conn.execute("CREATE TABLE IF NOT EXISTS llm_uso (cuota TEXT NOT NULL, dia TEXT NOT NULL, peticiones INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (cuota, dia))")
-    conn.execute("CREATE TABLE IF NOT EXISTS llm_enfriamiento (modelo TEXT PRIMARY KEY, hasta REAL NOT NULL, motivo TEXT)")
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS llm_uso (cuota TEXT NOT NULL, dia TEXT NOT NULL, peticiones INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (cuota, dia))"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS llm_enfriamiento (modelo TEXT PRIMARY KEY, hasta REAL NOT NULL, motivo TEXT)"
+    )
     conn.execute("""CREATE TABLE IF NOT EXISTS llm_registro (
         id INTEGER PRIMARY KEY AUTOINCREMENT, at REAL NOT NULL, modelo TEXT NOT NULL, ok INTEGER NOT NULL,
         latencia_ms INTEGER, error TEXT)""")
@@ -453,13 +509,20 @@ def yt_vistos_down(conn: sqlite3.Connection) -> None:
 # El registro del router gana tokens, coste y para qué se usó (sin contenido). `ia_correcciones` guarda qué modelo
 # corrigió cada nota y qué pasó con la propuesta; la versión previa a aplicarla está en data/versions (deshacer).
 
+
 def ia_notas_up(conn: sqlite3.Connection) -> None:
-    for col, tipo in (("tokens_in", "INTEGER NOT NULL DEFAULT 0"), ("tokens_out", "INTEGER NOT NULL DEFAULT 0"),
-                      ("coste", "REAL NOT NULL DEFAULT 0"), ("uso", "TEXT")):
+    for col, tipo in (
+        ("tokens_in", "INTEGER NOT NULL DEFAULT 0"),
+        ("tokens_out", "INTEGER NOT NULL DEFAULT 0"),
+        ("coste", "REAL NOT NULL DEFAULT 0"),
+        ("uso", "TEXT"),
+    ):
         if not has_column(conn, "llm_registro", col):
             conn.execute(f"ALTER TABLE llm_registro ADD COLUMN {col} {tipo}")
     conn.execute("CREATE TABLE IF NOT EXISTS ia_ajustes (clave TEXT PRIMARY KEY, valor TEXT NOT NULL)")
-    conn.execute("CREATE TABLE IF NOT EXISTS ia_catalogo (url TEXT PRIMARY KEY, modelos TEXT NOT NULL, at REAL NOT NULL)")
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS ia_catalogo (url TEXT PRIMARY KEY, modelos TEXT NOT NULL, at REAL NOT NULL)"
+    )
     conn.execute("""CREATE TABLE IF NOT EXISTS ia_correcciones (
         id INTEGER PRIMARY KEY AUTOINCREMENT, note_id TEXT NOT NULL, modelo_id TEXT, proveedor TEXT, modelo TEXT,
         estado TEXT NOT NULL, partes INTEGER NOT NULL DEFAULT 0, aceptadas INTEGER NOT NULL DEFAULT 0,
@@ -478,17 +541,233 @@ def ia_notas_down(conn: sqlite3.Connection) -> None:
 
 # 21 ─ Grafo: nodos fijados y copia de las posiciones previas al último recolocado automático ─────
 
+
 def graph_auto_up(conn: sqlite3.Connection) -> None:
-    conn.execute("CREATE TABLE IF NOT EXISTS graph_nodes (id TEXT PRIMARY KEY, x REAL, y REAL)")  # en una BD en blanco aún no existe
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS graph_nodes (id TEXT PRIMARY KEY, x REAL, y REAL)"
+    )  # en una BD en blanco aún no existe
     if not has_column(conn, "graph_nodes", "fijado"):
         conn.execute("ALTER TABLE graph_nodes ADD COLUMN fijado INTEGER NOT NULL DEFAULT 0")
-    conn.execute("CREATE TABLE IF NOT EXISTS graph_prev (id INTEGER PRIMARY KEY CHECK (id = 1), datos TEXT NOT NULL, at REAL NOT NULL)")
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS graph_prev (id INTEGER PRIMARY KEY CHECK (id = 1), datos TEXT NOT NULL, at REAL NOT NULL)"
+    )
 
 
 def graph_auto_down(conn: sqlite3.Connection) -> None:
     conn.execute("DROP TABLE IF EXISTS graph_prev")
     if has_column(conn, "graph_nodes", "fijado"):
         conn.execute("ALTER TABLE graph_nodes DROP COLUMN fijado")
+
+
+# 22 ─ Contextos (puntual / universidad / proyectos), asignaturas con sus temas, proyectos con sus
+#      versiones; tareas, eventos y esquemas pueden ir a una asignatura o a un proyecto; las clases
+#      son eventos que se repiten. Todo lo que ya había queda como «puntual». ──────────────────────
+CTX_COLS = {
+    "inbox": (
+        ("contexto", "TEXT NOT NULL DEFAULT 'puntual'"),
+        ("asignatura_id", "INTEGER"),
+        ("proyecto_id", "INTEGER"),
+        ("version_id", "INTEGER"),
+        ("uni_tipo", "TEXT"),
+        ("peso", "REAL"),
+        ("nota", "REAL"),
+        ("temas", "TEXT"),
+        ("en_curso", "INTEGER NOT NULL DEFAULT 0"),
+    ),
+    "events": (
+        ("contexto", "TEXT NOT NULL DEFAULT 'puntual'"),
+        ("asignatura_id", "INTEGER"),
+        ("proyecto_id", "INTEGER"),
+        ("repeat", "TEXT"),
+        ("repeat_until", "TEXT"),
+        ("peso", "REAL"),
+        ("nota", "REAL"),
+        ("temas", "TEXT"),
+    ),
+    "boards": (
+        ("contexto", "TEXT NOT NULL DEFAULT 'puntual'"),
+        ("proyecto_id", "INTEGER"),
+        ("asignatura_id", "INTEGER"),
+    ),
+    "notes": (
+        ("contexto", "TEXT NOT NULL DEFAULT 'puntual'"),
+        ("asignatura_id", "INTEGER"),
+        ("proyecto_id", "INTEGER"),
+    ),
+}
+CTX_TABLES = ("asignaturas", "temas", "proyectos", "versiones", "contexto_meta")
+
+
+def _table_exists(conn, name: str) -> bool:
+    return conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone() is not None
+
+
+def contexts_up(conn: sqlite3.Connection) -> None:
+    conn.execute("""CREATE TABLE IF NOT EXISTS asignaturas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT NOT NULL, codigo TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        color TEXT, profesor TEXT, aula TEXT, semestre TEXT, alias TEXT NOT NULL DEFAULT '[]', carpeta TEXT,
+        enlaces TEXT NOT NULL DEFAULT '[]', orden REAL NOT NULL DEFAULT 0, archivada INTEGER NOT NULL DEFAULT 0,
+        sync_at REAL, created_at REAL DEFAULT (unixepoch()))""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS temas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, asignatura_id INTEGER NOT NULL REFERENCES asignaturas(id),
+        titulo TEXT NOT NULL, nombre_carpeta TEXT, ruta TEXT, tipo TEXT NOT NULL DEFAULT 'manual',
+        grupo TEXT NOT NULL DEFAULT 'otros', estado TEXT NOT NULL DEFAULT 'sin-ver', note_id TEXT,
+        orden REAL NOT NULL DEFAULT 0, titulo_manual INTEGER NOT NULL DEFAULT 0, falta_desde REAL,
+        created_at REAL DEFAULT (unixepoch()), UNIQUE (asignatura_id, ruta))""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_temas_asig ON temas(asignatura_id, orden)")
+    conn.execute("""CREATE TABLE IF NOT EXISTS proyectos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT NOT NULL, slug TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        descripcion TEXT, estado TEXT NOT NULL DEFAULT 'idea', color TEXT, repo_url TEXT, carpeta TEXT,
+        enlaces TEXT NOT NULL DEFAULT '[]', note_id TEXT, orden REAL NOT NULL DEFAULT 0, created_at REAL DEFAULT (unixepoch()))""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS versiones (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, proyecto_id INTEGER NOT NULL REFERENCES proyectos(id),
+        nombre TEXT NOT NULL, fecha_objetivo TEXT, estado TEXT NOT NULL DEFAULT 'abierta', changelog TEXT,
+        cerrada_at REAL, created_at REAL DEFAULT (unixepoch()), UNIQUE (proyecto_id, nombre))""")
+    conn.execute("CREATE TABLE IF NOT EXISTS contexto_meta (clave TEXT PRIMARY KEY, valor TEXT NOT NULL)")
+    for table, cols in CTX_COLS.items():
+        if not _table_exists(conn, table):
+            continue
+        for col, kind in cols:
+            if not has_column(conn, table, col):
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {kind}")
+    if _table_exists(conn, "inbox"):
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_inbox_ctx ON inbox(contexto, asignatura_id, proyecto_id)")
+    if _table_exists(conn, "events"):
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_events_ctx ON events(contexto, asignatura_id)")
+    # conteos de partida: el test de integridad y /api/contextos/integridad los comparan
+    counts = {
+        t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+        for t in ("inbox", "events", "boards", "notes")
+        if _table_exists(conn, t)
+    }
+    conn.execute(
+        "INSERT OR IGNORE INTO contexto_meta (clave, valor) VALUES ('conteos_previos', ?)", (json.dumps(counts),)
+    )
+
+
+def contexts_down(conn: sqlite3.Connection) -> None:
+    """Guarda en contexto_backup lo que se quita (tablas nuevas y columnas) para que nada se pierda al deshacer."""
+    conn.execute("CREATE TABLE IF NOT EXISTS contexto_backup (tabla TEXT, datos TEXT, at REAL)")
+    now = time.time()
+    for table in ("asignaturas", "temas", "proyectos", "versiones"):
+        if _table_exists(conn, table):
+            rows = [dict(r) for r in conn.execute(f"SELECT * FROM {table}")]
+            conn.execute(
+                "INSERT INTO contexto_backup VALUES (?, ?, ?)", (table, json.dumps(rows, ensure_ascii=False), now)
+            )
+    for table, cols in CTX_COLS.items():
+        if not _table_exists(conn, table):
+            continue
+        names = [c for c, _ in cols if has_column(conn, table, c)]
+        if names:
+            rows = [dict(r) for r in conn.execute(f"SELECT id, {', '.join(names)} FROM {table}")]
+            conn.execute(
+                "INSERT INTO contexto_backup VALUES (?, ?, ?)",
+                (f"{table}.columnas", json.dumps(rows, ensure_ascii=False), now),
+            )
+    conn.execute("DROP INDEX IF EXISTS idx_inbox_ctx")
+    conn.execute("DROP INDEX IF EXISTS idx_events_ctx")
+    for table, cols in CTX_COLS.items():
+        if _table_exists(conn, table):
+            for col, _ in cols:
+                if has_column(conn, table, col):
+                    conn.execute(f"ALTER TABLE {table} DROP COLUMN {col}")
+    for table in ("versiones", "temas", "proyectos", "asignaturas", "contexto_meta"):
+        conn.execute(f"DROP TABLE IF EXISTS {table}")
+
+
+# 23 ─ Baúl: un recurso también puede ser de un contexto, una asignatura o un proyecto ───────────────
+RES_CTX_COLS = (
+    ("contexto", "TEXT NOT NULL DEFAULT 'puntual'"),
+    ("asignatura_id", "INTEGER"),
+    ("proyecto_id", "INTEGER"),
+)
+
+
+def resources_ctx_up(conn: sqlite3.Connection) -> None:
+    if not _table_exists(conn, "resources"):
+        return
+    for col, kind in RES_CTX_COLS:
+        if not has_column(conn, "resources", col):
+            conn.execute(f"ALTER TABLE resources ADD COLUMN {col} {kind}")
+
+
+def resources_ctx_down(conn: sqlite3.Connection) -> None:
+    if not _table_exists(conn, "resources"):
+        return
+    names = [c for c, _ in RES_CTX_COLS if has_column(conn, "resources", c)]
+    if names:
+        conn.execute("CREATE TABLE IF NOT EXISTS contexto_backup (tabla TEXT, datos TEXT, at REAL)")
+        rows = [dict(r) for r in conn.execute(f"SELECT id, {', '.join(names)} FROM resources")]
+        conn.execute(
+            "INSERT INTO contexto_backup VALUES ('resources.columnas', ?, ?)",
+            (json.dumps(rows, ensure_ascii=False), time.time()),
+        )
+        for c in names:
+            conn.execute(f"ALTER TABLE resources DROP COLUMN {c}")
+
+
+# 24 ─ Tableros: revisión del lienzo (conflictos entre dispositivos) y copia previa para «Deshacer último guardado» ──
+def board_rev_up(conn: sqlite3.Connection) -> None:
+    if _table_exists(conn, "board_canvas") and not has_column(conn, "board_canvas", "rev"):
+        conn.execute("ALTER TABLE board_canvas ADD COLUMN rev INTEGER NOT NULL DEFAULT 0")
+    if _table_exists(conn, "board_canvas_prev_bak") and not _table_exists(conn, "board_canvas_prev"):
+        conn.execute("ALTER TABLE board_canvas_prev_bak RENAME TO board_canvas_prev")  # vuelve lo que guardó la bajada
+    conn.execute("""CREATE TABLE IF NOT EXISTS board_canvas_prev (
+        board_id INTEGER PRIMARY KEY REFERENCES boards(id) ON DELETE CASCADE,
+        data TEXT NOT NULL, rev INTEGER NOT NULL, saved_at REAL NOT NULL)""")
+
+
+def board_rev_down(conn: sqlite3.Connection) -> None:
+    # La copia previa no se tira: queda aparte y la subida la recupera
+    if _table_exists(conn, "board_canvas_prev"):
+        conn.execute("DROP TABLE IF EXISTS board_canvas_prev_bak")
+        conn.execute("ALTER TABLE board_canvas_prev RENAME TO board_canvas_prev_bak")
+    if _table_exists(conn, "board_canvas") and has_column(conn, "board_canvas", "rev"):
+        conn.execute("ALTER TABLE board_canvas DROP COLUMN rev")
+
+
+def sesiones_up(conn: sqlite3.Connection) -> None:
+    """Contador en marcha (P-2): una sesión por cada vez que se empieza algo, con sus tramos (pausas entre medias).
+    `activa` = 1 en la única sesión en marcha o en pausa (NULL en las cerradas): el índice único garantiza que no
+    puede haber dos. Si una bajada guardó las tablas aparte, vuelven con sus datos."""
+    for t in ("sesiones", "sesion_tramos"):
+        if _table_exists(conn, f"{t}_bak") and not _table_exists(conn, t):
+            conn.execute(f"ALTER TABLE {t}_bak RENAME TO {t}")
+    conn.execute("""CREATE TABLE IF NOT EXISTS sesiones (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        item_id INTEGER,  -- sin clave foránea: lo borrado vuelve de la papelera con su id y su tiempo
+        titulo TEXT NOT NULL,
+        tipo TEXT NOT NULL DEFAULT 'libre',
+        contexto TEXT,
+        asignatura_id INTEGER,
+        prevista_min INTEGER,
+        dia TEXT NOT NULL,
+        inicio REAL NOT NULL,
+        fin REAL,
+        cierre TEXT,
+        activa INTEGER,
+        latido REAL,
+        auto_pausa REAL)""")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS sesiones_una_activa ON sesiones(activa) WHERE activa IS NOT NULL")
+    conn.execute("CREATE INDEX IF NOT EXISTS sesiones_item ON sesiones(item_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS sesiones_dia ON sesiones(dia)")
+    conn.execute("""CREATE TABLE IF NOT EXISTS sesion_tramos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sesion_id INTEGER NOT NULL REFERENCES sesiones(id) ON DELETE CASCADE,
+        inicio REAL NOT NULL,
+        fin REAL)""")
+    conn.execute("CREATE INDEX IF NOT EXISTS sesion_tramos_sesion ON sesion_tramos(sesion_id)")
+
+
+def sesiones_down(conn: sqlite3.Connection) -> None:
+    # Nada se tira: las tablas quedan aparte (`*_bak`) y la subida las recupera
+    for t in ("sesion_tramos", "sesiones"):
+        if _table_exists(conn, t):
+            conn.execute(f"DROP TABLE IF EXISTS {t}_bak")
+            conn.execute(f"ALTER TABLE {t} RENAME TO {t}_bak")
+    for idx in ("sesiones_una_activa", "sesiones_item", "sesiones_dia", "sesion_tramos_sesion"):
+        conn.execute(f"DROP INDEX IF EXISTS {idx}")
 
 
 MIGRATIONS = [
@@ -501,16 +780,35 @@ MIGRATIONS = [
     Migration(7, "lista única: fecha, notas y casillas de las notas", items_up, items_down),
     Migration(8, "preferencias de interfaz (ui_prefs)", ui_prefs_up, ui_prefs_down),
     Migration(9, "enlaces tarea/idea ↔ nota (item_links)", item_links_up, item_links_down),
-    Migration(10, "calendario: eventos, rutinas, bloques de tiempo, historial y plantillas de día", calendar_up, calendar_down),
+    Migration(
+        10, "calendario: eventos, rutinas, bloques de tiempo, historial y plantillas de día", calendar_up, calendar_down
+    ),
     Migration(11, "plantillas de rutina (routine_templates)", routine_templates_up, routine_templates_down),
     Migration(12, "tareas asociadas a una rutina (inbox.routine_step)", routine_step_up, routine_step_down),
     Migration(13, "economía: cuentas, movimientos, deudas y lista de deseos", finance_up, finance_down),
     Migration(14, "tablero de una tarea (boards.item_id)", board_item_up, board_item_down),
-    Migration(15, "economía: presupuestos por categoría y movimientos recurrentes", finance_plans_up, finance_plans_down),
+    Migration(
+        15, "economía: presupuestos por categoría y movimientos recurrentes", finance_plans_up, finance_plans_down
+    ),
     Migration(16, "rutinas: cada paso con su propia hora", step_times_up, step_times_down),
-    Migration(17, "rendimiento: registro diario, bloques de estudio, asignaturas, ajustes y auditorías", rendimiento_up, rendimiento_down),
+    Migration(
+        17,
+        "rendimiento: registro diario, bloques de estudio, asignaturas, ajustes y auditorías",
+        rendimiento_up,
+        rendimiento_down,
+    ),
     Migration(18, "rendimiento: alertas guardadas, uso y enfriamiento del router de IA", rend_ia_up, rend_ia_down),
-    Migration(19, "extensión: vídeos de YouTube vistos de los canales del Baúl (yt_vistos)", yt_vistos_up, yt_vistos_down),
+    Migration(
+        19, "extensión: vídeos de YouTube vistos de los canales del Baúl (yt_vistos)", yt_vistos_up, yt_vistos_down
+    ),
     Migration(20, "IA de las notas: política, catálogo de modelos y correcciones (ia_*)", ia_notas_up, ia_notas_down),
     Migration(21, "grafo: nodos fijados y copia previa al recolocado automático", graph_auto_up, graph_auto_down),
+    Migration(
+        22, "contextos: asignaturas, temas, proyectos, versiones y clases que se repiten", contexts_up, contexts_down
+    ),
+    Migration(23, "baúl: contexto, asignatura o proyecto de cada recurso", resources_ctx_up, resources_ctx_down),
+    Migration(
+        24, "tableros: revisión del lienzo y copia previa (conflictos entre dispositivos)", board_rev_up, board_rev_down
+    ),
+    Migration(25, "contador en marcha: sesiones y sus tramos (P-2)", sesiones_up, sesiones_down),
 ]

@@ -73,6 +73,15 @@ Estas son las reglas de mis notas. Al corregir una nota aplica SOLO estas reglas
 
 - Una línea `Pregunta >> Respuesta` crea una tarjeta de repaso. Una por línea, sin saltos dentro.
 - Conserva todas; solo corrige ortografía y redacción. No las conviertas en listas ni cambies el `>>`.
+- Suelen ir juntas al final, bajo `## Flashcards`: no muevas esa sección ni la mezcles con otras.
+
+<!--
+  «Proponer flashcards con IA» (menú ⋯ de la nota): la IA lee SOLO la nota y propone hasta 15 tarjetas. Las que no se
+  pueden localizar en el texto (respuesta inventada o con un número que no está), las que repiten una pregunta y las
+  mal formadas (con «>>» o saltos de línea) se descartan solas. Tú marcas, editas o descartas las demás y se añaden
+  bajo «## Flashcards» (se crea si no existe); de ahí salen en Repaso. «Deshacer» devuelve la nota a como estaba.
+  Mismas reglas que «Corregir»: nada de notas cifradas; las sensibles solo a modelos locales o que no entrenan.
+-->
 
 ✅ Bien: `¿Qué es la hiperpolarización? >> Fase en la que el potencial baja por debajo del reposo.`
 

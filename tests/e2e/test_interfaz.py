@@ -1,5 +1,6 @@
 """Evolución de la interfaz (fases 3 y 4): acciones data-call sin JS en línea, tooltip con teclado, pestañas del
 móvil, errores con «Reintentar», simulaciones en /sim y librerías de Notas cargadas solo cuando hacen falta."""
+
 import pytest
 from playwright.sync_api import expect
 
@@ -8,9 +9,19 @@ SIM = "```sim\n<!DOCTYPE html><html><body><p id='ok'>listo</p><script>document.g
 
 @pytest.fixture()
 def notas(api):
-    api.post("/api/notes/interfaz-plana", json={"title": "Interfaz plana", "category": "E2E", "content": "# Interfaz plana\n\nSin nada.", "tags": []})
-    api.post("/api/notes/interfaz-rica", json={"title": "Interfaz rica", "category": "E2E", "tags": [],
-                                               "content": f"Fórmula $E = mc^2$\n\n```python\nprint('hola')\n```\n\n{SIM}\n"})
+    api.post(
+        "/api/notes/interfaz-plana",
+        json={"title": "Interfaz plana", "category": "E2E", "content": "# Interfaz plana\n\nSin nada.", "tags": []},
+    )
+    api.post(
+        "/api/notes/interfaz-rica",
+        json={
+            "title": "Interfaz rica",
+            "category": "E2E",
+            "tags": [],
+            "content": f"Fórmula $E = mc^2$\n\n```python\nprint('hola')\n```\n\n{SIM}\n",
+        },
+    )
     yield
     for slug in ("interfaz-plana", "interfaz-rica"):
         api.delete(f"/api/notes/{slug}")
@@ -82,8 +93,14 @@ def test_error_de_carga_con_reintentar(browser, server):
     ctx = browser.new_context(viewport={"width": 1280, "height": 900}, service_workers="block")
     page = ctx.new_page()
     fallar = {"si": True}
-    page.route("**/api/today*", lambda r: r.fulfill(status=500, content_type="application/json", body='{"error":"x"}')
-               if fallar["si"] else r.continue_())
+    page.route(
+        "**/api/today*",
+        lambda r: (
+            r.fulfill(status=500, content_type="application/json", body='{"error":"x"}')
+            if fallar["si"]
+            else r.continue_()
+        ),
+    )
     try:
         page.goto(server + "/hoy")
         estado = page.locator("#hoyAgenda [data-state-kind=error]")
@@ -97,7 +114,9 @@ def test_error_de_carga_con_reintentar(browser, server):
 
 
 def test_pestanas_del_movil_se_eligen_y_se_recuerdan(browser, server):
-    ctx = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True, service_workers="block")
+    ctx = browser.new_context(
+        viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True, service_workers="block"
+    )
     page = ctx.new_page()
     visibles = "() => [...document.querySelectorAll('.tabbar a.tab:not([hidden])')].map(t => t.dataset.section)"
     try:
@@ -107,7 +126,9 @@ def test_pestanas_del_movil_se_eligen_y_se_recuerdan(browser, server):
         page.locator(".tab-more").tap()
         page.locator("[data-tabbar-choice][value=notas]").uncheck()
         page.locator("[data-tabbar-choice][value=comidas]").check()
-        assert page.locator("[data-tabbar-choice]:disabled").count() == 14  # con 4 elegidas, el resto bloqueado
+        assert (
+            page.locator("[data-tabbar-choice]:disabled").count() == 16
+        )  # con 4 elegidas, el resto bloqueado (20 secciones)
         page.wait_for_timeout(600)  # Prefs se guarda en el servidor con un pequeño retardo
         page.reload()
         page.wait_for_load_state("networkidle")
@@ -122,8 +143,15 @@ def test_pestanas_del_movil_se_eligen_y_se_recuerdan(browser, server):
 
 def test_el_contenido_de_una_nota_no_puede_disparar_acciones(page, server, api):
     """DOMPurify quita los data-*: un botón con data-call escrito en una nota no hace nada."""
-    api.post("/api/notes/interfaz-trampa", json={"title": "Interfaz trampa", "category": "E2E", "tags": [],
-                                                 "content": "<button data-call=\"Palette.open\" data-args='[]'>Pulsa</button>\n"})
+    api.post(
+        "/api/notes/interfaz-trampa",
+        json={
+            "title": "Interfaz trampa",
+            "category": "E2E",
+            "tags": [],
+            "content": "<button data-call=\"Palette.open\" data-args='[]'>Pulsa</button>\n",
+        },
+    )
     try:
         _abrir_nota(page, server, "interfaz-trampa")
         boton = page.locator("#readContent button", has_text="Pulsa")

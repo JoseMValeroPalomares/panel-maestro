@@ -191,7 +191,7 @@
     // una columna de etiquetas que nadie usa solo quita sitio: se oculta hasta que haya alguna
     const c = { ...base, columns: base.columns.filter((col) => !col.tags || state.rows.some((r) => r.tags?.length)) };
     const sortKey = state.sortKey || c.sort;
-    $('tableHead').innerHTML = `<th class="col-check" scope="col"><span class="check-hit"><input type="checkbox" class="checkbox" id="checkAll" aria-label="Seleccionar todo lo visible"></span></th>` +
+    $('tableHead').innerHTML = `<th class="col-check" scope="col"><label class="check-hit"><input type="checkbox" class="checkbox" id="checkAll" aria-label="Seleccionar todo lo visible"></label></th>` +
       c.columns.map((col) => {
         const cls = colClass(col);
         if (!col.sort) return `<th scope="col" class="${cls}">${col.label}</th>`;
@@ -534,7 +534,11 @@
       const ap = e.target.closest('[data-apply]');
       if (ap) applySaved(saved.find((f) => String(f.id) === ap.dataset.apply));
       const del = e.target.closest('[data-del]');
-      if (del) { await api(`/api/saved-filters/${del.dataset.del}`, { method: 'DELETE' }); loadSaved(); }
+      if (del) {
+        const res = await api(`/api/saved-filters/${del.dataset.del}`, { method: 'DELETE' });
+        loadSaved();
+        undoToast('Filtro borrado', res, loadSaved);
+      }
     });
     $('editForm').addEventListener('submit', submitEdit);
 

@@ -1,17 +1,27 @@
 import json
+
 """Recorrido de humo por la API existente: protege contra regresiones en refactors."""
 
 
 def test_flujo_notas_completo(client):
-    r = client.post("/api/notes/smoke-a", json={"title": "Smoke A", "category": "Smoke - Sub", "tags": ["x"],
-                                                "content": "Enlace a [[Smoke B]]\n¿Pregunta? >> Respuesta"})
+    r = client.post(
+        "/api/notes/smoke-a",
+        json={
+            "title": "Smoke A",
+            "category": "Smoke - Sub",
+            "tags": ["x"],
+            "content": "Enlace a [[Smoke B]]\n¿Pregunta? >> Respuesta",
+        },
+    )
     assert r.status_code == 200
     client.post("/api/notes/smoke-b", json={"title": "Smoke B", "category": "Smoke", "content": "Menciona Smoke A"})
     notes = client.get("/api/notes").json()["notes"]
     assert any(n["id"] == "smoke-a" for n in notes)
     assert any(n["id"] == "indice-smoke" for n in notes)  # índice automático por área
 
-    assert client.patch("/api/notes/smoke-a/status", json={"status": "consolidado"}).json()["new_status"] == "consolidado"
+    assert (
+        client.patch("/api/notes/smoke-a/status", json={"status": "consolidado"}).json()["new_status"] == "consolidado"
+    )
     assert client.patch("/api/notes/smoke-a/reviewed").status_code == 200
     assert client.patch("/api/notes/smoke-a/meta", json={"title": "Smoke A2"}).status_code == 200
     assert client.get("/api/notes/smoke-a").json()["title"] == "Smoke A2"
@@ -53,14 +63,26 @@ def test_grafo(client):
     g = client.get("/api/graph").json()
     assert "nodes" in g and "edges" in g
     assert client.post("/api/graph/edges", json={"source": "smoke-a", "target": "smoke-b"}).status_code == 200
-    assert client.post("/api/graph/layout", json={"nodes": [{"id": "smoke-a", "x": 1, "y": 2}], "edges": []}).json()["saved"] == 1
-    assert client.request("DELETE", "/api/graph/edges", json={"source": "smoke-a", "target": "smoke-b"}).status_code == 200
+    assert (
+        client.post("/api/graph/layout", json={"nodes": [{"id": "smoke-a", "x": 1, "y": 2}], "edges": []}).json()[
+            "saved"
+        ]
+        == 1
+    )
+    assert (
+        client.request("DELETE", "/api/graph/edges", json={"source": "smoke-a", "target": "smoke-b"}).status_code == 200
+    )
 
 
 def test_recursos(client, monkeypatch):
     import app.vault as m
-    monkeypatch.setattr(m, "fetch_metadata", lambda url: {"title": "T", "description": "D", "image": "", "resource_type": "web"})
-    assert client.post("/api/resources", json={"url": "https://example.org/a", "category": "Lectura"}).status_code == 200
+
+    monkeypatch.setattr(
+        m, "fetch_metadata", lambda url: {"title": "T", "description": "D", "image": "", "resource_type": "web"}
+    )
+    assert (
+        client.post("/api/resources", json={"url": "https://example.org/a", "category": "Lectura"}).status_code == 200
+    )
     assert client.post("/api/resources", json={"url": "https://example.org/a"}).status_code == 409
     res = client.get("/api/resources").json()["resources"]
     rid = next(r["id"] for r in res if r["url"] == "https://example.org/a")
@@ -97,7 +119,9 @@ def test_tableros(client):
 
 def test_tablero_de_una_tarea(client):
     iid = client.post("/api/items", json={"text": "App de recetas"}).json()["id"]
-    data = json.dumps({"format": 2, "nodes": [{"id": "n1", "kind": "inbox", "inboxId": iid}], "edges": [], "strokes": []})
+    data = json.dumps(
+        {"format": 2, "nodes": [{"id": "n1", "kind": "inbox", "inboxId": iid}], "edges": [], "strokes": []}
+    )
     r = client.post("/api/boards", json={"name": "App de recetas", "item_id": iid, "data": data}).json()
     assert client.get(f"/api/boards/{r['id']}").json()["item_id"] == iid
     assert json.loads(client.get(f"/api/boards/{r['id']}").json()["data"])["nodes"][0]["inboxId"] == iid
@@ -119,18 +143,37 @@ def test_paginas_html(client):
 def test_comidas_crud_y_plan(client):
     base = "/comidas/api"
     ids = {}
-    for nombre, cat, k, p, c, g in [("Pollo smoke", "carne", 165, 31, 0, 3.6), ("Arroz smoke", "cereal", 130, 2.7, 28, 0.3),
-                                     ("Brócoli smoke", "verdura", 34, 2.8, 7, 0.4)]:
-        r = client.post(f"{base}/ingredients", json={"nombre": nombre, "categoria": cat, "kcal_100g": k,
-                                                       "proteinas_100g": p, "carbohidratos_100g": c, "grasas_100g": g})
+    for nombre, cat, k, p, c, g in [
+        ("Pollo smoke", "carne", 165, 31, 0, 3.6),
+        ("Arroz smoke", "cereal", 130, 2.7, 28, 0.3),
+        ("Brócoli smoke", "verdura", 34, 2.8, 7, 0.4),
+    ]:
+        r = client.post(
+            f"{base}/ingredients",
+            json={
+                "nombre": nombre,
+                "categoria": cat,
+                "kcal_100g": k,
+                "proteinas_100g": p,
+                "carbohidratos_100g": c,
+                "grasas_100g": g,
+            },
+        )
         assert r.status_code == 200, r.text
         ids[nombre] = r.json()["id"]
     assert client.post(f"{base}/ingredients", json={"nombre": "Pollo smoke"}).status_code == 409
     assert client.get(f"{base}/ingredients?search=smoke").json()["ingredients"]
 
-    meal = {"nombre": "Pollo con arroz smoke", "franja": "comida", "ingredientes": [
-        {"ingredient_id": ids["Pollo smoke"], "gramos": 150}, {"ingredient_id": ids["Arroz smoke"], "gramos": 200},
-        {"ingredient_id": ids["Brócoli smoke"], "gramos": 100}], "instrucciones": ["Cocinar"]}
+    meal = {
+        "nombre": "Pollo con arroz smoke",
+        "franja": "comida",
+        "ingredientes": [
+            {"ingredient_id": ids["Pollo smoke"], "gramos": 150},
+            {"ingredient_id": ids["Arroz smoke"], "gramos": 200},
+            {"ingredient_id": ids["Brócoli smoke"], "gramos": 100},
+        ],
+        "instrucciones": ["Cocinar"],
+    }
     r = client.post(f"{base}/meals", json=meal)
     mid = r.json()["id"]
     assert r.json()["gramos_recomendados"] > 0
@@ -138,18 +181,31 @@ def test_comidas_crud_y_plan(client):
     # 150g pollo + 200g arroz + 100g brócoli
     assert abs(detail["nutricion_total_receta"]["kcal"] - (247.5 + 260 + 34)) <= 0.5  # kcal en entero
     assert client.get(f"{base}/meals?franja=comida").json()["meals"]
-    assert client.post(f"{base}/meals/suggest-gramos", json={"franja": "comida", "ingredientes": meal["ingredientes"]}).status_code == 200
+    assert (
+        client.post(
+            f"{base}/meals/suggest-gramos", json={"franja": "comida", "ingredientes": meal["ingredientes"]}
+        ).status_code
+        == 200
+    )
     meal["nombre"] = "Pollo con arroz smoke 2"
     assert client.patch(f"{base}/meals/{mid}", json=meal).status_code == 200
 
     semana = "2026-10-12"
-    assert client.post(f"{base}/weekly-plan/assign", json={"semana": semana, "dia": "lunes", "franja": "comida", "meal_id": mid}).status_code == 200
+    assert (
+        client.post(
+            f"{base}/weekly-plan/assign", json={"semana": semana, "dia": "lunes", "franja": "comida", "meal_id": mid}
+        ).status_code
+        == 200
+    )
     plan = client.get(f"{base}/weekly-plan/{semana}").json()["plan"]
     cell = next(p for p in plan if p["dia"] == "lunes" and p["franja"] == "comida")
     assert client.patch(f"{base}/weekly-plan/{cell['id']}/toggle-fixed").json()["is_fixed"] is True
     nut = client.get(f"{base}/weekly-plan/{semana}/nutricion").json()
     assert nut["dias"]["lunes"]["kcal"] > 0 and nut["targets"]["kcal_objetivo"] > 0
-    assert client.post(f"{base}/weekly-plan/generate", json={"semana": semana, "franjas": ["comida", "cena"]}).status_code == 200
+    assert (
+        client.post(f"{base}/weekly-plan/generate", json={"semana": semana, "franjas": ["comida", "cena"]}).status_code
+        == 200
+    )
     assert client.post(f"{base}/shopping-list/from-week/{semana}").json()["added"] >= 1
     assert client.post(f"{base}/shopping-list/from-meal/{mid}").status_code == 200
     client.post(f"{base}/shopping-list", json={"nombre_libre": "Pan", "cantidad_gramos": 1})
@@ -162,7 +218,9 @@ def test_comidas_crud_y_plan(client):
 
     prof = client.get(f"{base}/profile").json()
     assert prof["targets"]["bmr"] > 0
-    upd = dict(edad=30, peso_kg=80, altura_cm=180, sexo="hombre", nivel_actividad=1.55, objetivo="mantener", proteina_g_kg=1.8)
+    upd = dict(
+        edad=30, peso_kg=80, altura_cm=180, sexo="hombre", nivel_actividad=1.55, objetivo="mantener", proteina_g_kg=1.8
+    )
     assert client.patch(f"{base}/profile", json=upd).json()["targets"]["proteina_g"] == 144
     assert client.delete(f"{base}/meals/{mid}").status_code == 200
     assert client.delete(f"{base}/ingredients/{ids['Brócoli smoke']}").status_code == 200

@@ -100,18 +100,54 @@ browser.runtime.onMessage.addListener((msg) => {
   }
 });
 
+/* ---------- Content scripts solo donde hay permiso (S-4, 2.9) ----------
+   Sin permisos de host fijos: el acceso al Panel (pantalla de acceso) y a YouTube se registra aquí, para el origen
+   que se autorizó en las opciones. El fondo es persistente: los registros duran lo que dura Firefox abierto. */
+let registered = [];
+let syncing = Promise.resolve();
+function syncContentScripts() {
+  syncing = syncing.then(async () => {
+    for (const r of registered) { try { await r.unregister(); } catch {} }
+    registered = [];
+    if (!browser.contentScripts?.register) return;
+    const { baseUrl, token } = await Panel.getConfig();
+    const { autoLogin = true } = await browser.storage.local.get('autoLogin');
+    const panel = Panel.hostPattern(baseUrl);
+    if (panel && token && autoLogin && await Panel.hasHost(panel)) {
+      registered.push(await browser.contentScripts.register({
+        matches: [panel.replace(/\/\*$/, '/login*')], js: [{ file: 'lib/panel.js' }, { file: 'autologin.js' }], runAt: 'document_idle',
+      }));
+    }
+    if (await Panel.hasHost(Panel.YOUTUBE)) {
+      registered.push(await browser.contentScripts.register({
+        matches: [Panel.YOUTUBE], js: [{ file: 'youtube.js' }], css: [{ file: 'youtube.css' }], runAt: 'document_idle',
+      }));
+    }
+  }).catch(() => {});
+  return syncing;
+}
+browser.permissions?.onAdded?.addListener(() => { syncContentScripts(); refreshBadge(); });
+browser.permissions?.onRemoved?.addListener(() => { syncContentScripts(); refreshBadge(); });
+browser.storage.onChanged?.addListener((changes, area) => {
+  if (area === 'local' && ['baseUrl', 'token', 'autoLogin'].some((k) => k in changes)) syncContentScripts();
+});
+
 /* ---------- Reintentos y estado periódicos ---------- */
 browser.alarms.create('refresh', { periodInMinutes: 1 });
 browser.alarms.onAlarm.addListener((a) => { if (a.name === 'refresh') refreshBadge(); });
 browser.runtime.onStartup?.addListener(refreshBadge);
 browser.runtime.onInstalled.addListener(async (details) => {
   createMenus();
+  // 2.9: la contraseña del Panel ya no se guarda (se entra con el token); la de versiones anteriores se borra
+  await browser.storage.local.remove('loginPassword');
   refreshBadge();
   if (details.reason === 'install' || details.reason === 'update') {
-    const { token } = await Panel.getConfig();
-    if (!token) browser.runtime.openOptionsPage(); // la versión 2 necesita el token: se piden los datos
+    const { baseUrl, token } = await Panel.getConfig();
+    // Sin token, o sin el permiso para la dirección del Panel (al pasar a la 2.9 hay que darlo una vez): opciones
+    if (!token || !(await Panel.hasHost(Panel.hostPattern(baseUrl)))) browser.runtime.openOptionsPage();
   }
 });
 self.addEventListener?.('online', refreshBadge);
 createMenus();
 refreshBadge();
+syncContentScripts();

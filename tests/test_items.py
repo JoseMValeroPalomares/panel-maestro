@@ -1,13 +1,16 @@
 """Tercera ronda: API única de tareas e ideas (/api/items) y casillas de las notas como elementos."""
+
 import sqlite3
 
 from app.migrations import MIGRATIONS
 from core import config
 from core.migrations import apply_pending, revert
 
-NOTA = ("---\ncategory: Proyectos - Taller\nstatus: por-escribir\ntags:\n- x\ntitle: Plan\n---\n\n# Plan\n\n"
-        "- [ ] Comprar pilas\n  - [ ] Pilas AA\n* [x] Llamar al taller\n- [ ] Comprar pilas\n"
-        "Texto normal - [ ] no\n\n```\n- [ ] en código, no cuenta\n```\n")
+NOTA = (
+    "---\ncategory: Proyectos - Taller\nstatus: por-escribir\ntags:\n- x\ntitle: Plan\n---\n\n# Plan\n\n"
+    "- [ ] Comprar pilas\n  - [ ] Pilas AA\n* [x] Llamar al taller\n- [ ] Comprar pilas\n"
+    "Texto normal - [ ] no\n\n```\n- [ ] en código, no cuenta\n```\n"
+)
 
 
 def _escribir(note_id, raw):
@@ -33,8 +36,11 @@ def _nuevo(client, text, type="tarea", **extra):
 
 
 def _ids(client, origin, parent_id=None, prefix="IT"):
-    return [i["id"] for i in _todo(client)["items"]
-            if i["origin"] == origin and i["parent_id"] == parent_id and i["text"].startswith(prefix)]
+    return [
+        i["id"]
+        for i in _todo(client)["items"]
+        if i["origin"] == origin and i["parent_id"] == parent_id and i["text"].startswith(prefix)
+    ]
 
 
 def _mover(client, item_id, **body):
@@ -43,16 +49,22 @@ def _mover(client, item_id, **body):
 
 # ─────────── Casillas de las notas ───────────
 
+
 def test_casillas_de_una_nota_son_elementos(client):
     _escribir("it-plan", NOTA)
     mias = _items(client, note_id="it-plan", origin="nota")
     assert [(i["note_index"], i["text"], i["done"]) for i in mias] == [
-        (0, "Comprar pilas", False), (1, "Pilas AA", False), (2, "Llamar al taller", True), (3, "Comprar pilas", False)]
+        (0, "Comprar pilas", False),
+        (1, "Pilas AA", False),
+        (2, "Llamar al taller", True),
+        (3, "Comprar pilas", False),
+    ]
     padre = mias[0]
     assert mias[1]["parent_id"] == padre["id"] and mias[3]["parent_id"] is None
     assert padre["note_title"] == "Plan" and padre["note_category"] == "Proyectos - Taller"
     # Volver a indexar no duplica ni cambia ids
     from app.indexer import sync_notes_to_db
+
     sync_notes_to_db(force=True)
     assert [i["id"] for i in _items(client, note_id="it-plan")] == [i["id"] for i in mias]
 
@@ -61,20 +73,32 @@ def test_marcar_desde_la_lista_cambia_solo_esa_linea(client):
     _escribir("it-linea", NOTA)
     tercera = _items(client, note_id="it-linea")[3]
     assert client.patch(f"/api/items/{tercera['id']}", json={"done": True}).status_code == 200
-    assert _leer("it-linea") == NOTA.replace("* [x] Llamar al taller\n- [ ] Comprar pilas", "* [x] Llamar al taller\n- [x] Comprar pilas")
+    assert _leer("it-linea") == NOTA.replace(
+        "* [x] Llamar al taller\n- [ ] Comprar pilas", "* [x] Llamar al taller\n- [x] Comprar pilas"
+    )
     assert next(i for i in _items(client, note_id="it-linea") if i["id"] == tercera["id"])["done"] is True
 
 
 def test_editar_texto_en_la_lista_y_en_la_nota(client):
     _escribir("it-texto", NOTA)
     primera = _items(client, note_id="it-texto")[0]
-    client.patch(f"/api/items/{primera['id']}", json={"priority": "alta", "due_date": "2026-11-02", "details": "En la ferretería"})
+    client.patch(
+        f"/api/items/{primera['id']}",
+        json={"priority": "alta", "due_date": "2026-11-02", "details": "En la ferretería"},
+    )
     assert client.patch(f"/api/items/{primera['id']}", json={"text": "Comprar pilas recargables"}).status_code == 200
     assert "- [ ] Comprar pilas recargables\n  - [ ] Pilas AA" in _leer("it-texto")
     # Y al revés: editar la nota (por el guardado normal) cambia el elemento sin perder id ni prioridad
-    raw = _leer("it-texto").replace("Comprar pilas recargables", "Comprar pilas de litio").replace("- [ ] Pilas AA", "- [x] Pilas AA")
+    raw = (
+        _leer("it-texto")
+        .replace("Comprar pilas recargables", "Comprar pilas de litio")
+        .replace("- [ ] Pilas AA", "- [x] Pilas AA")
+    )
     body = raw.split("---\n", 2)[2]
-    r = client.post("/api/notes/it-texto", json={"title": "Plan", "content": body, "category": "Proyectos - Taller", "status": "por-escribir"})
+    r = client.post(
+        "/api/notes/it-texto",
+        json={"title": "Plan", "content": body, "category": "Proyectos - Taller", "status": "por-escribir"},
+    )
     assert r.status_code == 200
     ahora = {i["id"]: i for i in _items(client, note_id="it-texto")}
     assert ahora[primera["id"]]["text"] == "Comprar pilas de litio"
@@ -96,6 +120,7 @@ def test_nota_cifrada_o_indice_no_aporta_tareas(client):
 
 
 # ─────────── Crear, ordenar, convertir ───────────
+
 
 def test_crear_desde_cualquier_sitio_y_orden(client):
     a = _nuevo(client, "IT a")
@@ -243,12 +268,15 @@ def test_validacion(client):
 
 # ─────────── Migración 7 ───────────
 
+
 def test_migracion_7_arriba_y_abajo(tmp_path):
     conn = sqlite3.connect(tmp_path / "m7.db", isolation_level=None)
     conn.row_factory = sqlite3.Row
     conn.execute("""CREATE TABLE inbox (id INTEGER PRIMARY KEY, content TEXT, item_type TEXT, status TEXT DEFAULT 'pending',
                     parent_id INTEGER, sort_order REAL DEFAULT 0, created_at REAL DEFAULT 0, note_id TEXT, note_task TEXT)""")
-    conn.execute("CREATE TABLE resources (id INTEGER PRIMARY KEY, url TEXT, title TEXT, category TEXT, resource_type TEXT, channel TEXT, added_at REAL)")
+    conn.execute(
+        "CREATE TABLE resources (id INTEGER PRIMARY KEY, url TEXT, title TEXT, category TEXT, resource_type TEXT, channel TEXT, added_at REAL)"
+    )
     conn.execute("CREATE TABLE notes (id TEXT PRIMARY KEY, content TEXT, encrypted INTEGER DEFAULT 0)")
     conn.execute("INSERT INTO notes (id, content) VALUES ('n', '- [ ] sigue aquí')")
     conn.execute("""INSERT INTO inbox (id, content, item_type, status, note_id, note_task) VALUES
@@ -256,12 +284,21 @@ def test_migracion_7_arriba_y_abajo(tmp_path):
         (3, 'ya no está', 'tarea', 'pending', 'n', 'ya no está')""")
     apply_pending(conn, MIGRATIONS)
     rows = {r["id"]: tuple(r) for r in conn.execute("SELECT id, content, note_id, note_task FROM inbox")}
-    assert rows[1] == (1, "hecha", None, None) and rows[2] == (2, "sigue aquí", "n", "sigue aquí") and rows[3] == (3, "ya no está", None, None)
-    conn.execute("INSERT INTO inbox (id, content, note_id, note_task) VALUES (10, 'nueva casilla', 'n', 'nueva casilla')")
+    assert (
+        rows[1] == (1, "hecha", None, None)
+        and rows[2] == (2, "sigue aquí", "n", "sigue aquí")
+        and rows[3] == (3, "ya no está", None, None)
+    )
+    conn.execute(
+        "INSERT INTO inbox (id, content, note_id, note_task) VALUES (10, 'nueva casilla', 'n', 'nueva casilla')"
+    )
     conn.execute("UPDATE inbox SET due_date='2026-01-01' WHERE id=2")
     revert(conn, MIGRATIONS, 6)
     assert {r["id"]: tuple(r) for r in conn.execute("SELECT id, content, note_id, note_task FROM inbox")} == {
-        1: (1, "--- hecha", None, None), 2: (2, "sigue aquí", "n", "sigue aquí"), 3: (3, "ya no está", "n", "ya no está")}
+        1: (1, "--- hecha", None, None),
+        2: (2, "sigue aquí", "n", "sigue aquí"),
+        3: (3, "ya no está", "n", "ya no está"),
+    }
     assert "due_date" not in [r[1] for r in conn.execute("PRAGMA table_info(inbox)")]
     assert tuple(conn.execute("SELECT id, due_date FROM inbox_items_backup").fetchone()) == (2, "2026-01-01")
 

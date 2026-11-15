@@ -7,6 +7,7 @@ Criterios de aceptación (a 1280 y a 375 px):
   4. Una tarea de una nota se edita desde Tareas y cambia en la nota, y al revés.
   5. Contadores y listados nunca se desincronizan (recarga y otras pestañas).
 """
+
 import os
 from pathlib import Path
 
@@ -45,7 +46,9 @@ def _abrir(page, server, path):
 
 
 def _orden(page, group="inbox"):
-    return page.eval_on_selector_all(f'[data-group="{group}"] .il-list > .il-item', "els => els.map(e => Number(e.dataset.id))")
+    return page.eval_on_selector_all(
+        f'[data-group="{group}"] .il-list > .il-item', "els => els.map(e => Number(e.dataset.id))"
+    )
 
 
 def _settle(page, ms=350):
@@ -66,6 +69,7 @@ def _texto(page, i):
 
 
 # ─────────── 1. Crear desde cada punto de entrada ───────────
+
 
 def test_1_crear_desde_cada_punto_de_entrada(context, server, api):
     _limpiar(api)
@@ -103,8 +107,9 @@ def test_1_crear_desde_cada_punto_de_entrada(context, server, api):
     tareas.locator("h1").click()
     tareas.keyboard.press("c")
     tareas.fill("#captureForm-text", "Con la tecla C")
-    tareas.press("#captureForm-text", "Control+Enter")
+    tareas.press("#captureForm-text", "Enter")  # Intro guarda (Ctrl+Intro guarda y deja la captura abierta)
     visto_en_los_dos("Con la tecla C")
+    assert not tareas.locator("#captureModal").evaluate("d => d.open")
 
     # «+» de la cabecera de Ideas → la captura de la página, como idea
     tareas.click('[data-group="ideas"] [data-act="add-to"]')
@@ -141,6 +146,7 @@ def test_1_crear_desde_cada_punto_de_entrada(context, server, api):
 
 # ─────────── 2. Reordenar en Tareas y verlo igual en el Inbox ───────────
 
+
 def test_2_reordenar_en_tareas_persiste_y_se_ve_en_el_inbox(page, server, api):
     _limpiar(api)
     a, b, c = (_nuevo(api, f"Orden {n}") for n in "abc")
@@ -157,6 +163,7 @@ def test_2_reordenar_en_tareas_persiste_y_se_ve_en_el_inbox(page, server, api):
 
 
 # ─────────── 3. Anidar y sacar, con reglas ───────────
+
 
 def _arrastrar(page, src, target, where="top", during=None):
     """Como mouse_drag, pero mide el destino ya empezado el arrastre (la lista se reacomoda al ocultar el origen)."""
@@ -214,8 +221,11 @@ def test_3_anidar_y_sacar_con_reglas(page, server, api):
     # Una subtarea no entra en una idea: aviso, zona roja y no se mueve
     def mirar():
         # el aviso aparece cuando el arrastre evalúa el destino: se espera a que tenga texto (no un tiempo fijo)
-        page.wait_for_function("() => (document.querySelector('.sortable-ghost .sortable-badge')?.textContent || '').trim()", timeout=3000)
+        page.wait_for_function(
+            "() => (document.querySelector('.sortable-ghost .sortable-badge')?.textContent || '').trim()", timeout=3000
+        )
         return page.locator(".sortable-ghost .sortable-badge").inner_text()
+
     aviso = _drop_como_paso(page, x, idea, during=mirar, sobre="> .il-children")
     assert "subidea" in aviso
     assert _items(api)[x]["parent_id"] == p
@@ -231,6 +241,7 @@ def test_3_anidar_y_sacar_con_reglas(page, server, api):
 
 
 # ─────────── 4. Tarea de una nota: Tareas ↔ nota ───────────
+
 
 def test_4_tarea_de_nota_en_los_dos_sentidos(context, server, api):
     tareas = context.new_page()
@@ -268,8 +279,15 @@ def test_4_tarea_de_nota_en_los_dos_sentidos(context, server, api):
 
     # Y editar el texto en la nota (guardado normal) → cambia en Tareas
     c = api.get("/api/notes/plan-e2e").json()
-    api.post("/api/notes/plan-e2e", json={"title": c["title"], "category": c["category"], "status": c["status"],
-                                          "content": c["content"].replace("Tarea de nota dos", "Tarea dos desde la nota")})
+    api.post(
+        "/api/notes/plan-e2e",
+        json={
+            "title": c["title"],
+            "category": c["category"],
+            "status": c["status"],
+            "content": c["content"].replace("Tarea de nota dos", "Tarea dos desde la nota"),
+        },
+    )
     _volver(tareas)
     tareas.wait_for_selector(f"{card(dos['id'])} .il-text:text('Tarea dos desde la nota')", timeout=5000)
     tareas.close()
@@ -277,6 +295,7 @@ def test_4_tarea_de_nota_en_los_dos_sentidos(context, server, api):
 
 
 # ─────────── 5. Contadores y listados sincronizados ───────────
+
 
 def _contadores(pg):
     return pg.evaluate("""() => ({
@@ -330,6 +349,7 @@ def test_5_contadores_y_listados_iguales_entre_pestanas(context, server, api):
 
 # ─────────── Teclado, lote, táctil ───────────
 
+
 def test_teclado_editar_marcar_mover_y_anidar(page, server, api):
     _limpiar(api)
     a, b = _nuevo(api, "Tecla a"), _nuevo(api, "Tecla b")
@@ -344,7 +364,7 @@ def test_teclado_editar_marcar_mover_y_anidar(page, server, api):
     _settle(page)
     assert _items(api)[b]["parent_id"] == a
     page.locator(card(b)).focus()
-    page.keyboard.press("Alt+Shift+ArrowLeft")   # y fuera
+    page.keyboard.press("Alt+Shift+ArrowLeft")  # y fuera
     _settle(page)
     assert _items(api)[b]["parent_id"] is None
     page.locator(card(a)).focus()
@@ -397,7 +417,9 @@ def test_lote_completar_categoria_y_borrar_con_deshacer(page, server, api):
 def test_arrastre_tactil_en_movil(browser, server, api):
     _limpiar(api)
     a, b, c = (_nuevo(api, f"Dedo {n}") for n in "abc")
-    ctx = browser.new_context(viewport={"width": 375, "height": 812}, has_touch=True, is_mobile=True, service_workers="block")
+    ctx = browser.new_context(
+        viewport={"width": 375, "height": 812}, has_touch=True, is_mobile=True, service_workers="block"
+    )
     page = ctx.new_page()
     try:
         _abrir(page, server, "/tareas")
@@ -410,13 +432,16 @@ def test_arrastre_tactil_en_movil(browser, server, api):
 
 # ─────────── Capturas «después» ───────────
 
+
 @pytest.mark.parametrize("w,h", [(1280, 900), (375, 812)])
 def test_capturas_despues(browser, server, api, w, h):
     if not SHOTS:
         pytest.skip("PANEL_SHOTS no definido")
     Path(SHOTS).mkdir(parents=True, exist_ok=True)
     mobile = w < 768
-    ctx = browser.new_context(viewport={"width": w, "height": h}, has_touch=mobile, is_mobile=mobile, service_workers="block")
+    ctx = browser.new_context(
+        viewport={"width": w, "height": h}, has_touch=mobile, is_mobile=mobile, service_workers="block"
+    )
     page = ctx.new_page()
     try:
         _abrir(page, server, "/tareas")

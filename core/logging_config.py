@@ -1,4 +1,5 @@
 """Logging del panel: consola + archivo rotativo en logs/panel.log."""
+
 import logging
 import logging.handlers
 

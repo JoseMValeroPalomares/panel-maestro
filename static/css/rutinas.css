@@ -100,3 +100,17 @@
 .rp-step-title { min-width: min-content; overflow-wrap: break-word; }
 .rp-row .tag { flex-shrink: 0; }
 .rp-dur { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Clases: bloques fijos que vienen del calendario (Universidad → Horario); no se arrastran ni se marcan */
+.rp-class { display: grid; grid-template-columns: 58px 22px minmax(0, 1fr); column-gap: var(--sp-2); --subj: var(--tile-universidad); }
+.rp-class:first-child .rp-rail::before { top: 14px; }
+.rp-class:last-child .rp-rail::before { bottom: calc(100% - 14px); }
+.rp-class .rp-dot { width: 20px; height: 20px; margin-top: 6px; background: var(--subj); box-shadow: none; color: var(--tile-fg, var(--bg)); }
+.rp-class .rp-dot .icon { width: 12px; height: 12px; stroke-width: 2.25; }
+.rp-class .rp-row { background: color-mix(in srgb, var(--subj) 12%, transparent); }
+.rp-fixed-time { display: block; text-align: right; padding: 0 4px; font-size: var(--fs-13); color: var(--text-2); line-height: 28px; }
+.rp-fixed-time + .rp-fixed-time { color: var(--text-3); font-size: var(--fs-12); line-height: 22px; }
+
+/* Nueva rutina en una línea (P-3): en la misma columna que las tarjetas */
+.rp-quick { max-width: 880px; width: 100%; margin: 0 auto var(--sp-4); }
+.rp-quick .qf-steps { padding: 0 2px; }

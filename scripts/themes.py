@@ -8,6 +8,7 @@ sombras…). Catppuccin Mocha es el tema por defecto (también sin `data-theme`)
 oscuro de Apple según la preferencia del equipo. Los valores que no son de la paleta oficial de un tema están
 ajustados para cumplir AA (4.5:1 en texto); lo comprueba tests/e2e/test_tema.py en todas las páginas.
 """
+
 import json
 import sys
 from pathlib import Path
@@ -55,11 +56,19 @@ def tokens(t: dict) -> list[str]:
         f"--board-bg: {t['elev'] if dark else '#1e1e2e'}; --board-grid: {rgba(t['sep'], 0.75) if dark else '#45475a'};",
     ]
     if dark:
-        out.append("--shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35); --shadow-2: 0 6px 20px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);")
-        out.append(f"--shadow-3: 0 24px 60px rgba(0, 0, 0, 0.55), 0 6px 16px rgba(0, 0, 0, 0.35); --backdrop: {rgba(t['sunken'], 0.66)};")
+        out.append(
+            "--shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35); --shadow-2: 0 6px 20px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);"
+        )
+        out.append(
+            f"--shadow-3: 0 24px 60px rgba(0, 0, 0, 0.55), 0 6px 16px rgba(0, 0, 0, 0.35); --backdrop: {rgba(t['sunken'], 0.66)};"
+        )
     else:
-        out.append("--shadow-1: 0 1px 2px rgba(0, 0, 0, 0.06), 0 1px 1px rgba(0, 0, 0, 0.03); --shadow-2: 0 4px 16px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.05);")
-        out.append("--shadow-3: 0 18px 48px rgba(0, 0, 0, 0.16), 0 4px 12px rgba(0, 0, 0, 0.06); --backdrop: rgba(0, 0, 0, 0.32);")
+        out.append(
+            "--shadow-1: 0 1px 2px rgba(0, 0, 0, 0.06), 0 1px 1px rgba(0, 0, 0, 0.03); --shadow-2: 0 4px 16px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.05);"
+        )
+        out.append(
+            "--shadow-3: 0 18px 48px rgba(0, 0, 0, 0.16), 0 4px 12px rgba(0, 0, 0, 0.06); --backdrop: rgba(0, 0, 0, 0.32);"
+        )
     return out
 
 
@@ -73,10 +82,15 @@ def build() -> str:
     for name, t in THEMES.items():
         sel = f':root[data-theme="{name}"]'
         if name == DEFAULT:
-            sel = f':root, {sel}'
+            sel = f":root, {sel}"
         parts.append(f"/* {t['label']} */\n" + block(sel, t))
-    parts.append("/* Sistema: claro u oscuro de Apple según la preferencia del equipo */\n" + block(':root[data-theme="system"]', THEMES["light"]))
-    parts.append("@media (prefers-color-scheme: dark) {\n" + block(':root[data-theme="system"]', THEMES["dark"], "  ") + "}\n")
+    parts.append(
+        "/* Sistema: claro u oscuro de Apple según la preferencia del equipo */\n"
+        + block(':root[data-theme="system"]', THEMES["light"])
+    )
+    parts.append(
+        "@media (prefers-color-scheme: dark) {\n" + block(':root[data-theme="system"]', THEMES["dark"], "  ") + "}\n"
+    )
     return "\n".join(parts)
 
 
@@ -110,20 +124,28 @@ def tile(t: dict, name: str) -> str:
 def ext_build() -> str:
     def blk(sel, t, ind=""):
         return f"{ind}{sel} {{\n" + "\n".join(f"{ind}  {x}" for x in ext_tokens(t)) + f"\n{ind}}}\n"
-    parts = ["/* Generado por `python -m scripts.themes` — no editar a mano. Temas de la extensión (los mismos del Panel). */\n"]
+
+    parts = [
+        "/* Generado por `python -m scripts.themes` — no editar a mano. Temas de la extensión (los mismos del Panel). */\n"
+    ]
     for name, t in THEMES.items():
         sel = f':root[data-theme="{name}"]'
         parts.append(f"/* {t['label']} */\n" + blk(f":root, {sel}" if name == DEFAULT else sel, t))
     parts.append(blk(':root[data-theme="system"]', THEMES["light"]))
-    parts.append("@media (prefers-color-scheme: dark) {\n" + blk(':root[data-theme="system"]', THEMES["dark"], "  ") + "}\n")
+    parts.append(
+        "@media (prefers-color-scheme: dark) {\n" + blk(':root[data-theme="system"]', THEMES["dark"], "  ") + "}\n"
+    )
     return "\n".join(parts)
 
 
 def ext_list() -> str:
     from core.themes import CHOICES, preview
+
     items = [{"key": k, "label": label, "preview": preview(k)} for k, label in CHOICES]
-    return ("/* Generado por `python -m scripts.themes`: temas para la página de opciones. */\n"
-            f"self.PANEL_THEMES = {json.dumps(items, ensure_ascii=False, indent=2)};\n")
+    return (
+        "/* Generado por `python -m scripts.themes`: temas para la página de opciones. */\n"
+        f"self.PANEL_THEMES = {json.dumps(items, ensure_ascii=False, indent=2)};\n"
+    )
 
 
 def main() -> int:

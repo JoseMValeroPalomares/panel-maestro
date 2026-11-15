@@ -3,6 +3,7 @@
 Recorre cada página: sin errores de consola, sin desbordamiento horizontal, fondo Mocha y el texto
 principal con contraste AA. Con BOARD_SHOTS guarda capturas para revisarlas.
 """
+
 import os
 from pathlib import Path
 
@@ -11,7 +12,24 @@ import pytest
 from core.themes import THEMES
 
 SHOTS = os.environ.get("BOARD_SHOTS")
-PAGES = ["/", "/hoy", "/inbox", "/tareas", "/calendario", "/vault", "/graph", "/buscar", "/repaso", "/revision", "/rendimiento", "/gestion", "/backups", "/papelera", "/comidas/", "/estudio/"]
+PAGES = [
+    "/",
+    "/hoy",
+    "/inbox",
+    "/tareas",
+    "/calendario",
+    "/vault",
+    "/graph",
+    "/buscar",
+    "/repaso",
+    "/revision",
+    "/rendimiento",
+    "/gestion",
+    "/backups",
+    "/papelera",
+    "/comidas/",
+    "/estudio/",
+]
 
 CONTRAST = """() => {
   // rgb()/rgba() en 0–255; color(srgb …) (lo que da color-mix) en 0–1
@@ -51,18 +69,40 @@ def _hex_to_rgb(h):
     return f"rgb({int(h[0:2], 16)}, {int(h[2:4], 16)}, {int(h[4:6], 16)})"
 
 
-CASES = [(t, 1280, 800) for t in ["system", *THEMES]] + [("mocha", 375, 812), ("light", 375, 812), ("latte", 375, 812)]
+# P-5: las paletas añadidas en 2026-11 también se prueban en el móvil
+NUEVAS = [
+    "frappe",
+    "onedark",
+    "ayumirage",
+    "ayuclaro",
+    "monokaipro",
+    "nightowl",
+    "materialoceano",
+    "githuboscuro",
+    "githubclaro",
+    "gruvboxclaro",
+]
+CASES = [(t, 1280, 800) for t in ["system", *THEMES]] + [(t, 375, 812) for t in ("mocha", "light", "latte", *NUEVAS)]
 
 
 @pytest.mark.parametrize("theme,w,h", CASES, ids=[f"{t}-{w}" for t, w, _ in CASES])
 def test_tema_en_todas_las_paginas(browser, server, theme, w, h):
     mobile = w < 768
-    ctx = browser.new_context(viewport={"width": w, "height": h}, is_mobile=mobile, has_touch=mobile, service_workers="block", color_scheme="light")
+    ctx = browser.new_context(
+        viewport={"width": w, "height": h},
+        is_mobile=mobile,
+        has_touch=mobile,
+        service_workers="block",
+        color_scheme="light",
+    )
     page = ctx.new_page()
     page.add_init_script(f"localStorage.setItem('theme', '{theme}')")
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
-    page.on("console", lambda m: m.type == "error" and "ESP32" not in m.text and "WebSocket" not in m.text and errors.append(m.text))
+    page.on(
+        "console",
+        lambda m: m.type == "error" and "ESP32" not in m.text and "WebSocket" not in m.text and errors.append(m.text),
+    )
     expected_bg = _hex_to_rgb(THEMES["light" if theme == "system" else theme]["bg"])
     problems = []
     try:
@@ -93,7 +133,7 @@ def test_selector_de_tema(page, server):
     assert page.get_attribute("html", "data-theme") == "mocha"  # por defecto
     page.click(".sidebar [data-open-more]")
     radios = page.locator(".theme-grid [role=radio]")
-    assert radios.count() == len(THEMES) + 1
+    assert radios.count() == len(THEMES) + 2  # y «Sistema» y «Mi paleta»
     assert page.locator("[data-theme-choice=mocha]").get_attribute("aria-checked") == "true"
     page.click("[data-theme-choice=nord]")
     page.locator("html[data-theme=nord]").wait_for(state="attached")  # el cambio va dentro de un fundido
@@ -103,7 +143,9 @@ def test_selector_de_tema(page, server):
     page.locator("html[data-theme=dracula]").wait_for(state="attached")
     page.goto(server + "/inbox")  # se recuerda y se aplica antes de pintar
     assert page.get_attribute("html", "data-theme") == "dracula"
-    assert page.evaluate("document.getElementById('themeColor').content") == page.evaluate("getComputedStyle(document.body).backgroundColor")
+    assert page.evaluate("document.getElementById('themeColor').content") == page.evaluate(
+        "getComputedStyle(document.body).backgroundColor"
+    )
 
 
 @pytest.mark.parametrize("theme", ["mocha", "light"])
@@ -128,3 +170,38 @@ def test_foco_visible_con_teclado(browser, server, theme):
         assert not sin_foco, sorted(set(sin_foco))
     finally:
         ctx.close()
+
+
+def test_paleta_propia(page, server, api):
+    """P-5: editor en Ajustes con vista previa en vivo, aviso de AA, guardado en Prefs y aplicada antes de pintar."""
+    page.goto(server + "/hoy")
+    page.wait_for_load_state("networkidle")
+    page.click(".sidebar [data-open-more]")
+    page.click("[data-tp-open]")
+    page.locator("#tp-bg").wait_for()
+    page.fill("#tp-bg", "#fafafa")
+    page.fill("#tp-elev", "#ffffff")
+    page.fill("#tp-text", "#bbbbbb")  # gris claro sobre blanco: no se lee
+    page.locator("#tpChecks", has_text="No llega a AA").wait_for()
+    assert page.get_attribute("html", "data-theme") == "propia"  # vista previa en toda la página
+    assert page.evaluate("getComputedStyle(document.body).backgroundColor") == "rgb(250, 250, 250)"
+    page.fill("#tp-text", "#1d2330")
+    page.fill("#tp-accent", "#1f5fbf")
+    for k, v in (("danger", "#c0392b"), ("warning", "#9a5b00"), ("success", "#2d7a3a"), ("index", "#7048b0")):
+        page.fill(f"#tp-{k}", v)  # los de partida son para un fondo oscuro
+    page.locator("#tpChecks", has_text="Todo se lee bien").wait_for()
+    page.locator("#tpForm").evaluate("f => f.requestSubmit()")
+    page.locator(".toast", has_text="Paleta propia guardada").wait_for()
+    page.wait_for_timeout(600)  # Prefs se envía con una pequeña espera
+    assert api.get("/api/prefs").json()["prefs"]["tema-propio"]["bg"] == "#fafafa"
+    page.goto(server + "/tareas")  # se aplica antes del primer pintado (theme-init.js)
+    assert page.get_attribute("html", "data-theme") == "propia"
+    assert page.evaluate("getComputedStyle(document.body).backgroundColor") == "rgb(250, 250, 250)"
+    # Cancelar deja todo como estaba
+    page.click(".sidebar [data-open-more]")
+    page.click("[data-tp-open]")
+    page.fill("#tp-bg", "#000000")
+    page.locator("dialog.tema-propio [data-close]").last.click()
+    page.wait_for_function("getComputedStyle(document.body).backgroundColor === 'rgb(250, 250, 250)'")
+    page.click("[data-theme-choice=mocha]")  # que el resto de pruebas sigan en Mocha
+    page.locator("html[data-theme=mocha]").wait_for(state="attached")

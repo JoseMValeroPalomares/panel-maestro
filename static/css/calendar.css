@@ -28,6 +28,7 @@
 .cal [data-type="examen"] { --c: var(--danger); }
 .cal [data-type="entrega"] { --c: var(--warning); }
 .cal [data-kind="task"], .cal [data-type="bloque"] { --c: var(--tile-tareas); }
+.cal [data-type="clase"] { --c: var(--tile-universidad); }
 .cal [data-kind="task"][data-type="idea"] { --c: var(--tile-inbox); }
 .cal [data-kind="routine"] { --c: var(--c-routine); }
 
@@ -141,7 +142,8 @@
 .cal-ed-durs[hidden] { display: none; }
 
 /* Barra lateral: crear escribiendo, minicalendario, leyenda */
-.cal-quick-hint { min-height: 1.4em; }
+.cal-quick-hint { min-height: 1.4em; margin-bottom: var(--sp-2); display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.cal-quick-hint[hidden] { display: none; }
 .cal-quick-hint.is-ok { color: var(--success-text, var(--text)); }
 .cal-quick-hint.is-warn { color: var(--warning-text); }
 .cal-mini-head { display: flex; align-items: center; gap: 2px; margin: calc(-1 * var(--sp-2)) 0 var(--sp-1); }
@@ -226,6 +228,7 @@
 .cal-editor [data-type="examen"] { --c: var(--danger); }
 .cal-editor [data-type="entrega"] { --c: var(--warning); }
 .cal-editor [data-type="bloque"] { --c: var(--tile-tareas); }
+.cal-editor [data-type="clase"] { --c: var(--tile-universidad); }
 
 /* Bloque largo que empieza por encima de lo visible: su nombre se queda arriba mientras se desplaza la rejilla */
 .cal-ev:not(.is-short) { overflow: clip; }

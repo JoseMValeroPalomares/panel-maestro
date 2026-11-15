@@ -1,4 +1,5 @@
 """Sincronía del calendario: Panel ↔ iCloud (CalDAV simulado) ↔ ESP32 (simulado)."""
+
 import asyncio
 import json
 import threading
@@ -79,6 +80,7 @@ def mundo(client, monkeypatch, tmp_path):  # client: arranca el Panel (BD creada
 
     async def leer_esp32():
         return {uid: dict(v) for uid, v in esp["events"].items()}
+
     bridge._legacy._get_esp32_events = leer_esp32
     monkeypatch.setattr(cs.asyncio, "sleep", _no_sleep)
     with get_db() as conn:
@@ -87,7 +89,12 @@ def mundo(client, monkeypatch, tmp_path):  # client: arranca el Panel (BD creada
     def ciclo():
         _run(bridge.sync_once())
         if session.sent:  # el ESP32 se queda con la lista que se le manda
-            esp["events"] = {e["uid"]: {"date": e["date"], "title": e["title"], "type": e["type"]} for e in session.sent[-1]["events"]}
+            esp["events"] = {
+                e["uid"]: {"date": e["date"], "title": e["title"], "type": e["type"]}
+                for e in session.sent[-1]["events"]
+            }
+            session.sent.clear()  # un ciclo que no manda nada no vuelve a aplicar la lista anterior
+
     return cal, esp, ciclo
 
 
@@ -120,21 +127,25 @@ def test_three_way_reglas():
     last = {"a": 1, "b": 1, "c": 1, "d": 1}
     p = tw({"a": 1, "b": 2, "c": 1, "n": 5}, {"a": 1, "b": 1, "c": 3, "m": 7}, {**last, "d": 1})
     assert p["same"] == {"a": 1}
-    assert p["to_remote"] == {"b": 2, "n": 5}       # cambió en el Panel / nuevo en el Panel
-    assert p["to_local"] == {"c": 3, "m": 7}        # cambió fuera / nuevo fuera
+    assert p["to_remote"] == {"b": 2, "n": 5}  # cambió en el Panel / nuevo en el Panel
+    assert p["to_local"] == {"c": 3, "m": 7}  # cambió fuera / nuevo fuera
     assert set(p["del_local"]) == set() and set(p["del_remote"]) == set()
-    p = tw({"x": 1}, {"y": 1}, {"x": 1, "y": 1})    # x se borró fuera, y en el Panel
+    p = tw({"x": 1}, {"y": 1}, {"x": 1, "y": 1})  # x se borró fuera, y en el Panel
     assert p["del_local"] == ["x"] and p["del_remote"] == ["y"]
-    p = tw({"z": 1}, {"z": 2}, {"z": 0})            # cambió en los dos: gana el Panel
+    p = tw({"z": 1}, {"z": 2}, {"z": 0})  # cambió en los dos: gana el Panel
     assert p["to_remote"] == {"z": 1}
 
 
 def test_union_inicial_sin_borrar_nada(mundo):
     cal, esp, ciclo = mundo
     cal.add("u1", {"title": "Examen Mates", "start": D(0), "end": None, "all_day": True, "kind": "examen"})
-    cal.add("u2", {"title": "Tutoría", "start": f"{D(1)}T10:00", "end": f"{D(1)}T11:00", "all_day": False, "kind": "evento"})
-    esp["events"] = {"u1": {"date": D(0), "title": "Examen Mates", "type": "examen"},
-                     "u3": {"date": D(2), "title": "Entrega TFG", "type": "entrega"}}
+    cal.add(
+        "u2", {"title": "Tutoría", "start": f"{D(1)}T10:00", "end": f"{D(1)}T11:00", "all_day": False, "kind": "evento"}
+    )
+    esp["events"] = {
+        "u1": {"date": D(0), "title": "Examen Mates", "type": "examen"},
+        "u3": {"date": D(2), "title": "Entrega TFG", "type": "entrega"},
+    }
     ciclo()
     p = panel()
     assert set(p) == {"u1", "u2", "u3"}
@@ -148,6 +159,7 @@ def test_union_inicial_sin_borrar_nada(mundo):
 def test_borrados_y_ediciones_en_cada_sentido(mundo):
     cal, esp, ciclo = mundo
     from app.calendar import EventIn, EventPatch, create_event, delete_event, update_event
+
     a = create_event(EventIn(title="Dentista", start=f"{D(3)}T17:00"))
     b = create_event(EventIn(title="Cine", start=f"{D(4)}T20:00"))
     ciclo()
@@ -186,9 +198,26 @@ def test_guarda_lectura_vacia(mundo):
     assert cs.STATUS["icloud"]["state"] == "error"
 
 
+def test_esp32_reiniciado_recupera_su_calendario(mundo):
+    """La placa contesta vacía (se reinició): a la segunda lectura se le reenvía todo y en el Panel no se borra nada."""
+    cal, esp, ciclo = mundo
+    for i in range(5):
+        cal.add(f"r{i}", {"title": f"Evento {i}", "start": D(i), "end": None, "all_day": True, "kind": "evento"})
+    ciclo()
+    ciclo()
+    assert len(esp["events"]) == 5
+    esp["events"] = {}
+    ciclo()  # primera lectura vacía: podría ser un fallo, se salta
+    assert esp["events"] == {} and cs.STATUS["esp32"]["state"] == "error" and len(panel()) == 5
+    ciclo()  # sigue vacía: se le reenvía
+    assert len(esp["events"]) == 5 and cs.STATUS["esp32"]["state"] == "ok"
+    assert len(panel()) == 5 and len(cal.view()) == 5
+
+
 def test_sin_duplicados(mundo):
     cal, esp, ciclo = mundo
     from app.calendar import EventIn, create_event
+
     create_event(EventIn(title="Reunión", start=D(6), all_day=True))
     cal.add("ext-1", {"title": "reunión", "start": D(6), "end": None, "all_day": True, "kind": "evento"})
     ciclo()
@@ -201,6 +230,7 @@ def test_sin_duplicados(mundo):
 def test_lugar_en_los_dos_sentidos(mundo):
     cal, esp, ciclo = mundo
     from app.calendar import EventIn, EventPatch, create_event, update_event
+
     a = create_event(EventIn(title="Médico", start=f"{D(8)}T10:00"))
     ciclo()
     uid = next(u for u, r in panel().items() if r["id"] == a)

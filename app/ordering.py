@@ -11,6 +11,7 @@ servidor reescribe posiciones enteras de todo el grupo afectado.
   partes separadas por « - » o «->», sin distinguir mayúsculas). Solo se ordena
   dentro de su categoría; el orden vive en la tabla note_order, nunca en el .md.
 """
+
 import re
 
 from fastapi import APIRouter, HTTPException
@@ -42,6 +43,7 @@ def _place(ids: list, moving, before_id) -> list:
 # Baúl
 # ─────────────────────────────────────────────
 
+
 class ResourceMove(BaseModel):
     category: str = Field(min_length=1, max_length=120)
     before_id: int | None = None
@@ -69,9 +71,14 @@ def move_resource(resource_id: int, data: ResourceMove):
                 raise HTTPException(status_code=422, detail="El destino no está en esa categoría")
             if _is_yt(before) != _is_yt(res):
                 raise HTTPException(status_code=422, detail="Los vídeos y las webs van en secciones distintas")
-        group = [r for r in conn.execute("SELECT id, resource_type FROM resources WHERE category=? "
-                                         "ORDER BY sort_order DESC, added_at DESC", (category,)).fetchall()
-                 if _is_yt(r) == _is_yt(res)]
+        group = [
+            r
+            for r in conn.execute(
+                "SELECT id, resource_type FROM resources WHERE category=? ORDER BY sort_order DESC, added_at DESC",
+                (category,),
+            ).fetchall()
+            if _is_yt(r) == _is_yt(res)
+        ]
         order = _place([r["id"] for r in group], resource_id, data.before_id)
         n = len(order)
         for pos, rid in enumerate(order):
@@ -83,6 +90,7 @@ def move_resource(resource_id: int, data: ResourceMove):
 # ─────────────────────────────────────────────
 # Notas
 # ─────────────────────────────────────────────
+
 
 class NoteMove(BaseModel):
     before_id: str | None = Field(default=None, max_length=200)
@@ -100,7 +108,11 @@ def move_note(note_id: str, data: NoteMove):
         if not note:
             raise HTTPException(status_code=404, detail="Nota no encontrada")
         key = category_key(note["category"])
-        siblings = [r for r in conn.execute("SELECT id, title, category FROM notes").fetchall() if category_key(r["category"]) == key]
+        siblings = [
+            r
+            for r in conn.execute("SELECT id, title, category FROM notes").fetchall()
+            if category_key(r["category"]) == key
+        ]
         if data.before_id is not None and data.before_id not in {r["id"] for r in siblings}:
             raise HTTPException(status_code=422, detail="Solo se puede ordenar dentro de su categoría")
         pos = note_positions(conn)
@@ -108,7 +120,8 @@ def move_note(note_id: str, data: NoteMove):
         siblings.sort(key=lambda r: (r["id"] not in pos, pos.get(r["id"], 0), (r["title"] or "").lower()))
         order = _place([r["id"] for r in siblings], note_id, data.before_id)
         conn.execute("DELETE FROM note_order WHERE category_key=?", (key,))
-        conn.executemany("INSERT OR REPLACE INTO note_order (note_id, category_key, position) VALUES (?, ?, ?)",
-                         [(nid, key, float(i)) for i, nid in enumerate(order)])
+        conn.executemany(
+            "INSERT OR REPLACE INTO note_order (note_id, category_key, position) VALUES (?, ?, ?)",
+            [(nid, key, float(i)) for i, nid in enumerate(order)],
+        )
     return {"status": "success", "order": order}
-

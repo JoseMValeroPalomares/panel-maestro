@@ -1,4 +1,5 @@
 """Regresiones de la auditoría de errores (2026-10-30): cada test falló antes de su arreglo."""
+
 import asyncio
 import os
 from pathlib import Path
@@ -12,7 +13,9 @@ from core.files import atomic_write
 
 
 def nota(client, note_id, content, title=None, category="Prueba", **extra):
-    r = client.post(f"/api/notes/{note_id}", json={"title": title or note_id, "category": category, "content": content, **extra})
+    r = client.post(
+        f"/api/notes/{note_id}", json={"title": title or note_id, "category": category, "content": content, **extra}
+    )
     assert r.status_code == 200, r.text
     return r
 
@@ -23,6 +26,7 @@ def filas(sql, *args):
 
 
 # ── Login ───────────────────────────────────────────────────────
+
 
 def _llega_a_la_app(path: str) -> bool:
     """Directo al middleware: httpx normaliza los «..» antes de mandarlos, un atacante no."""
@@ -47,6 +51,7 @@ def test_los_puntos_no_saltan_el_login():
 
 
 # ── Notas ───────────────────────────────────────────────────────
+
 
 def test_escritura_atomica_sin_restos(tmp_path):
     destino = tmp_path / "nota.md"
@@ -190,6 +195,7 @@ def test_borrar_categoria_con_notas(client):
 
 # ── Entradas no válidas: 4xx, nunca 500 ─────────────────────────
 
+
 def test_entradas_no_validas_no_dan_500(client):
     item = client.post("/api/items", json={"text": "x"}).json()["id"]
     assert client.get("/api/calendar/agenda?start=mal").status_code == 422
@@ -198,15 +204,23 @@ def test_entradas_no_validas_no_dan_500(client):
     assert client.get("/api/finance/movements?month=mal").status_code == 422
     assert client.get("/api/finance/export.csv?month=2026-13").status_code == 422
     assert client.put("/api/finance/budgets/Comida", json={"importe": "abc"}).status_code == 422
-    assert client.post("/api/items/bulk", json={"ids": [item], "action": "priority", "value": "urgente"}).status_code == 422
+    assert (
+        client.post("/api/items/bulk", json={"ids": [item], "action": "priority", "value": "urgente"}).status_code
+        == 422
+    )
     assert client.get("/api/backups/backup_20269999_000000.zip").status_code == 422
     assert client.post("/api/boards/99999/canvas", json={"data": "{}"}).status_code == 404
     assert client.get("/api/flashcards/due?limit=99999999999999999999").status_code == 200
     assert client.get("/api/finance/movements?cuenta_id=99999999999999999999").status_code == 422
     assert client.post("/api/inbox", json={"content": "   "}).status_code == 422
     assert client.post("/comidas/api/shopping-list", json={"ingredient_id": 999999}).status_code == 422
-    assert client.post("/comidas/api/weekly-plan/assign",
-                       json={"semana": "2026-10-26", "dia": "lunes", "franja": "comida", "meal_id": 999999}).status_code == 422
+    assert (
+        client.post(
+            "/comidas/api/weekly-plan/assign",
+            json={"semana": "2026-10-26", "dia": "lunes", "franja": "comida", "meal_id": 999999},
+        ).status_code
+        == 422
+    )
 
 
 def test_texto_en_blanco_no_crea_ni_vacia_un_elemento(client):
@@ -258,7 +272,7 @@ def test_estado_muestra_el_error_de_la_copia(client):
 
     from app import backup
 
-    backup._write_status(last_error={"at": time.time() + 10 ** 6, "kind": "manual", "error": "disco lleno"})
+    backup._write_status(last_error={"at": time.time() + 10**6, "kind": "manual", "error": "disco lleno"})
     try:
         copias = next(i for i in client.get("/api/status").json()["items"] if i["key"] == "backups")
         assert copias["detail"] == "disco lleno"
@@ -270,13 +284,17 @@ def test_sugerir_gramos_con_unidades(client):
     from comidas.database import get_db as comidas_db
     from comidas.main import MealIngredientIn, _suggest_gramos_recomendados
 
-    r = client.post("/comidas/api/ingredients", json={"nombre": "Huevo auditoría", "categoria": "proteina", "kcal_100g": 150, "gramos_por_unidad": 60})
+    r = client.post(
+        "/comidas/api/ingredients",
+        json={"nombre": "Huevo auditoría", "categoria": "proteina", "kcal_100g": 150, "gramos_por_unidad": 60},
+    )
     ing = r.json()["id"]
     with comidas_db() as conn:
         assert _suggest_gramos_recomendados(conn, [MealIngredientIn(ingredient_id=ing, unidades=2)], "cena") > 0
 
 
 # ── Estudio, copias y red ───────────────────────────────────────
+
 
 def test_sondear_playerctl_no_para_el_servidor(monkeypatch):
     import time

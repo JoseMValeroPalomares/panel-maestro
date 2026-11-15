@@ -10,6 +10,7 @@ note_tasks.sync_note_items): igual que con las casillas, el .md manda y la BD nu
 se desincroniza. Enlazar o desenlazar desde una tarea escribe (o quita) el marcador
 en la nota y la vuelve a indexar.
 """
+
 import os
 import re
 import sqlite3
@@ -21,7 +22,9 @@ from app.database import get_db
 from core.files import atomic_write
 
 TOKEN_RE = re.compile(r"\[\[(tarea|idea|rutina|item):(\d+)\]\]")
-LINK_LINE_RE = re.compile(r"^\s*(?:[-*+]\s+)?(?:🔗\s*)?(?:Enlazad[ao]s?:\s*)?((?:\[\[(?:tarea|idea|rutina|item):\d+\]\]\s*)+)$")
+LINK_LINE_RE = re.compile(
+    r"^\s*(?:[-*+]\s+)?(?:🔗\s*)?(?:Enlazad[ao]s?:\s*)?((?:\[\[(?:tarea|idea|rutina|item):\d+\]\]\s*)+)$"
+)
 
 router = APIRouter(prefix="/api")
 
@@ -39,15 +42,22 @@ def linked_ids(content: str | None) -> list[int]:
 def sync_note_links(conn: sqlite3.Connection, note_id: str, content: str | None) -> None:
     """Deja en item_links exactamente los marcadores que hay en la nota (content=None: ninguno)."""
     ids = linked_ids(content)
-    existing = {r["id"] for r in conn.execute(
-        f"SELECT id FROM inbox WHERE id IN ({','.join('?' * len(ids))})", ids)} if ids else set()
+    existing = (
+        {r["id"] for r in conn.execute(f"SELECT id FROM inbox WHERE id IN ({','.join('?' * len(ids))})", ids)}
+        if ids
+        else set()
+    )
     if existing:
-        conn.execute(f"DELETE FROM item_links WHERE note_id=? AND item_id NOT IN ({','.join('?' * len(existing))})",
-                     (note_id, *existing))
+        conn.execute(
+            f"DELETE FROM item_links WHERE note_id=? AND item_id NOT IN ({','.join('?' * len(existing))})",
+            (note_id, *existing),
+        )
     else:
         conn.execute("DELETE FROM item_links WHERE note_id=?", (note_id,))
     for i in existing:
-        conn.execute("INSERT OR IGNORE INTO item_links (item_id, note_id, created_at) VALUES (?, ?, unixepoch())", (i, note_id))
+        conn.execute(
+            "INSERT OR IGNORE INTO item_links (item_id, note_id, created_at) VALUES (?, ?, unixepoch())", (i, note_id)
+        )
 
 
 def rebuild_all(conn: sqlite3.Connection) -> None:
@@ -69,6 +79,7 @@ def links_by_item(conn) -> dict[int, list[dict]]:
 # Escribir y quitar el marcador en el .md
 # ─────────────────────────────────────────────
 
+
 def _token(item_row) -> str:
     kind = {"nota": "idea", "rutina": "rutina"}.get(item_row["item_type"], "tarea")
     return f"[[{kind}:{item_row['id']}]]"
@@ -79,12 +90,13 @@ def _write_note(note_id: str, fn) -> None:
     from app.items import _note_file
     from app.note_tasks import FRONTMATTER_RE
     from app.versions import snapshot as snapshot_version
+
     path = _note_file(note_id)  # 404 si no existe; 422 si está cifrada o es índice
-    with open(path, "r", encoding="utf-8", newline="") as f:
+    with open(path, encoding="utf-8", newline="") as f:
         raw = f.read()
     m = FRONTMATTER_RE.match(raw)
     head = m.group(0) if m else ""
-    body = raw[len(head):]
+    body = raw[len(head) :]
     new_body = fn(body)
     if new_body == body:
         return
@@ -108,6 +120,7 @@ def add_link(item_id: int, note_id: str) -> None:
             return body
         eol = "\r\n" if "\r\n" in body else "\n"
         return body.rstrip("\r\n") + f"{eol}{eol}🔗 {token}{eol}"
+
     _write_note(note_id, add)
 
 
@@ -122,15 +135,17 @@ def remove_link(item_id: int, note_id: str) -> None:
                 continue
             if LINK_LINE_RE.match(line.rstrip("\r\n")) and len(TOKEN_RE.findall(line)) == 1:
                 continue  # la línea solo era el enlace: fuera entera
-            out.append(re.sub(r"\s*" + pattern.pattern, "", line.rstrip("\r\n")) + line[len(line.rstrip("\r\n")):])
+            out.append(re.sub(r"\s*" + pattern.pattern, "", line.rstrip("\r\n")) + line[len(line.rstrip("\r\n")) :])
         text = "".join(out)
         return re.sub(r"(\r?\n){3,}$", lambda mm: mm.group(1), text)
+
     _write_note(note_id, drop)
 
 
 # ─────────────────────────────────────────────
 # API
 # ─────────────────────────────────────────────
+
 
 class LinkIn(BaseModel):
     note_id: str = Field(min_length=1, max_length=200)
@@ -151,8 +166,22 @@ def api_remove_link(item_id: int, note_id: str):
 @router.get("/notes/{note_id}/links")
 def api_note_links(note_id: str):
     with get_db() as conn:
-        rows = conn.execute("""SELECT i.id, i.content, i.item_type, i.status, i.due_date FROM item_links l
-                               JOIN inbox i ON i.id = l.item_id WHERE l.note_id=? ORDER BY i.status, i.id""", (note_id,)).fetchall()
+        rows = conn.execute(
+            """SELECT i.id, i.content, i.item_type, i.status, i.due_date FROM item_links l
+                               JOIN inbox i ON i.id = l.item_id WHERE l.note_id=? ORDER BY i.status, i.id""",
+            (note_id,),
+        ).fetchall()
     from app.items import clean_text, item_type
-    return {"items": [{"id": r["id"], "text": clean_text(r["content"]), "type": item_type(r),
-                       "done": r["status"] == "processed", "due_date": r["due_date"]} for r in rows]}
+
+    return {
+        "items": [
+            {
+                "id": r["id"],
+                "text": clean_text(r["content"]),
+                "type": item_type(r),
+                "done": r["status"] == "processed",
+                "due_date": r["due_date"],
+            }
+            for r in rows
+        ]
+    }

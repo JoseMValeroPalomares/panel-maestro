@@ -16,6 +16,7 @@ sin llamar a nadie, salvo con `forzar`.
 Integración: la diaria crea (o actualiza) la tarea «Prioridad de mañana»; la semanal se guarda como nota en
 «Rendimiento - Auditorías».
 """
+
 import hashlib
 import json
 import time
@@ -54,18 +55,22 @@ FORMATO = (
     "las asignaturas como letras: respétalo."
 )
 CAPAS = ("metabolico", "codificacion", "sueno", "rotacion")
-AVISO_PRIVACIDAD = ("Se envían solo métricas de los últimos 7 días, sin fechas reales ni nombres de asignaturas"
-                    " y sin tu nota (salvo que la incluyas). Aun así, los niveles gratuitos de algunos proveedores pueden"
-                    " usar lo que reciben para entrenar sus modelos (Google, fuera de la UE/EEE/UK, lo hace).")
+AVISO_PRIVACIDAD = (
+    "Se envían solo métricas de los últimos 7 días, sin fechas reales ni nombres de asignaturas"
+    " y sin tu nota (salvo que la incluyas). Aun así, los niveles gratuitos de algunos proveedores pueden"
+    " usar lo que reciben para entrenar sus modelos (Google, fuera de la UE/EEE/UK, lo hace)."
+)
 
 
 # ── Entrada (lo que sale del equipo) ──────────────────────────────────────────
 
+
 def construir_entrada(tipo: str, fecha: str, incluir_nota: bool) -> dict:
-    desde = (date.fromisoformat(fecha) - timedelta(days=6)).isoformat()
     with get_db() as conn:
         aj = ajustes(conn)
-        dias = _dias(conn, (date.fromisoformat(fecha) - timedelta(days=13)).isoformat(), fecha)  # 14 para las reglas de racha
+        dias = _dias(
+            conn, (date.fromisoformat(fecha) - timedelta(days=13)).isoformat(), fecha
+        )  # 14 para las reglas de racha
         examenes = _examenes(conn, fecha)
     letras, n = {}, 0
 
@@ -81,7 +86,9 @@ def construir_entrada(tipo: str, fecha: str, incluir_nota: bool) -> dict:
         f = (date.fromisoformat(fecha) - timedelta(days=i)).isoformat()
         d = dias.get(f)
         etiqueta = f"d-{i}" if i else "d0"
-        dia_semana = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")[date.fromisoformat(f).weekday()]
+        dia_semana = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")[
+            date.fromisoformat(f).weekday()
+        ]
         if not d:
             filas.append({"dia": etiqueta, "dia_semana": dia_semana, "registrado": False})
             continue
@@ -89,20 +96,45 @@ def construir_entrada(tipo: str, fecha: str, incluir_nota: bool) -> dict:
         cafe, desp = R.minutos(d["primer_cafe"]), R.minutos(d["despertar"])
         pant, acost = R.noche(d["pantallas_off"]), R.noche(d["acostarse"])
         fila = {
-            "dia": etiqueta, "dia_semana": dia_semana, "registrado": True,
-            "acostarse": d["acostarse"], "despertar": d["despertar"], "horas_sueno": R.horas_sueno(d), "calidad_sueno_1_5": d["calidad_sueno"],
-            "primer_cafe": d["primer_cafe"], "cafe_min_tras_despertar": cafe - desp if cafe is not None and desp is not None else None,
+            "dia": etiqueta,
+            "dia_semana": dia_semana,
+            "registrado": True,
+            "acostarse": d["acostarse"],
+            "despertar": d["despertar"],
+            "horas_sueno": R.horas_sueno(d),
+            "calidad_sueno_1_5": d["calidad_sueno"],
+            "primer_cafe": d["primer_cafe"],
+            "cafe_min_tras_despertar": cafe - desp if cafe is not None and desp is not None else None,
             "pantallas_min_antes_de_dormir": acost - pant if pant is not None and acost is not None else None,
-            "activacion_matutina": d["activacion"], "luz_solar": d["luz_solar"],
-            "dopamina_antes_19h": d["dopamina"], "dopamina_hora": d["dopamina_hora"],
+            "activacion_matutina": d["activacion"],
+            "luz_solar": d["luz_solar"],
+            "dopamina_antes_19h": d["dopamina"],
+            "dopamina_hora": d["dopamina_hora"],
             "siesta": {"ninguna": "ninguna", "corta": "15-20 min", "larga": "90 min"}.get(d["siesta"], d["siesta"]),
-            "comida_valle_tarde": {"baja": "baja en azúcares", "alta": "alta en carbohidratos simples"}.get(d["comida_tarde"], d["comida_tarde"]),
-            "entreno": d["entreno"], "entreno_fin": d["entreno_fin"], "entreno_min": d["entreno_min"], "entreno_intensidad_1_5": d["entreno_intensidad"],
-            "energia_1_5": d["energia"], "niebla_1_5": d["niebla"], "dolor_cabeza_0_3": d["dolor_cabeza"], "humor_1_5": d["humor"],
+            "comida_valle_tarde": {"baja": "baja en azúcares", "alta": "alta en carbohidratos simples"}.get(
+                d["comida_tarde"], d["comida_tarde"]
+            ),
+            "entreno": d["entreno"],
+            "entreno_fin": d["entreno_fin"],
+            "entreno_min": d["entreno_min"],
+            "entreno_intensidad_1_5": d["entreno_intensidad"],
+            "energia_1_5": d["energia"],
+            "niebla_1_5": d["niebla"],
+            "dolor_cabeza_0_3": d["dolor_cabeza"],
+            "humor_1_5": d["humor"],
             "enfoque_min": r["minutos"],
-            "bloques": [{"asignatura": letra(b["asignatura"]), "min": b["minutos"], "active_recall_previo": bool(b["recall"]),
-                         "codificacion": b["codificacion"], "pausas_ojos_cerrados": b["pausas"], "caida_rendimiento": b["caida"],
-                         "estado": b["estado"]} for b in d["bloques"]],
+            "bloques": [
+                {
+                    "asignatura": letra(b["asignatura"]),
+                    "min": b["minutos"],
+                    "active_recall_previo": bool(b["recall"]),
+                    "codificacion": b["codificacion"],
+                    "pausas_ojos_cerrados": b["pausas"],
+                    "caida_rendimiento": b["caida"],
+                    "estado": b["estado"],
+                }
+                for b in d["bloques"]
+            ],
         }
         if incluir_nota and d.get("nota"):
             fila["nota"] = d["nota"][:1500]
@@ -115,13 +147,23 @@ def construir_entrada(tipo: str, fecha: str, incluir_nota: bool) -> dict:
 
     bl = [b for x in hechos for b in x["bloques"]]
     agregados = {
-        "dias_registrados": len(hechos), "horas_sueno_media": media("horas_sueno"), "enfoque_min_medio": media("enfoque_min"),
-        "enfoque_min_total": sum(x["enfoque_min"] for x in hechos), "bloques": len(bl),
+        "dias_registrados": len(hechos),
+        "horas_sueno_media": media("horas_sueno"),
+        "enfoque_min_medio": media("enfoque_min"),
+        "enfoque_min_total": sum(x["enfoque_min"] for x in hechos),
+        "bloques": len(bl),
         "pct_bloques_con_recall": round(100 * sum(b["active_recall_previo"] for b in bl) / len(bl)) if bl else None,
-        "pct_min_codificacion_activa": round(100 * sum(b["min"] for b in bl if b["codificacion"] != "lectura") / max(1, sum(b["min"] for b in bl))) if bl else None,
+        "pct_min_codificacion_activa": round(
+            100 * sum(b["min"] for b in bl if b["codificacion"] != "lectura") / max(1, sum(b["min"] for b in bl))
+        )
+        if bl
+        else None,
         "pct_bloques_degradados": round(100 * sum(b["estado"] == "degradado" for b in bl) / len(bl)) if bl else None,
         "dias_con_dopamina_antes_19h": sum(1 for x in hechos if x["dopamina_antes_19h"]),
-        "energia_media": media("energia_1_5"), "niebla_media": media("niebla_1_5"), "humor_media": media("humor_1_5"), "dolor_cabeza_medio": media("dolor_cabeza_0_3"),
+        "energia_media": media("energia_1_5"),
+        "niebla_media": media("niebla_1_5"),
+        "humor_media": media("humor_1_5"),
+        "dolor_cabeza_medio": media("dolor_cabeza_0_3"),
     }
     proximos = {}
     for e in examenes:
@@ -130,15 +172,23 @@ def construir_entrada(tipo: str, fecha: str, incluir_nota: bool) -> dict:
     alertas = [{"regla": a["id"], "titulo": a["titulo"], "detalle": a["texto"]} for a in R.alertas(dias, fecha, aj)]
     return {
         "tipo": "auditoría diaria (d0 es el día auditado)" if tipo == "dia" else "auditoría semanal (d-6 … d0)",
-        "objetivos": {"acostarse": aj["objetivo_acostarse"], "limite_acostarse": aj["limite_acostarse"], "horas_sueno": aj["objetivo_sueno_h"],
-                      "max_enfoque_min_dia": aj["max_enfoque_min"], "min_entre_despertar_y_cafe": aj["cafe_min_tras_despertar"],
-                      "entreno_termina_antes_de": aj["limite_entreno"]},
-        "dias": filas, "agregados_7_dias": agregados, "dias_hasta_examen_por_asignatura": proximos,
+        "objetivos": {
+            "acostarse": aj["objetivo_acostarse"],
+            "limite_acostarse": aj["limite_acostarse"],
+            "horas_sueno": aj["objetivo_sueno_h"],
+            "max_enfoque_min_dia": aj["max_enfoque_min"],
+            "min_entre_despertar_y_cafe": aj["cafe_min_tras_despertar"],
+            "entreno_termina_antes_de": aj["limite_entreno"],
+        },
+        "dias": filas,
+        "agregados_7_dias": agregados,
+        "dias_hasta_examen_por_asignatura": proximos,
         "alertas_de_las_reglas": alertas,
     }
 
 
 # ── Salida ────────────────────────────────────────────────────────────────────
+
 
 def _texto(v, campo: str, maximo: int = 1500) -> str:
     if not isinstance(v, str) or not v.strip():
@@ -159,7 +209,11 @@ def validar(d: dict) -> dict:
         estado = str(x.get("estado", "")).strip().lower().replace("á", "a")
         if estado not in ("verde", "ambar", "rojo"):
             raise ValueError(f"estado no válido en «{c}»")
-        out[c] = {"estado": estado, "diagnostico": _texto(x.get("diagnostico"), f"{c}.diagnostico"), "correccion": _texto(x.get("correccion"), f"{c}.correccion")}
+        out[c] = {
+            "estado": estado,
+            "diagnostico": _texto(x.get("diagnostico"), f"{c}.diagnostico"),
+            "correccion": _texto(x.get("correccion"), f"{c}.correccion"),
+        }
     alertas = d.get("alertas", [])
     if not isinstance(alertas, list):
         raise ValueError("«alertas» no es una lista")
@@ -169,10 +223,15 @@ def validar(d: dict) -> dict:
             a = a.get("texto") or a.get("mensaje") or a.get("descripcion") or a.get("titulo")
         if isinstance(a, str) and a.strip():
             limpias.append(a.strip()[:400])
-    return {"capas": out, "prioridad_manana": _texto(d.get("prioridad_manana"), "prioridad_manana", 400), "alertas": limpias}
+    return {
+        "capas": out,
+        "prioridad_manana": _texto(d.get("prioridad_manana"), "prioridad_manana", 400),
+        "alertas": limpias,
+    }
 
 
 # ── Auditoría ─────────────────────────────────────────────────────────────────
+
 
 def _periodo(tipo: str, fecha: str) -> str:
     if tipo == "dia":
@@ -183,8 +242,15 @@ def _periodo(tipo: str, fecha: str) -> str:
 
 def _fila(r) -> dict:
     datos = json.loads(r["texto"])
-    return {"id": r["id"], "tipo": r["tipo"], "periodo": r["periodo"], "proveedor": r["proveedor"], "modelo": r["modelo"],
-            "creado": r["creado"], **datos}
+    return {
+        "id": r["id"],
+        "tipo": r["tipo"],
+        "periodo": r["periodo"],
+        "proveedor": r["proveedor"],
+        "modelo": r["modelo"],
+        "creado": r["creado"],
+        **datos,
+    }
 
 
 def auditar(tipo: str, fecha: str, forzar: bool = False, **router_kw) -> dict:
@@ -193,29 +259,46 @@ def auditar(tipo: str, fecha: str, forzar: bool = False, **router_kw) -> dict:
     prompt = aj.get("ia_prompt") or PROMPT_DEFECTO
     entrada = construir_entrada(tipo, fecha, bool(aj.get("ia_incluir_nota")))
     if not any(x["registrado"] for x in entrada["dias"]):
-        raise HTTPException(status_code=422, detail="No hay registros en esos 7 días: registra algún día antes de auditar")
-    huella = hashlib.sha256(json.dumps([tipo, prompt, entrada], sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        raise HTTPException(
+            status_code=422, detail="No hay registros en esos 7 días: registra algún día antes de auditar"
+        )
+    huella = hashlib.sha256(
+        json.dumps([tipo, prompt, entrada], sort_keys=True, ensure_ascii=False).encode()
+    ).hexdigest()
     periodo = _periodo(tipo, fecha)
     if not forzar:
         with get_db() as conn:
-            r = conn.execute("SELECT * FROM rend_auditorias WHERE tipo=? AND periodo=? AND entrada_hash=? ORDER BY id DESC LIMIT 1",
-                             (tipo, periodo, huella)).fetchone()
+            r = conn.execute(
+                "SELECT * FROM rend_auditorias WHERE tipo=? AND periodo=? AND entrada_hash=? ORDER BY id DESC LIMIT 1",
+                (tipo, periodo, huella),
+            ).fetchone()
         if r:
             return {**_fila(r), "cache": True}
-    mensajes = [{"role": "system", "content": f"{prompt}\n\n{FORMATO}"},
-                {"role": "user", "content": "Datos (JSON):\n" + json.dumps(entrada, ensure_ascii=False)}]
+    mensajes = [
+        {"role": "system", "content": f"{prompt}\n\n{FORMATO}"},
+        {"role": "user", "content": "Datos (JSON):\n" + json.dumps(entrada, ensure_ascii=False)},
+    ]
     try:
         res = llm_router.completar(mensajes, validar, **router_kw)
     except llm_router.LLMError as e:
-        raise HTTPException(status_code=503, detail={"mensaje": str(e), "sin_claves": e.sin_claves, "intentos": e.intentos})
-    guardado = {"fecha": fecha, "resultado": res.datos, "latencia_ms": res.latencia_ms, "intentos_fallidos": len(res.intentos)}
+        raise HTTPException(
+            status_code=503, detail={"mensaje": str(e), "sin_claves": e.sin_claves, "intentos": e.intentos}
+        )
+    guardado = {
+        "fecha": fecha,
+        "resultado": res.datos,
+        "latencia_ms": res.latencia_ms,
+        "intentos_fallidos": len(res.intentos),
+    }
     if tipo == "dia":
         guardado["tarea_id"] = _tarea_prioridad(fecha, res.datos["prioridad_manana"])
     else:
         guardado["nota_id"] = _nota_semanal(fecha, periodo, res)
     with get_db() as conn:
-        cur = conn.execute("INSERT INTO rend_auditorias (tipo, periodo, proveedor, modelo, texto, entrada_hash) VALUES (?, ?, ?, ?, ?, ?)",
-                           (tipo, periodo, res.proveedor, res.modelo, json.dumps(guardado, ensure_ascii=False), huella))
+        cur = conn.execute(
+            "INSERT INTO rend_auditorias (tipo, periodo, proveedor, modelo, texto, entrada_hash) VALUES (?, ?, ?, ?, ?, ?)",
+            (tipo, periodo, res.proveedor, res.modelo, json.dumps(guardado, ensure_ascii=False), huella),
+        )
         r = conn.execute("SELECT * FROM rend_auditorias WHERE id=?", (cur.lastrowid,)).fetchone()
     return {**_fila(r), "cache": False}
 
@@ -223,18 +306,30 @@ def auditar(tipo: str, fecha: str, forzar: bool = False, **router_kw) -> dict:
 def _tarea_prioridad(fecha: str, texto: str) -> int | None:
     """La prioridad de mañana como tarea con fecha de mañana. Repetir la auditoría actualiza la misma tarea."""
     from app.items import ItemIn, create
+
     if fecha < (date.today() - timedelta(days=1)).isoformat():
         return None  # auditar un día antiguo no crea tareas
     manana = (date.fromisoformat(fecha) + timedelta(days=1)).isoformat()
     contenido = f"Prioridad de mañana · {texto}"[:500]
     with get_db() as conn:
-        viva = conn.execute("""SELECT id FROM inbox WHERE category='Rendimiento' AND due_date=? AND content LIKE 'Prioridad de mañana · %'
-                               AND status != 'processed' AND note_id IS NULL ORDER BY id DESC LIMIT 1""", (manana,)).fetchone()
+        viva = conn.execute(
+            """SELECT id FROM inbox WHERE category='Rendimiento' AND due_date=? AND content LIKE 'Prioridad de mañana · %'
+                               AND status != 'processed' AND note_id IS NULL ORDER BY id DESC LIMIT 1""",
+            (manana,),
+        ).fetchone()
         if viva:
             conn.execute("UPDATE inbox SET content=? WHERE id=?", (contenido, viva["id"]))
             return viva["id"]
-    return create(ItemIn(text=contenido, type="tarea", category="Rendimiento", priority="alta", due_date=manana,
-                         details=f"De la auditoría del {fecha}: /rendimiento?vista=auditoria"))
+    return create(
+        ItemIn(
+            text=contenido,
+            type="tarea",
+            category="Rendimiento",
+            priority="alta",
+            due_date=manana,
+            details=f"De la auditoría del {fecha}: /rendimiento?vista=auditoria",
+        )
+    )
 
 
 def _nota_semanal(fecha: str, periodo: str, res: llm_router.Resultado) -> str:
@@ -242,16 +337,32 @@ def _nota_semanal(fecha: str, periodo: str, res: llm_router.Resultado) -> str:
     from app.indexer import sync_notes_to_db
     from app.notes_core import note_path, update_index_for_area
     from app.versions import snapshot as snapshot_version
-    nombres = {"metabolico": "Balance metabólico", "codificacion": "Calidad de codificación", "sueno": "Sueño y termorregulación",
-               "rotacion": "Eficiencia de rotación"}
+
+    nombres = {
+        "metabolico": "Balance metabólico",
+        "codificacion": "Calidad de codificación",
+        "sueno": "Sueño y termorregulación",
+        "rotacion": "Eficiencia de rotación",
+    }
     estados = {"verde": "bien", "ambar": "atención", "rojo": "alerta"}
     desde = (date.fromisoformat(fecha) - timedelta(days=6)).isoformat()
     d = res.datos
-    partes = [f"# Auditoría de rendimiento {periodo}", "", f"Del {desde} al {fecha}. Modelo: {res.proveedor} · `{res.modelo}`.", ""]
+    partes = [
+        f"# Auditoría de rendimiento {periodo}",
+        "",
+        f"Del {desde} al {fecha}. Modelo: {res.proveedor} · `{res.modelo}`.",
+        "",
+    ]
     for c in CAPAS:
         x = d["capas"][c]
-        partes += [f"## {nombres[c]} ({estados[x['estado']]})", "", f"**Diagnóstico.** {x['diagnostico']}", "",
-                   f"**Corrección.** {x['correccion']}", ""]
+        partes += [
+            f"## {nombres[c]} ({estados[x['estado']]})",
+            "",
+            f"**Diagnóstico.** {x['diagnostico']}",
+            "",
+            f"**Corrección.** {x['correccion']}",
+            "",
+        ]
     partes += ["## Prioridad", "", d["prioridad_manana"], ""]
     if d["alertas"]:
         partes += ["## Alertas", "", *[f"* {a}" for a in d["alertas"]], ""]
@@ -274,6 +385,7 @@ def _nota_semanal(fecha: str, periodo: str, res: llm_router.Resultado) -> str:
 
 # ── Rutas ─────────────────────────────────────────────────────────────────────
 
+
 class AuditarIn(BaseModel):
     tipo: str = "dia"
     fecha: str | None = None
@@ -284,8 +396,14 @@ class AuditarIn(BaseModel):
 def api_estado():
     with get_db() as conn:
         aj = ajustes(conn)
-    return {**llm_router.estado(), "prompt": aj.get("ia_prompt") or PROMPT_DEFECTO, "prompt_defecto": PROMPT_DEFECTO,
-            "prompt_propio": bool(aj.get("ia_prompt")), "incluir_nota": bool(aj.get("ia_incluir_nota")), "aviso": AVISO_PRIVACIDAD}
+    return {
+        **llm_router.estado(),
+        "prompt": aj.get("ia_prompt") or PROMPT_DEFECTO,
+        "prompt_defecto": PROMPT_DEFECTO,
+        "prompt_propio": bool(aj.get("ia_prompt")),
+        "incluir_nota": bool(aj.get("ia_incluir_nota")),
+        "aviso": AVISO_PRIVACIDAD,
+    }
 
 
 @router.post("/auditar")
@@ -308,7 +426,9 @@ def api_auditar(data: AuditarIn):
 def api_historial(limite: int = 30):
     limite = max(1, min(limite, 200))
     with get_db() as conn:
-        filas = conn.execute("SELECT * FROM rend_auditorias ORDER BY creado DESC, id DESC LIMIT ?", (limite,)).fetchall()
+        filas = conn.execute(
+            "SELECT * FROM rend_auditorias ORDER BY creado DESC, id DESC LIMIT ?", (limite,)
+        ).fetchall()
         vivas = {r["id"] for r in conn.execute("SELECT id FROM inbox WHERE status != 'processed'")}
     out = []
     for r in filas:

@@ -35,7 +35,12 @@ if [[ ! -x venv/bin/python ]]; then
     }
 fi
 venv/bin/python -m pip install --quiet --upgrade pip
-venv/bin/python -m pip install --quiet -r requirements.txt
+# C-3: requirements.lock fija también las transitivas a lo probado. Si en este equipo no se puede (otra versión de
+# Python sin alguna de esas ruedas), se instalan las directas de requirements.txt y se avisa.
+if ! venv/bin/python -m pip install --quiet -r requirements.lock; then
+    echo "No se ha podido instalar requirements.lock con $(venv/bin/python -V); instalo requirements.txt." >&2
+    venv/bin/python -m pip install --quiet -r requirements.txt
+fi
 
 say "Configuración"
 if [[ ! -f .env ]]; then
@@ -50,28 +55,37 @@ else
     venv/bin/python -m scripts.set_password --generate
 fi
 
+say "Permisos de los datos"
+# S-6: solo este usuario lee BDs, notas, copias, logs y subidas (lo nuevo ya nace así: main.py pone umask 077).
+# Quita los permisos de grupo y otros a lo que ya existía; los permisos del dueño no cambian.
+for d in data comidas/data backups logs static/uploads; do
+    if [[ -e $d ]]; then chmod -R go-rwx "$d"; fi
+done
+for f in .env .env.bak*; do
+    if [[ -f $f ]]; then chmod 600 "$f"; fi
+done
+
 if ((service)); then
     say "Servicio de usuario"
+    # C-4: con despliegues, la unidad arranca la versión desplegada; esta la devolvería a la carpeta de desarrollo
+    if [[ -e ${PANEL_DEPLOY_ROOT:-${XDG_DATA_HOME:-$HOME/.local/share}/panel-maestro}/actual ]]; then
+        echo "El panel se despliega con scripts/desplegar.sh: la unidad es la de --unidad-propuesta (docs/despliegue.md)." >&2
+        exit 1
+    fi
     unit=${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/panel-maestro.service
     mkdir -p "$(dirname "$unit")"
-    cat > "$unit" <<UNIT
-[Unit]
-Description=Panel Maestro
-After=network-online.target
-
-[Service]
-WorkingDirectory=$PWD
-ExecStart=$PWD/start.sh
-Restart=on-failure
-
-[Install]
-WantedBy=default.target
-UNIT
+    # Una sola plantilla, la del repo (S-5): protecciones probadas, ver docs/servicio.md
+    if [[ -f $unit ]] && ! cmp -s <(sed "s#@PANEL_DIR@#$PWD#g" scripts/systemd/panel-maestro.service) "$unit"; then
+        cp "$unit" "$unit.bak-panel-$(date +%Y%m%d-%H%M%S)"
+        echo "La unidad anterior queda en $unit.bak-panel-*"
+    fi
+    sed "s#@PANEL_DIR@#$PWD#g" scripts/systemd/panel-maestro.service > "$unit"
     systemctl --user daemon-reload
-    systemctl --user enable --now panel-maestro
+    systemctl --user enable panel-maestro
+    systemctl --user restart panel-maestro
     echo "Arrancado. Para que siga en marcha sin haber iniciado sesión: loginctl enable-linger $USER"
 fi
 
 say "Listo"
 ((service)) || echo "Arráncalo con ./start.sh"
-echo "Ábrelo en http://localhost:8000"
+echo "Ábrelo en http://localhost:8000 (HTTPS y acceso desde fuera de casa: docs/HTTPS.md y docs/fuera-de-casa.md)"

@@ -1,4 +1,5 @@
 """Lo que ve quien acaba de instalar: sin placa ESP32 y sin datos todo funciona y lo dice."""
+
 from comidas import main as comidas_main
 from estudio import main as estudio_main
 

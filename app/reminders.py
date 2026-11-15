@@ -1,5 +1,6 @@
 """
-Recordatorios de eventos, tareas con hora, rutinas y repasos de flashcards.
+Recordatorios de eventos, tareas con hora, rutinas y repasos de flashcards (las tareas atrasadas, con sus
+botones, van aparte: app/atrasadas.py; aquí solo su configuración, «atrasadas»).
 
 GET /api/reminders devuelve los avisos que tocan entre hace 10 min y dentro de `horizon`
 minutos, cada uno con una clave estable (para no repetirlo) y la hora a la que debe saltar.
@@ -10,6 +11,7 @@ desde la Waybar). La configuración por tipo vive en las preferencias (`reminder
 Push en la PWA con el navegador cerrado: no es viable aquí (Web Push exige HTTPS y un
 servicio de push; el Panel se sirve por HTTP en la red local). Ver AUDITORIA.
 """
+
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter
@@ -25,7 +27,9 @@ DEFAULTS = {
     "tarea": {"on": True, "min": 0},
     "rutina": {"on": True, "min": 0},
     "flashcards": {"on": True, "hora": "20:00"},
-    "escritorio": {"on": True},   # notify-send en el portátil
+    # tareas atrasadas (app/atrasadas.py): notificación con botones en el escritorio, una vez al día por tarea
+    "atrasadas": {"on": True, "hora": "09:00", "dias": [0, 1, 2, 3, 4, 5, 6]},
+    "escritorio": {"on": True},  # notify-send en el portátil
     "navegador": {"on": True},
 }
 GRACE_MIN = 10
@@ -58,30 +62,47 @@ def due(now: datetime | None = None, horizon: int = 60) -> list[dict]:
         if not (lo <= fire <= hi):
             continue
         cuando = "todo el día" if e["all_day"] else f"a las {e['start'][11:16]}" + (f" (en {mins} min)" if mins else "")
-        out.append({"key": f"{e['key']}@{e['start']}@{mins}", "kind": kind,
-                    "title": f"{e['routine_title']}: {e['title']}" if e.get("step") else e["title"],
-                    "body": f"{ {'evento': 'Evento', 'tarea': 'Tarea', 'rutina': 'Rutina'}[kind] } {cuando}",
-                    "fire_at": fire.strftime("%Y-%m-%dT%H:%M"),
-                    "url": f"/calendario?dia={e['start'][:10]}" if kind == "evento" else f"/tareas?item={e.get('item_id')}"})
+        out.append(
+            {
+                "key": f"{e['key']}@{e['start']}@{mins}",
+                "kind": kind,
+                "title": f"{e['routine_title']}: {e['title']}" if e.get("step") else e["title"],
+                "body": f"{ {'evento': 'Evento', 'tarea': 'Tarea', 'rutina': 'Rutina'}[kind] } {cuando}",
+                "fire_at": fire.strftime("%Y-%m-%dT%H:%M"),
+                "url": f"/calendario?dia={e['start'][:10]}" if kind == "evento" else f"/tareas?item={e.get('item_id')}",
+            }
+        )
     fc = conf["flashcards"]
     if fc.get("on"):
         h, m = (int(x) for x in (fc.get("hora") or "20:00").split(":"))
         fire = datetime.combine(now.date(), datetime.min.time()).replace(hour=h, minute=m)
         if lo <= fire <= hi or (fire <= now and fire.date() == now.date() and now - fire <= timedelta(hours=3)):
             with get_db() as conn:
-                n = conn.execute("SELECT COUNT(*) FROM flashcards WHERE next_review <= ?",
-                                 (datetime.combine(now.date() + timedelta(days=1), datetime.min.time()).timestamp(),)).fetchone()[0]
+                n = conn.execute(
+                    "SELECT COUNT(*) FROM flashcards WHERE next_review <= ?",
+                    (datetime.combine(now.date() + timedelta(days=1), datetime.min.time()).timestamp(),),
+                ).fetchone()[0]
             if n:
-                out.append({"key": f"flashcards@{now.date().isoformat()}", "kind": "flashcards", "title": "Repaso de flashcards",
-                            "body": f"Tienes {n} tarjeta{'s' if n != 1 else ''} para repasar hoy", "fire_at": fire.strftime("%Y-%m-%dT%H:%M"),
-                            "url": "/repaso"})
+                out.append(
+                    {
+                        "key": f"flashcards@{now.date().isoformat()}",
+                        "kind": "flashcards",
+                        "title": "Repaso de flashcards",
+                        "body": f"Tienes {n} tarjeta{'s' if n != 1 else ''} para repasar hoy",
+                        "fire_at": fire.strftime("%Y-%m-%dT%H:%M"),
+                        "url": "/repaso",
+                    }
+                )
     return sorted(out, key=lambda r: r["fire_at"])
 
 
 @router.get("")
 def api_due(horizon: int = 60):
-    return {"now": datetime.now(TZ).strftime("%Y-%m-%dT%H:%M"), "settings": settings(),
-            "reminders": due(horizon=max(1, min(horizon, 24 * 60)))}
+    return {
+        "now": datetime.now(TZ).strftime("%Y-%m-%dT%H:%M"),
+        "settings": settings(),
+        "reminders": due(horizon=max(1, min(horizon, 24 * 60))),
+    }
 
 
 @router.get("/settings")

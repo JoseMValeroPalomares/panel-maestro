@@ -8,6 +8,7 @@
     <span id="stats" class="small muted tabular graph-stats"></span>
   </div>
   <div class="page-actions">
+    <button type="button" id="btnList" data-call="toggleNodeList" class="btn btn-ghost" aria-expanded="false" aria-controls="node-list">{{ icon('list-tree') }}<span class="hide-mobile">Lista</span><span class="sr-only show-mobile">Lista de notas</span></button>
     <button type="button" id="btnEdit" data-call="toggleEditMode" class="btn btn-ghost" aria-pressed="false">{{ icon('pencil') }}<span class="hide-mobile">Editar</span></button>
     <button type="button" id="btnAutoUndo" data-call="undoAutoLayout" class="btn btn-ghost" hidden title="Deshacer recolocado: vuelve a las posiciones anteriores" aria-label="Deshacer recolocado">{{ icon('undo-2') }}</button>
     <button type="button" id="btnAuto" data-call="openAutoLayout" class="btn btn-tinted" title="Recoloca todos los nodos en anillos por categoría">{{ icon('sparkles') }}<span class="hide-mobile">Generar automático</span><span class="sr-only show-mobile">Generar grafo automático</span></button>
@@ -36,7 +37,19 @@
 <div id="editBanner" class="edit-banner" role="status" hidden></div>
 
 <div class="graph-stage">
-  <div id="graph-container" aria-label="Mapa de notas"></div>
+  <div id="graph-container"></div>
+
+  <!-- U-3: alternativa al lienzo para teclado y lector de pantalla; elegir una nota la centra y abre su ficha -->
+  <aside id="node-list" class="node-list panel" aria-labelledby="node-list-title" hidden>
+    <div class="row">
+      <h2 id="node-list-title" class="node-list-title">Notas del grafo</h2>
+      <span id="node-list-count" class="tiny muted tabular" aria-live="polite"></span>
+      <span class="grow"></span>
+      <button type="button" data-call="toggleNodeList" class="btn btn-ghost btn-icon btn-sm" aria-label="Cerrar la lista">{{ icon('x', 'icon-sm') }}</button>
+    </div>
+    <input type="search" id="node-list-q" class="input input-sm" placeholder="Filtrar…" aria-label="Filtrar las notas de la lista" autocomplete="off" spellcheck="false">
+    <div id="node-list-body" class="node-list-body"></div>
+  </aside>
 
   <div id="node-tooltip" class="node-tooltip" hidden>
     <div id="tt-title" class="tt-title"></div>
@@ -52,10 +65,14 @@
       <span class="grow"></span>
       <button type="button" data-call="closePanel" class="btn btn-ghost btn-icon btn-sm" aria-label="Cerrar">{{ icon('x', 'icon-sm') }}</button>
     </div>
-    <h2 id="panel-title" class="panel-title"></h2>
+    <h2 id="panel-title" class="panel-title" tabindex="-1"></h2>
     <p id="panel-cat" class="small muted"></p>
     <div id="panel-tags" class="chips"></div>
     <p id="panel-fc" class="small" hidden></p>
+    <div id="panel-links" class="panel-links" hidden>
+      <h3 class="panel-links-title">Conectada con</h3>
+      <ul id="panel-links-list" class="panel-links-list"></ul>
+    </div>
     <a id="panel-link" href="#" class="btn btn-primary btn-block">{{ icon('book-open', 'icon-sm') }}Abrir nota</a>
     <button type="button" id="panel-pin-btn" data-call="togglePin" class="btn btn-block" aria-pressed="false">{{ icon('pin', 'icon-sm') }}<span id="panel-pin-label">Fijar posición</span></button>
     <button type="button" id="panel-connect-btn" data-call="startConnectFrom" class="btn btn-tinted btn-block" hidden>{{ icon('link', 'icon-sm') }}Conectar con otra nota</button>

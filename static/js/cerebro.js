@@ -16,6 +16,16 @@ let currentPreviewPct = 50;
 let lastSavedSnapshot = '';
 window.__simCodes = {};
 
+/* Conflictos entre dispositivos (app/notes.py): cada guardado lleva la versión (hash del .md) con que se cargó la
+   nota o que devolvió el guardado anterior. Si otro dispositivo guardó entretanto, 409 y se pregunta (conflict.js).
+   Los guardados van en cola: uno detrás de otro, cada uno con la versión del anterior, así una sola pestaña nunca
+   ve un 409. null = no se sabe (no se envía); '' = la nota aún no existe. */
+let noteVersion = null;
+let saveQueue = Promise.resolve();
+let conflict = null;        // { id, current } mientras no se resuelve: el autoguardado espera
+let overwriteNext = false;  // «Quedarme con lo mío»: el servidor deja antes lo del otro en el historial
+let lastSent = null;        // { id, snap, content }: en una cifrada, el reintento reenvía el mismo cifrado
+
 // Cifrado: la contraseña vive solo en memoria durante la sesión
 let noteIsEncrypted = false;
 let currentPassphrase = null;
@@ -34,6 +44,15 @@ const isMobile = () => window.matchMedia('(max-width: 767px)').matches;
 marked.setOptions({ breaks: true, gfm: true });
 
 /* ---------- Cifrado cliente (AES-GCM + PBKDF2): el servidor solo ve un blob ---------- */
+// V-5: crypto.subtle solo existe en un contexto seguro (HTTPS o localhost). Por http://192.168.x.x no hay cifrado:
+// «Cifrar» y abrir una nota cifrada lo explican y enlazan a la guía en vez de fallar con un error interno.
+const CRYPTO_OK = !!(window.isSecureContext && window.crypto?.subtle);
+const CRYPTO_WHY = 'El navegador solo permite cifrar en una conexión segura: HTTPS, o el panel abierto en este mismo equipo. ' +
+  'Ahora llega por HTTP desde la red, así que aquí no se puede cifrar una nota ni abrir una cifrada. En el ordenador del panel sí funciona.';
+async function explainNoCrypto() {
+  const ok = await uiConfirm('Cifrado no disponible en esta conexión', CRYPTO_WHY, { confirmLabel: 'Cómo activar HTTPS', cancelLabel: 'Cerrar' });
+  if (ok) location.href = '/ayuda/https';
+}
 async function deriveKey(passphrase, saltBytes) {
   const enc = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(passphrase), 'PBKDF2', false, ['deriveKey']);
@@ -95,6 +114,7 @@ $('passphraseConfirmInput').addEventListener('keydown', (e) => { if (e.key === '
 
 async function toggleEncryption() {
   if (!$('currentNoteId').value) return;
+  if (!CRYPTO_OK) { explainNoCrypto(); return; }
   if (!noteIsEncrypted) {
     const pass = await askPassphrase('setup', 'Proteger esta nota',
       'Elige una contraseña. Si la olvidas no podrás recuperar el contenido: no se guarda en ningún sitio.');
@@ -115,6 +135,11 @@ function updateLockToggleUI() {
   el.innerHTML = icon(noteIsEncrypted ? 'lock' : 'lock-open', 'icon-sm');
   el.setAttribute('aria-pressed', String(noteIsEncrypted));
   el.setAttribute('aria-label', noteIsEncrypted ? 'Nota cifrada: quitar protección' : 'Cifrar nota');
+  if (!CRYPTO_OK) {  // sigue activo (pulsarlo explica por qué), pero se ve atenuado y se anuncia como no disponible
+    el.classList.add('is-unavailable');
+    el.setAttribute('aria-label', 'Cifrar nota: no disponible sin HTTPS');
+    el.title = 'Cifrar no está disponible sin HTTPS';
+  }
   window.refreshAiButton?.();
 }
 
@@ -401,7 +426,12 @@ function showNotePane(show) {
 }
 
 /* ---------- Portada (sin nota abierta): cómo van las notas y por dónde seguir ---------- */
-async function renderNotesHome() {
+// Dos llamadas seguidas (loadNotes y showNotePane al arrancar o al cerrar una nota) comparten la misma petición (V-2)
+let notesHomePending = null;
+function renderNotesHome() {
+  return (notesHomePending ||= paintNotesHome().finally(() => { notesHomePending = null; }));
+}
+async function paintNotesHome() {
   const box = $('notesHome');
   if (!box) return;
   // En el móvil la lista hace de portada: encima, «Seguir escribiendo» con las tres últimas
@@ -471,6 +501,7 @@ function setNoteUrl(id) {
 
 // Lo pendiente se guarda antes de cerrar; si no se puede, la nota sigue abierta para no perder lo escrito
 async function savePending() {
+  if (conflict) { resolveConflict(); return false; }
   if (!autoSaveTimer || snapshot() === lastSavedSnapshot) return true;
   await saveNote(true);
   if (snapshot() === lastSavedSnapshot) return true;
@@ -482,6 +513,8 @@ function showHome() {
   clearTimeout(autoSaveTimer);
   autoSaveTimer = null;
   activeNoteId = null;
+  conflict = null;
+  noteVersion = null;
   $('currentNoteId').value = '';
   if (noteIsEncrypted) {  // cerrada, una nota cifrada no deja su texto en la página
     currentPassphrase = null;
@@ -508,7 +541,10 @@ window.addEventListener('popstate', async () => {
 });
 
 async function openNote(id) {
-  if (activeNoteId && activeNoteId !== id) flushAutoSave();
+  if (activeNoteId && activeNoteId !== id) {  // lo pendiente de la anterior se guarda antes de cambiar (con su id)
+    if (conflict) { resolveConflict(); return; }
+    await flushAutoSave();
+  }
   let note;
   try {
     note = await api(`/api/notes/${encodeURIComponent(id)}`, { quiet: true });
@@ -522,6 +558,8 @@ async function openNote(id) {
   }
 
   activeNoteId = id;
+  noteVersion = note.version ?? null;
+  conflict = null;
   if (new URLSearchParams(location.search).get('note') !== id) setNoteUrl(id);
   activeStatus = note.status || 'por-escribir';
   noteIsEncrypted = !!note.encrypted;
@@ -557,6 +595,16 @@ async function openNote(id) {
 }
 
 function showLockScreen() {
+  if (!CRYPTO_OK) {
+    $('readContent').innerHTML = `
+    <div class="lock-screen">
+      <div class="empty-icon">${icon('lock')}</div>
+      <h3>Nota privada</h3>
+      <p class="muted">${escapeHtml(CRYPTO_WHY)}</p>
+      <a class="btn btn-primary btn-block" href="/ayuda/https">${icon('shield-check', 'icon-sm')}Cómo activar HTTPS</a>
+    </div>`;
+    return;
+  }
   $('readContent').innerHTML = `
     <div class="lock-screen">
       <div class="empty-icon">${icon('lock')}</div>
@@ -580,6 +628,7 @@ async function unlockCurrentNote() {
     const plain = await decryptContent(note.content, pass);
     currentPassphrase = pass;
     $('noteContent').value = plain;
+    noteVersion = note.version ?? noteVersion;
     lastSavedSnapshot = snapshot();
     updateCharCount();
     renderReadMode();
@@ -611,11 +660,23 @@ function snapshot() {
   return JSON.stringify([$('noteTitle').value, $('noteCategory').value, $('noteTags').value, $('noteContent').value, noteIsEncrypted, activeStatus]);
 }
 
-async function saveNote(silent = false) {
+function saveNote(silent = false) {
+  const run = saveQueue.then(() => doSaveNote(silent));
+  saveQueue = run.catch(() => {});
+  return run;
+}
+async function doSaveNote(silent) {
   const id = $('currentNoteId').value;
   if (!id) return;
   clearTimeout(autoSaveTimer);
   autoSaveTimer = null;
+  if (conflict) { showSaveIndicator('conflict'); return; }
+  const snap = snapshot();
+  if (snap === lastSavedSnapshot && noteVersion !== '' && !overwriteNext) {  // nada nuevo (p. ej. dos guardados en cola)
+    showSaveIndicator('saved');
+    if (!silent) toast('Nota guardada');
+    return;
+  }
   let contentToSend = $('noteContent').value;
   if (noteIsEncrypted) {
     if (!currentPassphrase) {
@@ -623,9 +684,9 @@ async function saveNote(silent = false) {
       if (!pass) return;
       currentPassphrase = pass;
     }
-    contentToSend = await encryptContent(contentToSend, currentPassphrase);
+    contentToSend = lastSent?.id === id && lastSent.snap === snap ? lastSent.content : await encryptContent(contentToSend, currentPassphrase);
+    lastSent = { id, snap, content: contentToSend };
   }
-  const snap = snapshot();
   const payload = {
     title: $('noteTitle').value.trim() || 'Sin título',
     category: $('noteCategory').value,
@@ -634,11 +695,19 @@ async function saveNote(silent = false) {
     tags: $('noteTags').value.split(',').map(t => t.trim()).filter(Boolean),
     encrypted: noteIsEncrypted,
   };
+  if (noteVersion !== null) payload.base_version = noteVersion;
+  if (overwriteNext) payload.overwrite = true;
   showSaveIndicator('saving');
+  let res;
   try {
-    await api(`/api/notes/${encodeURIComponent(id)}`, { method: 'POST', body: payload, quiet: silent });
-  } catch {
+    res = await api(`/api/notes/${encodeURIComponent(id)}`, { method: 'POST', body: payload, quiet: true });
+  } catch (err) {
+    if (err.status === 409 && err.data?.conflict) {
+      if ($('currentNoteId').value === id) { conflict = { id, current: err.data.current }; showSaveIndicator('conflict'); resolveConflict(); }
+      return;
+    }
     showSaveIndicator('error');
+    if (!silent && err.status !== 401) toast(err.message || 'No se pudo guardar la nota', { type: 'error' });
     // Sigue pendiente: se reintenta, y cerrar la nota o salir de la página lo saben
     if (!autoSaveTimer) autoSaveTimer = setTimeout(() => {
       autoSaveTimer = null;
@@ -646,13 +715,123 @@ async function saveNote(silent = false) {
     }, SAVE_RETRY_MS);
     return;
   }
+  overwriteNext = false;
+  if ($('currentNoteId').value !== id) return;  // se cambió de nota mientras guardaba
+  if (res?.version) noteVersion = res.version;
   lastSavedSnapshot = snap;
-  showSaveIndicator('saved');
+  if (!autoSaveTimer) showSaveIndicator(snapshot() === snap ? 'saved' : 'pending');
   if (!silent) toast('Nota guardada');
   if (currentMode === 'read' && !noteIsEncrypted) renderReadMode();
   await loadNotes();
   loadFlashcardStats();
   if (!silent && !noteIsEncrypted) checkWikilinkSuggestions(id);
+}
+
+/* ---------- Conflicto: otro dispositivo guardó esta nota después de que la abrieras ---------- */
+let conflictAsking = false;
+async function resolveConflict() {
+  if (!conflict || conflictAsking) return;
+  conflictAsking = true;
+  const { id, current } = conflict;
+  const gone = !current;
+  // Lo del otro, en claro si se puede (una cifrada se intenta abrir con la contraseña de esta sesión)
+  const theirsText = async () => {
+    if (!current.encrypted) return current.content;
+    if (!currentPassphrase) throw new Error('cifrada');
+    return decryptContent(current.content, currentPassphrase);
+  };
+  const choice = await Conflict.ask({
+    title: gone ? 'Esta nota se eliminó en otro dispositivo' : 'Esta nota cambió en otro dispositivo',
+    message: gone ? 'Lo que has escrito aquí sigue en el editor. Puedes volver a guardarla o cerrarla (tu texto queda en el historial de versiones).'
+      : 'Se guardó en otro sitio después de que la abrieras. Lo que has escrito aquí sigue en el editor; la versión que no elijas queda en el historial de versiones.',
+    mineLabel: gone ? 'Guardarla otra vez' : 'Quedarme con lo mío',
+    theirsLabel: gone ? 'Cerrarla' : 'Recargar la otra',
+    diff: gone ? null : async () => {
+      let theirs;
+      try { theirs = await theirsText(); } catch {
+        return '<p class="muted">La otra versión está cifrada con una contraseña distinta: no se puede comparar aquí. Elijas lo que elijas, las dos quedan guardadas.</p>';
+      }
+      const meta = [];
+      if ((current.title || '') !== $('noteTitle').value.trim()) meta.push(`título «${escapeHtml(current.title || '')}»`);
+      if ((current.category || '') !== $('noteCategory').value) meta.push(`categoría «${escapeHtml(current.category || '')}»`);
+      if ((current.tags || '') !== $('noteTags').value.split(',').map((t) => t.trim()).filter(Boolean).join(',')) meta.push(`etiquetas «${escapeHtml(current.tags || '')}»`);
+      return (meta.length ? `<p class="tiny conflict-meta">En el otro: ${meta.join(', ')}.</p>` : '')
+        + Conflict.renderDiff(Conflict.lineDiff($('noteContent').value, theirs));
+    },
+    note: noteIsEncrypted ? 'Nota cifrada: tu versión se guarda cifrada también en el historial.' : '',
+  });
+  conflictAsking = false;
+  if (!conflict || conflict.id !== id || $('currentNoteId').value !== id) return;
+  if (choice === 'mine') {
+    noteVersion = gone ? '' : current.version;
+    conflict = null;
+    overwriteNext = !gone;
+    await saveNote(true);
+    if (!conflict && snapshot() === lastSavedSnapshot) toast(gone ? 'Nota guardada de nuevo' : 'Guardada tu versión; la otra queda en el historial');
+  } else if (choice === 'theirs') {
+    await keepMineInHistory(id);
+  } else {
+    showSaveIndicator('conflict');  // pendiente: el indicador lo vuelve a abrir
+  }
+}
+async function keepMineInHistory(id) {
+  const { current } = conflict;
+  let content = $('noteContent').value;
+  try {
+    if (noteIsEncrypted) content = await encryptContent(content, currentPassphrase);
+    await api(`/api/notes/${encodeURIComponent(id)}/versions`, { method: 'POST', body: {
+      title: $('noteTitle').value.trim() || 'Sin título', category: $('noteCategory').value, content, status: activeStatus,
+      tags: $('noteTags').value.split(',').map((t) => t.trim()).filter(Boolean), encrypted: noteIsEncrypted,
+    } });
+  } catch {
+    toast('No se pudo guardar tu versión en el historial: sigue en el editor', { type: 'error' });
+    return;
+  }
+  conflict = null;
+  clearTimeout(autoSaveTimer);
+  autoSaveTimer = null;
+  if (!current) {  // borrada en el otro: se cierra (lo escrito está en el historial)
+    toast('Tu texto queda en el historial de versiones');
+    history.replaceState(null, '', location.pathname);
+    showHome();
+    await loadNotes();
+    return;
+  }
+  await applyServerNote(current);
+  toast('Cargada la otra versión; la tuya está en el historial', { action: { label: 'Ver historial', onClick: openVersions }, duration: 7000 });
+}
+// Pone en el editor la nota tal como está en el servidor (tras un conflicto)
+async function applyServerNote(n) {
+  $('noteTitle').value = n.title || '';
+  requestAnimationFrame(autosizeTitle);
+  $('noteCategory').value = n.category || '';
+  $('noteTags').value = n.tags || '';
+  activeStatus = n.status || activeStatus;
+  noteVersion = n.version;
+  if (n.encrypted) {
+    let plain = null;
+    if (currentPassphrase) { try { plain = await decryptContent(n.content, currentPassphrase); } catch { plain = null; } }
+    noteIsEncrypted = true;
+    if (plain === null) { currentPassphrase = null; $('noteContent').value = ''; updateLockToggleUI(); lastSavedSnapshot = snapshot(); setMode('read'); return; }
+    $('noteContent').value = plain;
+  } else {
+    noteIsEncrypted = false;
+    currentPassphrase = null;
+    $('noteContent').value = n.content || '';
+  }
+  updateLockToggleUI();
+  updateStatusBadge();
+  updateBreadcrumbs();
+  updateCharCount();
+  lastSavedSnapshot = snapshot();
+  showSaveIndicator('saved');
+  if (currentMode === 'read') renderReadMode(); else updatePreview();
+  await loadNotes();
+}
+
+// PATCH de estado o de título/categoría: la versión nueva vale solo si el archivo era el que esta página tenía
+function adoptVersion(r) {
+  if (r?.version && r.previous_version && r.previous_version === noteVersion) noteVersion = r.version;
 }
 
 function scheduleAutoSave() {
@@ -662,17 +841,25 @@ function scheduleAutoSave() {
   autoSaveTimer = setTimeout(() => saveNote(true), 1000);
 }
 function flushAutoSave() {
-  if (autoSaveTimer && snapshot() !== lastSavedSnapshot) saveNote(true);
+  return autoSaveTimer && snapshot() !== lastSavedSnapshot ? saveNote(true) : saveQueue;
 }
 window.addEventListener('beforeunload', (e) => {
+  if (conflict) { e.preventDefault(); return; }
   if (autoSaveTimer && snapshot() !== lastSavedSnapshot) { saveNote(true); e.preventDefault(); }
 });
 
 function showSaveIndicator(state) {
   const el = $('saveIndicator');
   el.className = 'save-indicator ' + state;
+  // Con un conflicto pendiente, el indicador lleva el botón que vuelve a abrir el diálogo
+  if (state === 'conflict') {
+    el.innerHTML = '<button type="button" class="save-conflict-btn" title="Elegir qué versión conservar">'
+      + '<span class="scb-long">Cambió en otro dispositivo</span><span class="scb-short" aria-hidden="true">Conflicto</span></button>';
+    return;
+  }
   el.textContent = { pending: 'Cambios sin guardar', saving: 'Guardando…', saved: 'Guardado', error: 'No se pudo guardar' }[state] || '';
 }
+$('saveIndicator').addEventListener('click', (e) => { if (conflict && e.target.closest('.save-conflict-btn')) resolveConflict(); });
 
 async function deleteCurrentNote() {
   const id = $('currentNoteId').value;
@@ -707,10 +894,14 @@ async function setNoteStatus(status) {
   updateStatusBadge();
   const id = $('currentNoteId').value;
   if (!id) return;
+  if (autoSaveTimer || snapshot() !== lastSavedSnapshot) await saveNote(true);  // lo pendiente, primero
+  if (conflict) return;
+  const pending = snapshot() !== lastSavedSnapshot;
   showSaveIndicator('saving');
-  await api(`/api/notes/${encodeURIComponent(id)}/status`, { method: 'PATCH', body: { status } });
-  lastSavedSnapshot = snapshot();
-  showSaveIndicator('saved');
+  const r = await api(`/api/notes/${encodeURIComponent(id)}/status`, { method: 'PATCH', body: { status } });
+  adoptVersion(r);
+  if (!pending) lastSavedSnapshot = snapshot();
+  showSaveIndicator(pending ? 'pending' : 'saved');
   await loadNotes();
 }
 
@@ -735,6 +926,9 @@ function openMarkMenu(anchor) {
     { label: 'Para resumir', icon: 'list-collapse', onClick: () => markBlock('resumir') },
     { label: 'Para entender mejor', icon: 'circle-help', onClick: () => markBlock('entender') },
     { label: 'Está mal', icon: 'triangle-alert', onClick: () => markBlock('mal') },
+    { label: 'Duda para el profe', icon: 'circle-help', onClick: () => markBlock('duda') },
+    { label: 'Entra en examen', icon: 'flag', onClick: () => markBlock('examen') },
+    { label: 'Importante', icon: 'star', onClick: () => markBlock('importante') },
   ], { align: 'start' });
 }
 
@@ -745,6 +939,7 @@ function openNoteMenu(anchor) {
     { label: 'Copiar enlace a la nota', icon: 'link', onClick: copyNoteLink },
     { label: 'Enlazar tarea o idea…', icon: 'square-check', onClick: linkItemToNote },
     { label: 'Historial de versiones', icon: 'history', onClick: openVersions },
+    { label: 'Proponer flashcards con IA', icon: 'layers', onClick: () => openAiFlashcards() },
     { separator: true },
     { label: 'Eliminar nota', icon: 'trash-2', danger: true, onClick: deleteCurrentNote },
   ]);
@@ -787,6 +982,8 @@ function createNoteDirect(title, category, id = slugify(title)) {
   $('noteTags').value = '';
   $('noteContent').value = '# ' + title + '\n\n';
   lastSavedSnapshot = '';
+  noteVersion = '';  // nueva: si ya existiera (creada en otro dispositivo), 409 en vez de pisarla
+  conflict = null;
   armAutoStatus();
   showNotePane(true);
   updateStatusBadge();
@@ -861,6 +1058,7 @@ function wireTaskCheckboxes(container, raw) {
       box.disabled = true;
       try {
         if (autoSaveTimer || snapshot() !== lastSavedSnapshot) await saveNote(true); // lo pendiente de guardar, primero
+        if (conflict || snapshot() !== lastSavedSnapshot) throw new Error(conflict ? 'Antes elige qué versión de la nota conservar' : 'No se pudo guardar la nota');
         await Items.load();
         const it = Items.state.items.find((i) => i.origin === 'nota' && i.note_id === id && i.note_index === k);
         if (!it) throw new Error('La nota ha cambiado: recárgala');
@@ -920,10 +1118,14 @@ async function refreshFromOtherTab() {
 // Vuelve a leer la nota abierta si no tiene cambios sin guardar (force: tras marcar una casilla aquí)
 async function reloadActiveNote(force = false) {
   const id = activeNoteId;
-  if (!id || noteIsEncrypted || (!force && (autoSaveTimer || snapshot() !== lastSavedSnapshot))) return;
+  const dirty = () => autoSaveTimer || snapshot() !== lastSavedSnapshot;
+  if (!id || noteIsEncrypted || conflict || (!force && dirty())) return;
+  await saveQueue;  // con un guardado en curso, su versión es la buena
   let note;
   try { note = await api(`/api/notes/${encodeURIComponent(id)}`, { quiet: true }); } catch { return; }
-  if (id !== activeNoteId || (note.content || '') === $('noteContent').value) return;
+  if (id !== activeNoteId || conflict || dirty()) return;  // se escribió mientras llegaba: lo decide el próximo guardado
+  noteVersion = note.version ?? noteVersion;
+  if ((note.content || '') === $('noteContent').value) return;
   $('noteContent').value = note.content || '';
   lastSavedSnapshot = snapshot();
   if (currentMode === 'read') renderReadMode(); else updatePreview();
@@ -972,6 +1174,7 @@ async function linkItemToNote() {
   });
   if (!picked) return;
   if (autoSaveTimer || snapshot() !== lastSavedSnapshot) await saveNote(true);
+  if (conflict || snapshot() !== lastSavedSnapshot) { if (!conflict) toast('No se pudo guardar la nota', { type: 'error' }); return; }
   await api(`/api/items/${picked.id}/links`, { method: 'POST', body: { note_id: id } });
   await reloadActiveNote(true);
   await Items.load();
@@ -1016,7 +1219,7 @@ let versionsDialog = null;
 async function openVersions() {
   const id = $('currentNoteId').value;
   if (!id) return;
-  flushAutoSave();
+  await flushAutoSave();
   if (!versionsDialog) {
     versionsDialog = document.createElement('dialog');
     versionsDialog.className = 'modal modal-lg versions-modal';
@@ -1084,6 +1287,7 @@ async function splitSelectionToNewNote() {
   if (!newId || allNotes.some(n => n.id === newId)) { toast('Ya existe una nota con ese título', { type: 'error' }); return; }
   await api(`/api/notes/${newId}`, { method: 'POST', body: {
     title, category: $('noteCategory').value || 'General', content: selectedText, status: 'por-escribir', tags: [], encrypted: false,
+    base_version: '',  // nunca encima de una que ya exista
   } });
   ta.setRangeText(`[[${title}]]`, s, e, 'end');
   ta.focus();
@@ -1104,14 +1308,14 @@ async function quickRecall() {
 }
 
 /* ---------- Anotaciones ---------- */
-const ANNOT_LABELS = { resumir: 'Resumir', entender: 'Entender mejor', mal: 'Está mal' };
+const ANNOT_LABELS = { resumir: 'Resumir', entender: 'Entender mejor', mal: 'Está mal', duda: 'Duda para el profe', examen: 'Entra en examen', importante: 'Importante' };
 async function openAnnotationsModal() {
   $('healthModalTitle').textContent = 'Anotaciones pendientes';
   $('healthContent').innerHTML = skeletonRows(5);
   openModal('healthModal');
   const data = await api('/api/annotations');
   if (!data.annotations.length) {
-    $('healthContent').innerHTML = emptyState({ iconName: 'pin', title: 'Nada pendiente', text: 'Marca bloques al editar con R (resumir), E (entender) o el aviso de error.', compact: true });
+    $('healthContent').innerHTML = emptyState({ iconName: 'pin', title: 'Nada pendiente', text: 'Marca bloques al editar: R (resumir), E (entender), error, duda para el profe, entra en examen o importante.', compact: true });
     return;
   }
   $('healthContent').innerHTML = `<ul class="list">${data.annotations.map(a => `
@@ -1127,12 +1331,12 @@ function renderMarkdownWithWikiLinks(raw) {
   let processed = raw.replace(/```sim[ \t]*\r?\n([\s\S]*?)```/g, (_, code) => { simStore.push(code); return `@@SIM${simStore.length - 1}@@`; });
   processed = processed.replace(/\$\$([\s\S]+?)\$\$/g, (_, expr) => { mathStore.push({ expr, display: true }); return `@@MATH${mathStore.length - 1}@@`; });
   processed = processed.replace(/\$([^\$\n]+?)\$/g, (_, expr) => { mathStore.push({ expr, display: false }); return `@@MATH${mathStore.length - 1}@@`; });
-  processed = processed.replace(/\{\{(resumir|entender|mal):([\s\S]+?)\}\}/g, (_, tag, text) => { annotStore.push({ tag, text: text.trim() }); return `@@ANNOT${annotStore.length - 1}@@`; });
+  processed = processed.replace(/\{\{(resumir|entender|mal|duda|examen|importante):([\s\S]+?)\}\}/g, (_, tag, text) => { annotStore.push({ tag, text: text.trim() }); return `@@ANNOT${annotStore.length - 1}@@`; });
   processed = processed.replace(/\[\[(?:tarea|idea|rutina|item):(\d+)\]\]/g, (_, id) => `@@ITEMLINK@@${id}@@`);
   const placeholder = processed.replace(/\[\[(.+?)\]\]/g, (_, name) => `@@WIKILINK@@${name}@@`);
 
   // El HTML de marked se sanea ANTES de reinsertar nuestros marcadores (todo escapado).
-  let html = sanitizeHtml(marked.parse(placeholder));
+  let html = renderMarkdown(placeholder);
   html = html.replace(/@@WIKILINK@@(.+?)@@/g, (_, name) => {
     const id = slugify(name);
     return `<a href="?note=${encodeURIComponent(id)}" class="wiki-link" data-note-id="${escapeHtml(id)}">${escapeHtml(name)}</a>`;
@@ -1156,16 +1360,10 @@ function renderMarkdownWithWikiLinks(raw) {
   });
   html = html.replace(/@@ANNOT(\d+)@@/g, (_, idx) => {
     const a = annotStore[parseInt(idx, 10)];
-    const inner = sanitizeHtml(marked.parseInline(a.text));
+    const inner = renderMarkdown(a.text, { inline: true });
     return `<mark class="annotation-block" data-tag="${a.tag}"><span class="annot-label">${ANNOT_LABELS[a.tag]}</span>${inner}</mark>`;
   });
   return html;
-}
-
-function sanitizeHtml(html) {
-  // Sin atributos data-*: el contenido de una nota no puede disparar acciones del panel (data-call, data-open…);
-  // los que usa el panel (wikilinks, simulaciones) se añaden después de sanear.
-  return window.DOMPurify ? DOMPurify.sanitize(html, { USE_PROFILES: { html: true }, FORBID_ATTR: ['style'], ALLOW_DATA_ATTR: false }) : escapeHtml(html);
 }
 
 // Delegación: wikilinks, notas en listas y simulaciones sin onclick inline.
@@ -1197,7 +1395,6 @@ function runSimulation(widgetId) {
   const wrapper = $(widgetId);
   if (!wrapper) return;
   const frameWrap = wrapper.querySelector('.sim-frame-wrap');
-  const code = window.__simCodes[widgetId];
   const btn = wrapper.querySelector('[data-sim-run]');
   let iframe = frameWrap.querySelector('iframe');
   if (!iframe) {
@@ -1548,7 +1745,8 @@ function renderManagerTable() {
     updateNoteMetaField(inp.dataset.note, inp.dataset.field, inp.value)));
 }
 async function updateNoteMetaField(noteId, field, value) {
-  await api(`/api/notes/${encodeURIComponent(noteId)}/meta`, { method: 'PATCH', body: { [field]: value } });
+  const r = await api(`/api/notes/${encodeURIComponent(noteId)}/meta`, { method: 'PATCH', body: { [field]: value } });
+  if (noteId === activeNoteId) adoptVersion(r);
   toast('Guardado');
   await loadNotes();
   if (noteId === activeNoteId) {

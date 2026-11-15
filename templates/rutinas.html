@@ -9,6 +9,33 @@
 {% endblock %}
 {% block content %}
 <p class="hoy-sub small muted" id="rtSub" aria-live="polite"></p>
+<section class="panel rp-card rp-quick" id="rtQuick" aria-labelledby="rtQuickH" hidden>
+  <form class="qf" id="rtQuickForm" autocomplete="off" novalidate>
+    <div class="row"><h2 class="rp-title grow" id="rtQuickH">Nueva rutina</h2>
+      <button type="button" class="btn btn-ghost btn-icon btn-sm" data-qf-close aria-label="Cerrar sin crear">{{ icon('x', 'icon-sm') }}</button></div>
+    <label class="qf-label" for="rtqLine">Nombre y cuándo</label>
+    <input id="rtqLine" class="input qf-line" maxlength="300" placeholder="Gimnasio L X V 18:00" aria-describedby="rtqPrev rtqHelp" spellcheck="false">
+    <p class="qf-preview" id="rtqPrev" aria-live="polite" data-empty="Escribe el nombre; los días (L X V, L-V, «los lunes»), la hora y la duración se entienden solos."></p>
+    <label class="qf-label" for="rtqSteps">Pasos, uno por línea <span class="subtle">(opcional)</span></label>
+    <textarea id="rtqSteps" class="textarea" rows="3" maxlength="20000" placeholder="Calentar 10m&#10;Pesas 40m&#10;Estiramientos 10m" aria-describedby="rtqHelp"></textarea>
+    <p class="tiny muted" id="rtqHelp">Cada paso empieza cuando acaba el anterior, desde la hora de la rutina. «18:30 cenar 30m» le pone su hora. Pegar una lista crea todos.</p>
+    <ol class="qf-steps" id="rtqStepsPrev" aria-label="Horario de los pasos"></ol>
+    <details class="qf-more" id="rtqMore">
+      <summary>{{ icon('chevron-right', 'icon-sm') }}Más opciones</summary>
+      <div class="qf-more-body">
+        <div class="span-all" id="rtqDays"></div>
+        <label class="field"><span class="field-label">Hora de la rutina</span><input id="rtqTime" class="input input-sm tabular" inputmode="numeric" maxlength="5" placeholder="18:00" autocomplete="off"></label>
+        <label class="field"><span class="field-label">Paso sin duración (min)</span><input id="rtqDur" type="number" class="input input-sm tabular" min="1" max="600" step="1" placeholder="—"></label>
+        <label class="field"><span class="field-label">Dónde va</span><select id="rtqWhere" class="select"></select></label>
+      </div>
+    </details>
+    <div class="qf-actions">
+      <span class="tiny subtle hide-mobile qf-keys"><kbd>Intro</kbd> crea · <kbd>Ctrl</kbd>+<kbd>Intro</kbd> crea y empieza otra · <kbd>Esc</kbd> cierra</span>
+      <button type="button" class="btn btn-sm" data-qf-close>Cancelar</button>
+      <button type="submit" class="btn btn-primary btn-sm" id="rtqSave">Crear rutina</button>
+    </div>
+  </form>
+</section>
 <div class="rp-page" id="rtPage"><span class="skeleton skeleton-card"></span></div>
 {% endblock %}
 {% block scripts %}<script src="{{ asset('/static/js/rutinas.js') }}"></script>{% endblock %}

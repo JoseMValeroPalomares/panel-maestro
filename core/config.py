@@ -6,6 +6,7 @@ entorno (cargadas desde `.env` en la raíz). Ver `.env.example`.
 Las rutas de datos también son configurables para que los tests puedan
 apuntar a un directorio temporal sin tocar los datos reales.
 """
+
 import os
 from pathlib import Path
 
@@ -14,7 +15,9 @@ from dotenv import load_dotenv
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # override=False: si una variable ya viene del entorno (tests, systemd), manda esa.
-load_dotenv(PROJECT_ROOT / ".env", override=False)
+# PANEL_ENV_FILE: los tests, la demo y la verificación usan otro (el panel escribe en él: «cerrar todas las sesiones»).
+ENV_FILE = Path(os.environ.get("PANEL_ENV_FILE", "").strip() or PROJECT_ROOT / ".env")
+load_dotenv(ENV_FILE, override=False)
 
 
 def _env(name: str, default: str = "") -> str:
@@ -35,6 +38,8 @@ BRAIN_DB = Path(_env("PANEL_BRAIN_DB") or DATA_DIR / "brain.db")
 COMIDAS_DB = Path(_env("PANEL_COMIDAS_DB") or PROJECT_ROOT / "comidas" / "data" / "comidas.db")
 UPLOADS_DIR = Path(_env("PANEL_UPLOADS_DIR") or PROJECT_ROOT / "static" / "uploads")
 BACKUPS_DIR = Path(_env("PANEL_BACKUPS_DIR") or PROJECT_ROOT / "backups")
+# Segunda copia de cada zip en otra unidad o en una carpeta sincronizada (app/backup.py). Vacío = sin espejo
+BACKUP_MIRROR = Path(_env("PANEL_BACKUP_MIRROR")) if _env("PANEL_BACKUP_MIRROR") else None
 LOGS_DIR = Path(_env("PANEL_LOGS_DIR") or PROJECT_ROOT / "logs")
 TRASH_DIR = Path(_env("PANEL_TRASH_DIR") or DATA_DIR / "trash")
 # Lista ordenada de modelos de IA (app/llm_router.py); si no existe se usa la de app/llm_modelos.json
@@ -47,8 +52,14 @@ DOTFILES_BASE = _env("PANEL_DOTFILES_BASE")
 PROJECT_DIR = Path(_env("PANEL_PROJECT_DIR") or PROJECT_ROOT)
 # Última vez que se sincronizó el calendario (estudio/calendar_sync.py). Restaurar una copia lo borra: una instancia con
 # otros datos (tests, demo, verificación) lo guarda con ellos y nunca toca el del panel real
-CALENDAR_STATE = Path(_env("PANEL_CALENDAR_STATE") or (
-    PROJECT_ROOT / "estudio" / "calendar_sync_v2.json" if DATA_DIR == PROJECT_ROOT / "data" else DATA_DIR / "calendar_sync_v2.json"))
+CALENDAR_STATE = Path(
+    _env("PANEL_CALENDAR_STATE")
+    or (
+        PROJECT_ROOT / "estudio" / "calendar_sync_v2.json"
+        if DATA_DIR == PROJECT_ROOT / "data"
+        else DATA_DIR / "calendar_sync_v2.json"
+    )
+)
 
 # ── Autenticación ───────────────────────────────────────────────
 PASSWORD_HASH = _env("PANEL_PASSWORD_HASH")
@@ -57,6 +68,9 @@ API_TOKEN_HASH = _env("PANEL_API_TOKEN_HASH")
 # Token aparte para los scripts del escritorio (captura con rofi, Waybar): así no se toca el de la extensión
 DESKTOP_TOKEN_HASH = _env("PANEL_DESKTOP_TOKEN_HASH")
 SESSION_DAYS = int(_env("PANEL_SESSION_DAYS", "30") or 30)
+# Generación de las sesiones: entra en la clave HMAC de la cookie; subirla («Cerrar todas las sesiones», S-7)
+# invalida todas las cookies firmadas antes. Se guarda en ENV_FILE (no en la BD: restaurar una copia no la baja).
+SESSION_GEN = int(_env("PANEL_SESSION_GEN", "0") or 0)
 # Solo poner a true si se sirve detrás de HTTPS (si no, el navegador no guarda la cookie).
 COOKIE_SECURE = _env_bool("PANEL_COOKIE_SECURE", False)
 AUTH_DISABLED = _env_bool("PANEL_AUTH_DISABLED", False)  # solo para desarrollo local

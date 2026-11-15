@@ -20,15 +20,16 @@ Un modelo sin clave, enfriándose o sin cuota hoy se salta sin llamarlo. Cada pe
 (`cuota` agrupa modelos que comparten límite, como los :free de OpenRouter). El registro guarda modelo, latencia y
 tipo de error; nunca el contenido.
 """
+
 import json
 import os
 import re
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
 from email.utils import parsedate_to_datetime
 from pathlib import Path
-from typing import Callable
 
 import httpx
 
@@ -44,7 +45,9 @@ REGISTRO_MAX = 500
 class LLMError(Exception):
     """Ningún modelo dio una respuesta válida (o no hay ninguno configurado)."""
 
-    def __init__(self, mensaje: str, intentos: list[dict] | None = None, sin_claves: bool = False, cancelado: bool = False):
+    def __init__(
+        self, mensaje: str, intentos: list[dict] | None = None, sin_claves: bool = False, cancelado: bool = False
+    ):
         super().__init__(mensaje)
         self.intentos = intentos or []
         self.sin_claves = sin_claves
@@ -73,6 +76,7 @@ class Resultado:
 
 # ── Configuración ─────────────────────────────────────────────────────────────
 
+
 def cargar_config() -> dict:
     ruta = config.LLM_MODELS_FILE if config.LLM_MODELS_FILE.is_file() else DEFAULT_FILE
     with open(ruta, encoding="utf-8") as f:
@@ -83,12 +87,19 @@ def cargar_config() -> dict:
             continue
         if m.get("activo", True) is False:
             continue
-        if m.get("base_url_env") and os.environ.get(m["base_url_env"], "").strip():  # p. ej. OLLAMA_URL=http://192.168.1.50:11434
+        if (
+            m.get("base_url_env") and os.environ.get(m["base_url_env"], "").strip()
+        ):  # p. ej. OLLAMA_URL=http://192.168.1.50:11434
             u = os.environ[m["base_url_env"]].strip().rstrip("/")
             m = {**m, "base_url": u if u.endswith("/v1") else u + "/v1"}
         modelos.append(m)
-    return {"max_intentos_total": int(cfg.get("max_intentos_total", 8)), "reintentos_por_modelo": int(cfg.get("reintentos_por_modelo", 2)),
-            "enfriamiento_429_s": float(cfg.get("enfriamiento_429_s", 600)), "modelos": modelos, "archivo": str(ruta)}
+    return {
+        "max_intentos_total": int(cfg.get("max_intentos_total", 8)),
+        "reintentos_por_modelo": int(cfg.get("reintentos_por_modelo", 2)),
+        "enfriamiento_429_s": float(cfg.get("enfriamiento_429_s", 600)),
+        "modelos": modelos,
+        "archivo": str(ruta),
+    }
 
 
 def _clave(m: dict) -> str | None:
@@ -106,36 +117,66 @@ def _cuota(m: dict) -> str:
 
 # ── Estado persistente (uso, enfriamiento, registro) ──────────────────────────
 
+
 def _uso_hoy(conn, m: dict) -> int:
-    r = conn.execute("SELECT peticiones FROM llm_uso WHERE cuota=? AND dia=?", (_cuota(m), date.today().isoformat())).fetchone()
+    r = conn.execute(
+        "SELECT peticiones FROM llm_uso WHERE cuota=? AND dia=?", (_cuota(m), date.today().isoformat())
+    ).fetchone()
     return r["peticiones"] if r else 0
 
 
 def _contar(m: dict) -> None:
     with get_db() as conn:
-        conn.execute("""INSERT INTO llm_uso (cuota, dia, peticiones) VALUES (?, ?, 1)
-                        ON CONFLICT(cuota, dia) DO UPDATE SET peticiones = peticiones + 1""", (_cuota(m), date.today().isoformat()))
+        conn.execute(
+            """INSERT INTO llm_uso (cuota, dia, peticiones) VALUES (?, ?, 1)
+                        ON CONFLICT(cuota, dia) DO UPDATE SET peticiones = peticiones + 1""",
+            (_cuota(m), date.today().isoformat()),
+        )
 
 
 def _enfriar(m: dict, segundos: float, motivo: str, ahora: float) -> None:
     with get_db() as conn:
-        conn.execute("INSERT INTO llm_enfriamiento (modelo, hasta, motivo) VALUES (?, ?, ?) ON CONFLICT(modelo) DO UPDATE SET hasta=excluded.hasta, motivo=excluded.motivo",
-                     (m["id"], ahora + segundos, motivo))
+        conn.execute(
+            "INSERT INTO llm_enfriamiento (modelo, hasta, motivo) VALUES (?, ?, ?) ON CONFLICT(modelo) DO UPDATE SET hasta=excluded.hasta, motivo=excluded.motivo",
+            (m["id"], ahora + segundos, motivo),
+        )
 
 
-def _registrar(m: dict, ok: bool, latencia_ms: int | None, error: str | None, ahora: float, tin: int = 0, tout: int = 0,
-               coste: float = 0.0, uso: str = "rendimiento") -> None:
+def _registrar(
+    m: dict,
+    ok: bool,
+    latencia_ms: int | None,
+    error: str | None,
+    ahora: float,
+    tin: int = 0,
+    tout: int = 0,
+    coste: float = 0.0,
+    uso: str = "rendimiento",
+) -> None:
     """Solo modelo, latencia, tokens aproximados, coste y tipo de error: nunca el contenido."""
-    log.info("LLM %s · %s · %s ms%s", m["id"], "ok" if ok else "fallo", latencia_ms if latencia_ms is not None else "-", f" · {error}" if error else "")
+    log.info(
+        "LLM %s · %s · %s ms%s",
+        m["id"],
+        "ok" if ok else "fallo",
+        latencia_ms if latencia_ms is not None else "-",
+        f" · {error}" if error else "",
+    )
     with get_db() as conn:
-        conn.execute("INSERT INTO llm_registro (at, modelo, ok, latencia_ms, error, tokens_in, tokens_out, coste, uso) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                     (ahora, m["id"], int(ok), latencia_ms, error, tin, tout, coste, uso))
+        conn.execute(
+            "INSERT INTO llm_registro (at, modelo, ok, latencia_ms, error, tokens_in, tokens_out, coste, uso) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (ahora, m["id"], int(ok), latencia_ms, error, tin, tout, coste, uso),
+        )
         conn.execute("DELETE FROM llm_registro WHERE id <= (SELECT MAX(id) FROM llm_registro) - ?", (REGISTRO_MAX,))
 
 
 # ── Política (Ajustes) ────────────────────────────────────────────────────────
 
-POLITICA_DEFECTO = {"permitir_entrenan": False, "permitir_pago": False, "presupuesto_mes": 0.0, "categorias_sensibles": []}
+POLITICA_DEFECTO = {
+    "permitir_entrenan": False,
+    "permitir_pago": False,
+    "presupuesto_mes": 0.0,
+    "categorias_sensibles": [],
+}
 
 
 def leer_politica() -> dict:
@@ -155,8 +196,10 @@ def guardar_politica(cambios: dict) -> dict:
     with get_db() as conn:
         for k, v in cambios.items():
             if k in POLITICA_DEFECTO:
-                conn.execute("INSERT INTO ia_ajustes (clave, valor) VALUES (?, ?) ON CONFLICT(clave) DO UPDATE SET valor=excluded.valor",
-                             (k, json.dumps(v)))
+                conn.execute(
+                    "INSERT INTO ia_ajustes (clave, valor) VALUES (?, ?) ON CONFLICT(clave) DO UPDATE SET valor=excluded.valor",
+                    (k, json.dumps(v)),
+                )
     return leer_politica()
 
 
@@ -164,11 +207,14 @@ def gasto_mes(ahora: float | None = None) -> float:
     d = date.fromtimestamp(ahora or time.time()).replace(day=1)
     desde = time.mktime(d.timetuple())
     with get_db() as conn:
-        r = conn.execute("SELECT COALESCE(SUM(coste), 0) AS c FROM llm_registro WHERE at >= ? AND ok = 1", (desde,)).fetchone()
+        r = conn.execute(
+            "SELECT COALESCE(SUM(coste), 0) AS c FROM llm_registro WHERE at >= ? AND ok = 1", (desde,)
+        ).fetchone()
     return float(r["c"])
 
 
 # ── Catálogo de modelos (descubrimiento) ──────────────────────────────────────
+
 
 def _catalogo(url: str) -> list[str]:
     with get_db() as conn:
@@ -217,10 +263,19 @@ def descubrir(transport: httpx.BaseTransport | None = None, solo_si_antiguo_s: f
                     res[url] = f"{r.status_code}"
                     continue
                 datos = r.json()
-                ids = sorted({(x.get("id") or x.get("name") or "").removeprefix("models/") for x in (datos.get("data") or datos.get("models") or []) if isinstance(x, dict)} - {""})
+                ids = sorted(
+                    {
+                        (x.get("id") or x.get("name") or "").removeprefix("models/")
+                        for x in (datos.get("data") or datos.get("models") or [])
+                        if isinstance(x, dict)
+                    }
+                    - {""}
+                )
                 with get_db() as conn:
-                    conn.execute("INSERT INTO ia_catalogo (url, modelos, at) VALUES (?, ?, ?) ON CONFLICT(url) DO UPDATE SET modelos=excluded.modelos, at=excluded.at",
-                                 (url, json.dumps(ids), time.time()))
+                    conn.execute(
+                        "INSERT INTO ia_catalogo (url, modelos, at) VALUES (?, ?, ?) ON CONFLICT(url) DO UPDATE SET modelos=excluded.modelos, at=excluded.at",
+                        (url, json.dumps(ids), time.time()),
+                    )
                 res[url] = len(ids)
             except (httpx.HTTPError, ValueError) as e:
                 res[url] = type(e).__name__
@@ -236,27 +291,54 @@ def estado(ahora: float | None = None) -> dict:
     with get_db() as conn:
         for m in cfg["modelos"]:
             enf = conn.execute("SELECT hasta, motivo FROM llm_enfriamiento WHERE modelo=?", (m["id"],)).fetchone()
-            ult = conn.execute("SELECT at, ok, latencia_ms, error FROM llm_registro WHERE modelo=? ORDER BY id DESC LIMIT 1", (m["id"],)).fetchone()
-            err = conn.execute("SELECT at, error FROM llm_registro WHERE modelo=? AND ok=0 ORDER BY id DESC LIMIT 1", (m["id"],)).fetchone()
-            tok = conn.execute("SELECT COALESCE(SUM(tokens_in + tokens_out), 0) AS t, COALESCE(SUM(coste), 0) AS c FROM llm_registro WHERE modelo=? AND at>=? AND ok=1",
-                               (m["id"], mes)).fetchone()
-            out.append({"id": m["id"], "proveedor": m.get("proveedor", ""), "modelo": m["modelo"], "modelo_efectivo": modelo_efectivo(m),
-                        "clave_env": m.get("clave_env"), "clave": _clave(m) is not None, "local": bool(m.get("local")),
-                        "entrena": bool(m.get("entrena")), "pago": bool(m.get("pago")),
-                        "uso_hoy": _uso_hoy(conn, m), "limite_dia": m.get("limite_dia") or None,
-                        "tokens_mes": tok["t"], "coste_mes": round(tok["c"], 4),
-                        "enfriado_hasta": enf["hasta"] if enf and enf["hasta"] > ahora else None, "motivo": enf["motivo"] if enf and enf["hasta"] > ahora else None,
-                        "ultima": dict(ult) if ult else None, "ultimo_error": dict(err) if err else None})
+            ult = conn.execute(
+                "SELECT at, ok, latencia_ms, error FROM llm_registro WHERE modelo=? ORDER BY id DESC LIMIT 1",
+                (m["id"],),
+            ).fetchone()
+            err = conn.execute(
+                "SELECT at, error FROM llm_registro WHERE modelo=? AND ok=0 ORDER BY id DESC LIMIT 1", (m["id"],)
+            ).fetchone()
+            tok = conn.execute(
+                "SELECT COALESCE(SUM(tokens_in + tokens_out), 0) AS t, COALESCE(SUM(coste), 0) AS c FROM llm_registro WHERE modelo=? AND at>=? AND ok=1",
+                (m["id"], mes),
+            ).fetchone()
+            out.append(
+                {
+                    "id": m["id"],
+                    "proveedor": m.get("proveedor", ""),
+                    "modelo": m["modelo"],
+                    "modelo_efectivo": modelo_efectivo(m),
+                    "clave_env": m.get("clave_env"),
+                    "clave": _clave(m) is not None,
+                    "local": bool(m.get("local")),
+                    "entrena": bool(m.get("entrena")),
+                    "pago": bool(m.get("pago")),
+                    "uso_hoy": _uso_hoy(conn, m),
+                    "limite_dia": m.get("limite_dia") or None,
+                    "tokens_mes": tok["t"],
+                    "coste_mes": round(tok["c"], 4),
+                    "enfriado_hasta": enf["hasta"] if enf and enf["hasta"] > ahora else None,
+                    "motivo": enf["motivo"] if enf and enf["hasta"] > ahora else None,
+                    "ultima": dict(ult) if ult else None,
+                    "ultimo_error": dict(err) if err else None,
+                }
+            )
     archivo = Path(cfg["archivo"])
     try:  # relativa al proyecto si está dentro: más corta y sin rutas de la máquina
         archivo = archivo.resolve().relative_to(config.PROJECT_ROOT)
     except ValueError:
         pass
-    return {"archivo": str(archivo), "modelos": out, "configurados": sum(1 for x in out if x["clave"]),
-            "politica": pol, "gasto_mes": round(gasto_mes(ahora), 4)}
+    return {
+        "archivo": str(archivo),
+        "modelos": out,
+        "configurados": sum(1 for x in out if x["clave"]),
+        "politica": pol,
+        "gasto_mes": round(gasto_mes(ahora), 4),
+    }
 
 
 # ── Llamada ───────────────────────────────────────────────────────────────────
+
 
 def _retry_after(resp: httpx.Response) -> float | None:
     v = resp.headers.get("retry-after")
@@ -284,7 +366,7 @@ def extraer_json(texto: str) -> dict:
         if i < 0 or j <= i:
             raise _Fallo("JSON no válido")
         try:
-            v = json.loads(t[i:j + 1])
+            v = json.loads(t[i : j + 1])
         except ValueError:
             raise _Fallo("JSON no válido")
     if not isinstance(v, dict):
@@ -297,8 +379,15 @@ def estimar_tokens(texto: str) -> int:
     return max(1, int(len(texto) / 3.5))
 
 
-def _llamar(cliente: httpx.Client, m: dict, clave: str, mensajes: list[dict], temperatura: float, formato: str = "json",
-            max_salida: int | None = None) -> tuple[str, dict, str | None]:
+def _llamar(
+    cliente: httpx.Client,
+    m: dict,
+    clave: str,
+    mensajes: list[dict],
+    temperatura: float,
+    formato: str = "json",
+    max_salida: int | None = None,
+) -> tuple[str, dict, str | None]:
     body = {"model": modelo_efectivo(m), "messages": mensajes, "temperature": temperatura, **(m.get("extra") or {})}
     if m.get("json_mode") and formato == "json":
         body["response_format"] = {"type": "json_object"}
@@ -308,7 +397,12 @@ def _llamar(cliente: httpx.Client, m: dict, clave: str, mensajes: list[dict], te
     if clave:
         headers["Authorization"] = f"Bearer {clave}"
     try:
-        r = cliente.post(m["base_url"].rstrip("/") + "/chat/completions", json=body, headers=headers, timeout=float(m.get("timeout_s", 60)))
+        r = cliente.post(
+            m["base_url"].rstrip("/") + "/chat/completions",
+            json=body,
+            headers=headers,
+            timeout=float(m.get("timeout_s", 60)),
+        )
     except httpx.TimeoutException:
         raise _Fallo("timeout", reintentable=True)
     except httpx.TransportError:
@@ -327,7 +421,9 @@ def _llamar(cliente: httpx.Client, m: dict, clave: str, mensajes: list[dict], te
         raise _Fallo("respuesta sin formato OpenAI")
 
 
-def _motivo_omitido(m: dict, pol: dict, solo_privados: bool, tin: int, tout: int, gastado: float) -> tuple[str | None, float]:
+def _motivo_omitido(
+    m: dict, pol: dict, solo_privados: bool, tin: int, tout: int, gastado: float
+) -> tuple[str | None, float]:
     """Por qué un modelo no se puede usar con esta política (o None) y su coste estimado."""
     if m.get("entrena") and not pol["permitir_entrenan"]:
         return "puede entrenar con tus datos (desactivado en Ajustes)", 0.0
@@ -346,11 +442,23 @@ def _motivo_omitido(m: dict, pol: dict, solo_privados: bool, tin: int, tout: int
     return None, 0.0
 
 
-def completar(mensajes: list[dict], validar: Callable[[dict], dict] | None = None, *, temperatura: float = 0.3,
-              transport: httpx.BaseTransport | None = None, dormir: Callable[[float], None] = time.sleep,
-              reloj: Callable[[], float] = time.time, formato: str = "json", max_salida: int | None = None,
-              solo_privados: bool = False, politica: dict | None = None, cancelado: Callable[[], bool] | None = None,
-              uso: str = "rendimiento", excluir: set[str] | None = None, solo: str | None = None) -> Resultado:
+def completar(
+    mensajes: list[dict],
+    validar: Callable[[dict], dict] | None = None,
+    *,
+    temperatura: float = 0.3,
+    transport: httpx.BaseTransport | None = None,
+    dormir: Callable[[float], None] = time.sleep,
+    reloj: Callable[[], float] = time.time,
+    formato: str = "json",
+    max_salida: int | None = None,
+    solo_privados: bool = False,
+    politica: dict | None = None,
+    cancelado: Callable[[], bool] | None = None,
+    uso: str = "rendimiento",
+    excluir: set[str] | None = None,
+    solo: str | None = None,
+) -> Resultado:
     """Prueba los modelos en orden. `validar(datos)` devuelve los datos limpios o lanza ValueError (→ siguiente modelo).
     `formato="texto"`: datos = {"texto": respuesta}. `excluir`: ids ya descartados (p. ej. tras un reintento estricto)."""
     cfg = cargar_config()
@@ -360,8 +468,11 @@ def completar(mensajes: list[dict], validar: Callable[[dict], dict] | None = Non
     modelos = [m for m in cfg["modelos"] if (solo is None or m["id"] == solo)]
     con_clave = [m for m in modelos if _clave(m) is not None]
     if not con_clave:
-        raise LLMError("No hay ningún modelo de IA con clave: añade OPENROUTER_API_KEY, GROQ_API_KEY, GEMINI_API_KEY, "
-                       "MISTRAL_API_KEY o GITHUB_MODELS_TOKEN a .env (o activa un modelo local con Ollama).", sin_claves=True)
+        raise LLMError(
+            "No hay ningún modelo de IA con clave: añade OPENROUTER_API_KEY, GROQ_API_KEY, GEMINI_API_KEY, "
+            "MISTRAL_API_KEY o GITHUB_MODELS_TOKEN a .env (o activa un modelo local con Ollama).",
+            sin_claves=True,
+        )
     tin = estimar_tokens(" ".join(x.get("content", "") for x in mensajes))
     tout = max_salida or 1500
     gastado = gasto_mes(reloj())
@@ -389,7 +500,12 @@ def completar(mensajes: list[dict], validar: Callable[[dict], dict] | None = Non
                 continue
             cat = _catalogo(m["base_url"])
             if cat and modelo_efectivo(m) not in cat:  # los gratuitos rotan: no se llama a un modelo que ya no existe
-                intentos.append({"modelo": m["id"], "error": "el modelo ya no existe en el proveedor (se elige solo al actualizar el catálogo)"})
+                intentos.append(
+                    {
+                        "modelo": m["id"],
+                        "error": "el modelo ya no existe en el proveedor (se elige solo al actualizar el catálogo)",
+                    }
+                )
                 continue
             for n in range(max(1, cfg["reintentos_por_modelo"])):
                 if total >= cfg["max_intentos_total"]:
@@ -419,19 +535,27 @@ def completar(mensajes: list[dict], validar: Callable[[dict], dict] | None = Non
                         _enfriar(m, f.retry_after or cfg["enfriamiento_429_s"], "429", reloj())
                         break
                     if f.reintentable and n + 1 < cfg["reintentos_por_modelo"]:
-                        dormir(min(30.0, 2.0 ** n))  # 1 s, 2 s, 4 s…
+                        dormir(min(30.0, 2.0**n))  # 1 s, 2 s, 4 s…
                         continue
                     break
                 ms = int((reloj() - t0) * 1000)
                 ti = int(u.get("prompt_tokens") or tin)
                 to = int(u.get("completion_tokens") or estimar_tokens(texto))
-                coste = (ti * float(m.get("precio_in_1m", 0)) + to * float(m.get("precio_out_1m", 0))) / 1e6 if m.get("pago") else 0.0
+                coste = (
+                    (ti * float(m.get("precio_in_1m", 0)) + to * float(m.get("precio_out_1m", 0))) / 1e6
+                    if m.get("pago")
+                    else 0.0
+                )
                 _registrar(m, True, ms, None, reloj(), ti, to, coste, uso)
                 aviso = None
                 if m.get("pago") and pol["presupuesto_mes"] and gastado + coste >= 0.8 * pol["presupuesto_mes"]:
                     aviso = f"Llevas {gastado + coste:.2f} $ de {pol['presupuesto_mes']:.2f} $ del presupuesto mensual de IA."
-                return Resultado(datos, m["id"], m.get("proveedor", ""), modelo_efectivo(m), ms, intentos, ti, to, coste, aviso)
-    raise LLMError("Ningún modelo de IA dio una respuesta válida. Lo demás sigue funcionando; prueba más tarde.", intentos)
+                return Resultado(
+                    datos, m["id"], m.get("proveedor", ""), modelo_efectivo(m), ms, intentos, ti, to, coste, aviso
+                )
+    raise LLMError(
+        "Ningún modelo de IA dio una respuesta válida. Lo demás sigue funcionando; prueba más tarde.", intentos
+    )
 
 
 def probar(modelo_id: str, transport: httpx.BaseTransport | None = None) -> dict:
@@ -461,5 +585,7 @@ def cadena(politica: dict | None = None, solo_privados: bool = False, tin: int =
         if _clave(m) is None:
             continue
         motivo, _ = _motivo_omitido(m, pol, solo_privados, tin, tout, gastado)
-        out.append({"id": m["id"], "proveedor": m.get("proveedor", ""), "modelo": modelo_efectivo(m), "omitido": motivo})
+        out.append(
+            {"id": m["id"], "proveedor": m.get("proveedor", ""), "modelo": modelo_efectivo(m), "omitido": motivo}
+        )
     return out

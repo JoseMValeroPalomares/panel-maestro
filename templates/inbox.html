@@ -10,6 +10,7 @@
 <div class="inbox-layout" id="inboxLayout">
   <aside class="inbox-sidebar" id="inboxSidebar" aria-label="Tareas e ideas">
     <div class="sheet-grabber show-mobile" aria-hidden="true"></div>
+    <div class="ctx-bar" data-ctx-switch data-ctx-compact></div>
     <section class="capture-panel" aria-label="Nueva captura">{{ capture_form('inboxCapture', rows=2) }}</section>
 
     <div class="segmented sidebar-panes" role="tablist" aria-label="Qué ver en el panel">
@@ -49,7 +50,7 @@
         <div class="col-body" id="secPlantilla">
           <p class="tiny subtle palette-hint">Arrastra una forma al tablero o haz clic para añadirla en el centro.</p>
           <div id="shapePalette" class="shape-palette" aria-label="Formas"></div>
-          <div class="tpl-head"><h3>Mis plantillas</h3><button type="button" class="btn btn-ghost btn-sm" id="templateSave">{{ icon('save', 'icon-sm') }}Guardar selección</button></div>
+          <div class="tpl-head"><h3>Plantillas</h3><button type="button" class="btn btn-ghost btn-sm" id="templateSave">{{ icon('save', 'icon-sm') }}Guardar selección</button></div>
           <div id="templateList" class="template-list" aria-label="Plantillas"></div>
           <div class="tpl-head"><h3>Rutinas</h3></div>
           <div class="tpl-routine-actions">
@@ -119,6 +120,7 @@
 <script src="{{ asset('/static/js/item-list.js') }}"></script><script src="{{ asset('/static/js/item-copy.js') }}"></script>
 <script src="{{ asset('/static/js/calendar.js') }}"></script>
 <script src="{{ asset('/static/js/inbox.js') }}"></script>
+<script src="{{ asset('/static/js/conflict.js') }}"></script>
 <script src="{{ asset('/static/js/board.js') }}"></script>
 <script src="{{ asset('/static/js/inbox-layout.js') }}"></script>
 {% endblock %}

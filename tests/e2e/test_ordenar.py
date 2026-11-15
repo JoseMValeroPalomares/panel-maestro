@@ -1,4 +1,5 @@
 """Ronda 2 · fase 2: la misma experiencia de ordenar en el Baúl y en Notas (persistente)."""
+
 from tests.e2e.helpers import mouse_drag
 
 ROWS = "ul.web-list[data-cat='E2E orden'] > .web-row"
@@ -11,7 +12,10 @@ def _ids(page, sel, attr="id"):
 def test_ordenar_baul_y_cambiar_categoria(page, server, api):
     # .invalid nunca resuelve: el scraper no sale a internet
     for n in "abc":
-        assert api.post("/api/resources", json={"url": f"https://orden-{n}.invalid/", "category": "E2E orden"}).status_code == 200
+        assert (
+            api.post("/api/resources", json={"url": f"https://orden-{n}.invalid/", "category": "E2E orden"}).status_code
+            == 200
+        )
     api.post("/api/resources", json={"url": "https://otra.invalid/", "category": "E2E otra"})
     page.goto(server + "/vault")
     page.wait_for_load_state("networkidle")

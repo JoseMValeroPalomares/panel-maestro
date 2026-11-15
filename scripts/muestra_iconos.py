@@ -7,6 +7,7 @@ No toca la aplicación: es para decidir antes de aplicar.
 
     python -m scripts.muestra_iconos
 """
+
 import html
 import re
 from pathlib import Path
@@ -31,24 +32,62 @@ def _lucide(name: str) -> str:
 # ---------------------------------------------------------------- propuesta
 # Cambios de icono: (dónde, icono actual o glifo, icono propuesto, por qué)
 CAMBIOS = [
-    ("Navegación · Repaso", "calendar-days", "layers",
-     "Era casi igual que Calendario. «layers» ya es el icono de Flashcards en Notas: mismo concepto, mismo icono."),
-    ("Navegación · Revisión", "history", "clipboard-check",
-     "«history» también se usa para «Seguir escribiendo» y el registro de cambios. Revisar la semana = repasar lo hecho."),
-    ("Baúl · Para más tarde", "star", "bookmark-plus",
-     "La estrella significa «favorito» en Comidas. Guardar para después es un marcador (activo: bookmark-check)."),
-    ("Lista · Añadir un paso", "circle-plus", "list-plus",
-     "El círculo con + parecía «nueva tarea». «list-plus» dice «añadir a esta lista»."),
-    ("Comidas · No usar este día", "eye-off", "calendar-off",
-     "No es ocultar: es quitar la franja de ese día."),
-    ("Editor · Marcar para resumir", "R", "list-collapse", "Una letra no es un icono; «comprimir» se entiende sin leer."),
-    ("Editor · Marcar para entender", "E", "circle-help", "La duda se reconoce al instante y no choca con la tecla E (editar)."),
-    ("Menús · Opción elegida", "✓", "check", "El glifo de texto cambia de grosor según la fuente; el icono es el del resto."),
+    (
+        "Navegación · Repaso",
+        "calendar-days",
+        "layers",
+        "Era casi igual que Calendario. «layers» ya es el icono de Flashcards en Notas: mismo concepto, mismo icono.",
+    ),
+    (
+        "Navegación · Revisión",
+        "history",
+        "clipboard-check",
+        "«history» también se usa para «Seguir escribiendo» y el registro de cambios. Revisar la semana = repasar lo hecho.",
+    ),
+    (
+        "Baúl · Para más tarde",
+        "star",
+        "bookmark-plus",
+        "La estrella significa «favorito» en Comidas. Guardar para después es un marcador (activo: bookmark-check).",
+    ),
+    (
+        "Lista · Añadir un paso",
+        "circle-plus",
+        "list-plus",
+        "El círculo con + parecía «nueva tarea». «list-plus» dice «añadir a esta lista».",
+    ),
+    ("Comidas · No usar este día", "eye-off", "calendar-off", "No es ocultar: es quitar la franja de ese día."),
+    (
+        "Editor · Marcar para resumir",
+        "R",
+        "list-collapse",
+        "Una letra no es un icono; «comprimir» se entiende sin leer.",
+    ),
+    (
+        "Editor · Marcar para entender",
+        "E",
+        "circle-help",
+        "La duda se reconoce al instante y no choca con la tecla E (editar).",
+    ),
+    (
+        "Menús · Opción elegida",
+        "✓",
+        "check",
+        "El glifo de texto cambia de grosor según la fuente; el icono es el del resto.",
+    ),
     ("Comidas · Favoritos", "★", "star", "Mismo motivo: icono de la familia en lugar de un carácter."),
-    ("Hoy · Paleta de comandos", "command", "search",
-     "El botón decía «Ctrl K» (el atajo). Se llama «Buscar» y el atajo pasa al tooltip."),
-    ("Marca y app", "brain", "panel",
-     "Icono propio: tres azulejos (tus secciones) y un nodo enlazado (tus ideas conectadas). El cerebro genérico de Lucide no distingue la app."),
+    (
+        "Hoy · Paleta de comandos",
+        "command",
+        "search",
+        "El botón decía «Ctrl K» (el atajo). Se llama «Buscar» y el atajo pasa al tooltip.",
+    ),
+    (
+        "Marca y app",
+        "brain",
+        "panel",
+        "Icono propio: tres azulejos (tus secciones) y un nodo enlazado (tus ideas conectadas). El cerebro genérico de Lucide no distingue la app.",
+    ),
 ]
 NUEVOS = sorted({c[2] for c in CAMBIOS if c[2] != "panel"} | {"bookmark-check"})
 
@@ -56,25 +95,58 @@ NUEVOS = sorted({c[2] for c in CAMBIOS if c[2] != "panel"} | {"bookmark-check"})
 # (Vida se reordena: Comidas, Estudio, Economía, Rendimiento). Opción B: un color por grupo.
 # Valores (Mocha, Claro).
 OPCION_A = {
-    "hoy": ("#f9e2af", "#946200"), "calendario": ("#89b4fa", "#0071e3"), "rutinas": ("#f5c2e7", "#c2185b"),
-    "tareas": ("#94e2d5", "#0e7c86"), "inbox": ("#fab387", "#d0480f"), "revision": ("#f5e0dc", "#8e5a4f"),
-    "notas": ("#b4befe", "#5856d6"), "grafo": ("#74c7ec", "#0a6e91"), "baul": ("#f2cdcd", "#a83f6b"),
-    "repaso": ("#cba6f7", "#8944ab"), "buscar": ("#bac2de", "#55555c"),
-    "comidas": ("#a6e3a1", "#248a3d"), "estudio": ("#f38ba8", "#d70015"), "economia": ("#89dceb", "#00808a"),
+    "hoy": ("#f9e2af", "#946200"),
+    "calendario": ("#89b4fa", "#0071e3"),
+    "rutinas": ("#f5c2e7", "#c2185b"),
+    "tareas": ("#94e2d5", "#0e7c86"),
+    "inbox": ("#fab387", "#d0480f"),
+    "revision": ("#f5e0dc", "#8e5a4f"),
+    "notas": ("#b4befe", "#5856d6"),
+    "grafo": ("#74c7ec", "#0a6e91"),
+    "baul": ("#f2cdcd", "#a83f6b"),
+    "repaso": ("#cba6f7", "#8944ab"),
+    "buscar": ("#bac2de", "#55555c"),
+    "comidas": ("#a6e3a1", "#248a3d"),
+    "estudio": ("#f38ba8", "#d70015"),
+    "economia": ("#89dceb", "#00808a"),
     "rendimiento": ("#eba0ac", "#9c3348"),
-    "gestion": ("#9399b2", "#5f6368"), "backups": ("#7f849c", "#48484c"), "papelera": ("#6c7086", "#3a3a3c"),
+    "gestion": ("#9399b2", "#5f6368"),
+    "backups": ("#7f849c", "#48484c"),
+    "papelera": ("#6c7086", "#3a3a3c"),
 }
-OPCION_B_GRUPO = {"planificar": ("#fab387", "#d0480f"), "conocimiento": ("#b4befe", "#5856d6"),
-                  "vida": ("#a6e3a1", "#248a3d"), "sistema": ("#9399b2", "#5f6368")}
+OPCION_B_GRUPO = {
+    "planificar": ("#fab387", "#d0480f"),
+    "conocimiento": ("#b4befe", "#5856d6"),
+    "vida": ("#a6e3a1", "#248a3d"),
+    "sistema": ("#9399b2", "#5f6368"),
+}
 ICONO_NUEVO = {"repaso": "layers", "revision": "clipboard-check"}
 ORDEN_VIDA_A = ["comidas", "estudio", "economia", "rendimiento"]
 
 ESTADOS = [
     ("vacio", "Nada por aquí", "Lo que captures con C aparece en esta lista.", "Capturar", "accent"),
     ("hecho", "Todo hecho por hoy", "No queda nada pendiente. Lo siguiente es mañana a las 08:00.", "", "success"),
-    ("sin-resultados", "Nada coincide con «pilas»", "Prueba con otra palabra o quita el filtro de estado.", "Quitar filtros", "accent"),
-    ("error", "No se pudo cargar la lista", "El panel no ha respondido. Tus datos están guardados.", "Reintentar", "danger"),
-    ("sin-conexion", "Sin conexión con el panel", "Ves lo último que se guardó. Se actualizará al volver a la red de casa.", "Reintentar", "warning"),
+    (
+        "sin-resultados",
+        "Nada coincide con «pilas»",
+        "Prueba con otra palabra o quita el filtro de estado.",
+        "Quitar filtros",
+        "accent",
+    ),
+    (
+        "error",
+        "No se pudo cargar la lista",
+        "El panel no ha respondido. Tus datos están guardados.",
+        "Reintentar",
+        "danger",
+    ),
+    (
+        "sin-conexion",
+        "Sin conexión con el panel",
+        "Ves lo último que se guardó. Se actualizará al volver a la red de casa.",
+        "Reintentar",
+        "warning",
+    ),
 ]
 
 
@@ -91,10 +163,14 @@ def build() -> str:
             continue
         symbols.append(f'<symbol id="i-{f.stem}" viewBox="0 0 24 24">{_inner(f.read_text(encoding="utf-8"))}</symbol>')
     for f in sorted((ROOT / "assets" / "ilustraciones").glob("*.svg")):
-        symbols.append(f'<symbol id="ill-{f.stem}" viewBox="0 0 120 96"><g fill="none" stroke="currentColor" stroke-width="2" '
-                       f'stroke-linecap="round" stroke-linejoin="round">{_inner(f.read_text(encoding="utf-8"))}</g></symbol>')
-    sprite = ('<svg xmlns="http://www.w3.org/2000/svg" style="display:none" fill="none" stroke="currentColor" stroke-width="1.75" '
-              'stroke-linecap="round" stroke-linejoin="round">' + "".join(symbols) + "</svg>")
+        symbols.append(
+            f'<symbol id="ill-{f.stem}" viewBox="0 0 120 96"><g fill="none" stroke="currentColor" stroke-width="2" '
+            f'stroke-linecap="round" stroke-linejoin="round">{_inner(f.read_text(encoding="utf-8"))}</g></symbol>'
+        )
+    sprite = (
+        '<svg xmlns="http://www.w3.org/2000/svg" style="display:none" fill="none" stroke="currentColor" stroke-width="1.75" '
+        'stroke-linecap="round" stroke-linejoin="round">' + "".join(symbols) + "</svg>"
+    )
 
     themes = (ROOT / "static" / "css" / "themes.css").read_text(encoding="utf-8")
     themes = re.sub(r':root\[data-theme="(\w+)"\]', r".tema-\1", themes)
@@ -103,7 +179,7 @@ def build() -> str:
     # usen los colores de su tema y no los de :root.
     root_block = re.search(r"^:root \{[\s\S]*?^\}", ds, re.M)
     if root_block:
-        ds += "\n.pane" + root_block.group(0)[len(":root"):]
+        ds += "\n.pane" + root_block.group(0)[len(":root") :]
     app_icons = {f.stem: f.read_text(encoding="utf-8") for f in (ROOT / "assets" / "icons" / "app").glob("*.svg")}
     icono_actual = (ROOT / "static" / "icons" / "icon.svg").read_text(encoding="utf-8")
     return page(sprite, ds + "\n" + themes, actuales, app_icons, icono_actual)
@@ -119,8 +195,10 @@ def glyph(x: str, cls: str = "") -> str:
 
 
 def tile_custom(color_m: str, color_l: str, name: str, label: str) -> str:
-    return (f'<span class="tile tile-x" style="--m:{color_m};--l:{color_l}" role="img" aria-label="{html.escape(label)}">'
-            f"{ic(name)}</span>")
+    return (
+        f'<span class="tile tile-x" style="--m:{color_m};--l:{color_l}" role="img" aria-label="{html.escape(label)}">'
+        f"{ic(name)}</span>"
+    )
 
 
 def pane(content: str, tema: str, titulo: str) -> str:
@@ -139,18 +217,17 @@ def page(sprite: str, css: str, actuales: list[str], app_icons: dict, icono_actu
     def marca(_t):
         return f"""<div class="row-wrap">
           <figure><div class="appicon">{icono_actual}</div><figcaption>Actual</figcaption></figure>
-          <figure><div class="appicon">{app_icons['icon']}</div><figcaption>Propuesta · oscuro</figcaption></figure>
-          <figure><div class="appicon">{app_icons['icon-claro']}</div><figcaption>Propuesta · claro</figcaption></figure>
-          <figure><div class="appicon sq">{app_icons['maskable']}</div><figcaption>Enmascarable (PWA)</figcaption></figure>
-          <figure><div class="fav">{app_icons['favicon']}</div><figcaption>Favicon 32 px<br>(se adapta al sistema)</figcaption></figure>
-          <figure><div class="fav fav16">{app_icons['favicon']}</div><figcaption>16 px</figcaption></figure>
+          <figure><div class="appicon">{app_icons["icon"]}</div><figcaption>Propuesta · oscuro</figcaption></figure>
+          <figure><div class="appicon">{app_icons["icon-claro"]}</div><figcaption>Propuesta · claro</figcaption></figure>
+          <figure><div class="appicon sq">{app_icons["maskable"]}</div><figcaption>Enmascarable (PWA)</figcaption></figure>
+          <figure><div class="fav">{app_icons["favicon"]}</div><figcaption>Favicon 32 px<br>(se adapta al sistema)</figcaption></figure>
+          <figure><div class="fav fav16">{app_icons["favicon"]}</div><figcaption>16 px</figcaption></figure>
         </div>
-        <div class="brand-row"><span class="tile" data-section="notas">{ic('brain')}</span><b>Panel</b><span class="muted small">actual</span>
-          <span class="sep"></span><span class="tile tile-mono">{ic('panel')}</span><b>Panel</b><span class="muted small">propuesta</span></div>"""
+        <div class="brand-row"><span class="tile" data-section="notas">{ic("brain")}</span><b>Panel</b><span class="muted small">actual</span>
+          <span class="sep"></span><span class="tile tile-mono">{ic("panel")}</span><b>Panel</b><span class="muted small">propuesta</span></div>"""
 
     # 2. Navegación: actual, opción A, opción B
     def nav(t):
-        idx = 0 if t == "m" else 1
         cols = []
         for titulo, mode in (("Actual", "actual"), ("A · por sección", "a"), ("B · por grupo", "b")):
             rows = []
@@ -174,56 +251,101 @@ def page(sprite: str, css: str, actuales: list[str], app_icons: dict, icono_actu
     def cambios(_t):
         filas = "".join(
             f'<tr><td>{html.escape(d)}</td><td class="c">{glyph(a)}</td><td class="c">{ic("arrow-right", "subtle")}</td>'
-            f'<td class="c">{ic(n)}</td><td class="small muted">{html.escape(m)}</td></tr>' for d, a, n, m in CAMBIOS)
+            f'<td class="c">{ic(n)}</td><td class="small muted">{html.escape(m)}</td></tr>'
+            for d, a, n, m in CAMBIOS
+        )
         return f'<table class="tabla"><thead><tr><th>Dónde</th><th>Antes</th><th></th><th>Después</th><th>Por qué</th></tr></thead><tbody>{filas}</tbody></table>'
 
     # 4. Estados con ilustración
     def estados(_t):
         out = []
         for nombre, titulo, texto, accion, tono in ESTADOS:
-            boton = (f'<button type="button" class="btn btn-tinted">{ic("rotate-ccw" if accion == "Reintentar" else "plus")}{accion}</button>'
-                     if accion else "")
-            out.append(f'<div class="estado" style="--ill-accent: var(--{tono})"><svg class="ill" role="img" aria-label="{titulo}">'
-                       f'<use href="#ill-{nombre}"></use></svg><h3>{titulo}</h3><p>{texto}</p>{boton}</div>')
-        out.append('<div class="estado"><svg class="ill carga" viewBox="0 0 24 24" role="img" aria-label="Cargando">'
-                   '<rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2"/>'
-                   '<circle cx="17.25" cy="17.25" r="3.75"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2"/></svg>'
-                   '<h3>Cargando…</h3><p>Los azulejos se encienden por turnos; con «reducir movimiento» se quedan quietos.</p></div>')
+            boton = (
+                f'<button type="button" class="btn btn-tinted">{ic("rotate-ccw" if accion == "Reintentar" else "plus")}{accion}</button>'
+                if accion
+                else ""
+            )
+            out.append(
+                f'<div class="estado" style="--ill-accent: var(--{tono})"><svg class="ill" role="img" aria-label="{titulo}">'
+                f'<use href="#ill-{nombre}"></use></svg><h3>{titulo}</h3><p>{texto}</p>{boton}</div>'
+            )
+        out.append(
+            '<div class="estado"><svg class="ill carga" viewBox="0 0 24 24" role="img" aria-label="Cargando">'
+            '<rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2"/>'
+            '<circle cx="17.25" cy="17.25" r="3.75"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2"/></svg>'
+            "<h3>Cargando…</h3><p>Los azulejos se encienden por turnos; con «reducir movimiento» se quedan quietos.</p></div>"
+        )
         return f'<div class="estados">{"".join(out)}</div>'
 
     # 5. Tamaños y botones de icono con tooltip
     def tamanos(_t):
-        sizes = "".join(f'<span class="sz">{ic("calendar", "")}<small>{s}</small></span>'.replace('class="icon "', f'class="icon" style="width:{s}px;height:{s}px"')
-                        for s in (16, 18, 20, 24))
+        sizes = "".join(
+            f'<span class="sz">{ic("calendar", "")}<small>{s}</small></span>'.replace(
+                'class="icon "', f'class="icon" style="width:{s}px;height:{s}px"'
+            )
+            for s in (16, 18, 20, 24)
+        )
         return f"""<div class="row-wrap">{sizes}</div>
           <div class="row-wrap">
-            <button type="button" class="btn btn-ghost btn-icon" aria-label="Añadir un paso" data-tip="Añadir un paso (E)">{ic('list-plus')}</button>
-            <button type="button" class="btn btn-ghost btn-icon" aria-label="Para más tarde" data-tip="Para más tarde">{ic('bookmark-plus')}</button>
-            <button type="button" class="btn btn-tinted btn-icon" aria-label="Buscar" data-tip="Buscar (Ctrl K)">{ic('search')}</button>
-            <button type="button" class="btn btn-icon" aria-label="Más acciones" data-tip="Más acciones">{ic('ellipsis')}</button>
+            <button type="button" class="btn btn-ghost btn-icon" aria-label="Añadir un paso" data-tip="Añadir un paso (E)">{ic("list-plus")}</button>
+            <button type="button" class="btn btn-ghost btn-icon" aria-label="Para más tarde" data-tip="Para más tarde">{ic("bookmark-plus")}</button>
+            <button type="button" class="btn btn-tinted btn-icon" aria-label="Buscar" data-tip="Buscar (Ctrl K)">{ic("search")}</button>
+            <button type="button" class="btn btn-icon" aria-label="Más acciones" data-tip="Más acciones">{ic("ellipsis")}</button>
             <span class="small muted">Pasa el ratón o tabula: el tooltip sale también con el foco del teclado.</span>
           </div>"""
 
     # 6. Todos los iconos
     def todos(_t):
-        celdas = "".join(f'<div class="cell{" nuevo" if n in NUEVOS or n == "panel" else ""}">{ic(n)}<span>{n}</span></div>'
-                         for n in sorted(set(actuales) | set(NUEVOS) | {"panel"}))
+        celdas = "".join(
+            f'<div class="cell{" nuevo" if n in NUEVOS or n == "panel" else ""}">{ic(n)}<span>{n}</span></div>'
+            for n in sorted(set(actuales) | set(NUEVOS) | {"panel"})
+        )
         return f'<div class="grid">{celdas}</div>'
 
     bloques = [
-        ("marca", "1. Logo e icono de la app", "Icono propio con la gramática de Lucide (rejilla de 24, trazo 1,75, extremos redondeados). "
-         "Tres azulejos con los colores de Notas, Inbox y Tareas y un nodo enlazado (Hoy). Variantes para tema oscuro, claro, PWA enmascarable y favicon.", marca),
-        ("nav", "2. Azulejos de sección", "Seis secciones repiten color hoy. Con 18 secciones y unos 9 tonos distinguibles por tema no caben "
-         "18 colores inconfundibles: la opción A evita repeticiones exactas y separa los parecidos; la B da el color al grupo y deja que el icono distinga. "
-         "Repaso y Revisión cambian de icono en ambas.", nav),
-        ("cambios", "3. Iconos que cambian", "Solo donde un icono tenía dos significados o no era un icono. La metáfora se mantiene reconocible.", cambios),
-        ("estados", "4. Estados: vacío, hecho, sin resultados, error, sin conexión y carga",
-         "Ilustraciones propias (rejilla de 120×96, trazo 2) que heredan el color del tema; el acento dice el tono del mensaje.", estados),
-        ("tamanos", "5. Tamaños y botones de icono", "Tamaños 16 / 18 (base actual) / 20 / 24. Tooltip propio que funciona con teclado.", tamanos),
-        ("todos", f"6. Todos los iconos ({len(set(actuales) | set(NUEVOS)) + 1})",
-         "Lucide 0.460 (ISC) + 1 propio. Marcados en color: los que entrarían nuevos.", todos),
+        (
+            "marca",
+            "1. Logo e icono de la app",
+            "Icono propio con la gramática de Lucide (rejilla de 24, trazo 1,75, extremos redondeados). "
+            "Tres azulejos con los colores de Notas, Inbox y Tareas y un nodo enlazado (Hoy). Variantes para tema oscuro, claro, PWA enmascarable y favicon.",
+            marca,
+        ),
+        (
+            "nav",
+            "2. Azulejos de sección",
+            "Seis secciones repiten color hoy. Con 18 secciones y unos 9 tonos distinguibles por tema no caben "
+            "18 colores inconfundibles: la opción A evita repeticiones exactas y separa los parecidos; la B da el color al grupo y deja que el icono distinga. "
+            "Repaso y Revisión cambian de icono en ambas.",
+            nav,
+        ),
+        (
+            "cambios",
+            "3. Iconos que cambian",
+            "Solo donde un icono tenía dos significados o no era un icono. La metáfora se mantiene reconocible.",
+            cambios,
+        ),
+        (
+            "estados",
+            "4. Estados: vacío, hecho, sin resultados, error, sin conexión y carga",
+            "Ilustraciones propias (rejilla de 120×96, trazo 2) que heredan el color del tema; el acento dice el tono del mensaje.",
+            estados,
+        ),
+        (
+            "tamanos",
+            "5. Tamaños y botones de icono",
+            "Tamaños 16 / 18 (base actual) / 20 / 24. Tooltip propio que funciona con teclado.",
+            tamanos,
+        ),
+        (
+            "todos",
+            f"6. Todos los iconos ({len(set(actuales) | set(NUEVOS)) + 1})",
+            "Lucide 0.460 (ISC) + 1 propio. Marcados en color: los que entrarían nuevos.",
+            todos,
+        ),
     ]
-    secciones = "".join(f'<section id="{i}"><h2>{t}</h2><p class="intro">{d}</p>{par(fn)}</section>' for i, t, d, fn in bloques)
+    secciones = "".join(
+        f'<section id="{i}"><h2>{t}</h2><p class="intro">{d}</p>{par(fn)}</section>' for i, t, d, fn in bloques
+    )
     nav_links = " ".join(f'<a href="#{i}">{t.split(". ", 1)[1].split(":")[0]}</a>' for i, t, _d, _f in bloques)
 
     return f"""<!DOCTYPE html>

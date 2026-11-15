@@ -135,7 +135,13 @@
           <span class="theme-swatch" style="--p-bg: {{ p.bg }}; --p-elev: {{ p.elev }}; --p-accent: {{ p.accent }}; --p-text: {{ p.text }}" aria-hidden="true"><span></span><span></span></span>
           <span class="theme-name">{{ label }}</span>
         </button>{% endfor %}{% endfor %}
+        <span class="theme-group" aria-hidden="true">Tuya</span>
+        <button type="button" role="radio" aria-checked="false" data-theme-choice="propia" class="theme-option">
+          <span class="theme-swatch" aria-hidden="true"><span></span><span></span></span>
+          <span class="theme-name">Mi paleta</span>
+        </button>
       </div>
+      <button type="button" class="btn btn-tinted btn-sm theme-edit" data-tp-open>{{ icon('palette', 'icon-sm') }}Editar mi paleta…</button>
     </fieldset>
     <button type="button" class="btn btn-block" data-call="closeModal;Reminders.openSettings" data-args='[["moreSheet"], []]'>{{ icon('bell', 'icon-sm') }}Avisos y recordatorios</button>
     <label class="field capture-key-field"><span class="field-label">Tecla de la captura rápida</span>
@@ -144,6 +150,7 @@
     <form method="post" action="/logout">
       <button type="submit" class="btn btn-danger btn-block">{{ icon('log-out') }}Cerrar sesión</button>
     </form>
+    <button type="button" class="btn btn-ghost btn-block" data-call="closeAllSessions">{{ icon('smartphone', 'icon-sm') }}Cerrar las demás sesiones</button>
   </div>
 </dialog>
 
@@ -151,10 +158,17 @@
 
 <script src="{{ asset('/static/js/auth-guard.js') }}"></script>
 <script src="{{ asset('/static/js/ui.js') }}"></script>
+<script src="{{ asset('/static/js/rapido.js') }}"></script>
+<script src="{{ asset('/static/js/tema-propio.js') }}"></script>
 <script src="{{ asset('/static/js/sortable.js') }}"></script>
+<script src="{{ asset('/static/js/contexto.js') }}"></script>
 <script src="{{ asset('/static/js/items.js') }}"></script>
 <script src="{{ asset('/static/js/routines.js') }}"></script>
+<script src="{{ asset('/static/js/plantillas-catalogo.js') }}"></script>
+<script src="{{ asset('/static/js/plantillas.js') }}"></script>
 <script src="{{ asset('/static/js/reminders.js') }}"></script>
+<script src="{{ asset('/static/js/atrasadas.js') }}"></script>
+<script src="{{ asset('/static/js/timer.js') }}"></script>
 <script src="{{ asset('/static/js/palette.js') }}"></script>
 <script src="{{ asset('/static/js/status.js') }}"></script>
 <script src="{{ asset('/static/js/ia-ajustes.js') }}"></script>

@@ -1,7 +1,6 @@
 import time
 
 from core import security
-from tests.conftest import TEST_API_TOKEN, TEST_PASSWORD
 
 
 def test_hash_y_verificacion_de_contrasena():
@@ -19,6 +18,10 @@ def test_token_de_sesion_firmado_y_caduca(monkeypatch):
     assert not security.verify_session_token(tok, "otro-secreto", "hash", 60)
     # cambiar la contraseña (hash) invalida la sesión
     assert not security.verify_session_token(tok, "s", "hash-nuevo", 60)
+    # S-7: la generación 0 es la clave de siempre; subirla invalida lo firmado antes
+    assert security.verify_session_token(tok, "s", "hash", 60, gen=0)
+    assert not security.verify_session_token(tok, "s", "hash", 60, gen=1)
+    assert security.verify_session_token(security.create_session_token("s", "hash", 1), "s", "hash", 60, gen=1)
     real_time = time.time
     monkeypatch.setattr(security.time, "time", lambda: real_time() + 120)
     assert not security.verify_session_token(tok, "s", "hash", 60)

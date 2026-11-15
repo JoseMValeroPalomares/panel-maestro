@@ -4,6 +4,7 @@ Exportación e importación tabular (CSV/JSON) compartida por las apps.
 El CSV sale con BOM para que Excel lo abra en UTF-8; al importar se acepta
 tanto una lista JSON como un objeto {"<clave>": [...]}.
 """
+
 import csv
 import io
 import json
@@ -21,13 +22,19 @@ def csv_response(rows: list[dict], fields: list[str], filename: str) -> Response
     w.writeheader()
     for row in rows:
         w.writerow({k: ("" if v is None else v) for k, v in row.items()})
-    return Response("﻿" + buf.getvalue(), media_type="text/csv; charset=utf-8",
-                    headers={"Content-Disposition": f'attachment; filename="{filename}.csv"'})
+    return Response(
+        "﻿" + buf.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}.csv"'},
+    )
 
 
 def json_response(key: str, rows: list[dict], filename: str) -> Response:
-    return Response(json.dumps({key: rows}, ensure_ascii=False, indent=2), media_type="application/json",
-                    headers={"Content-Disposition": f'attachment; filename="{filename}.json"'})
+    return Response(
+        json.dumps({key: rows}, ensure_ascii=False, indent=2),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}.json"'},
+    )
 
 
 def parse_rows(raw: bytes, filename: str, key: str) -> list[dict]:

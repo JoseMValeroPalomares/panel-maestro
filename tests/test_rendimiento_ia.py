@@ -1,5 +1,6 @@
 """Rendimiento: alertas guardadas como tareas, rutinas marcadas, exportación y auditoría con IA
 (privacidad, esquema, caché, tarea de mañana y nota semanal). Los modelos se simulan con httpx.MockTransport."""
+
 import json
 from datetime import date, timedelta
 
@@ -14,8 +15,16 @@ HOY = date.today()
 
 
 def dia(**kw):
-    return {"acostarse": "23:30", "despertar": "07:30", "calidad_sueno": 4, "energia": 3, "niebla": 2, "humor": 4,
-            "bloques": [{"asignatura": "Física cuántica", "minutos": 60, "recall": True, "codificacion": "problemas"}], **kw}
+    return {
+        "acostarse": "23:30",
+        "despertar": "07:30",
+        "calidad_sueno": 4,
+        "energia": 3,
+        "niebla": 2,
+        "humor": 4,
+        "bloques": [{"asignatura": "Física cuántica", "minutos": 60, "recall": True, "codificacion": "problemas"}],
+        **kw,
+    }
 
 
 def test_alertas_se_guardan_y_crean_una_tarea_por_regla(client):
@@ -34,7 +43,10 @@ def test_alertas_se_guardan_y_crean_una_tarea_por_regla(client):
     # si deja de saltar, se quita del día (la tarea se queda: ya es tuya)
     r3 = client.put(f"/api/rendimiento/dia/{HOY.isoformat()}", json=dia()).json()
     assert not any(a["id"] == "circadiana" for a in r3["alertas"])
-    assert not any(a["regla"] == "circadiana" and a["fecha"] == HOY.isoformat() for a in client.get("/api/rendimiento/alertas").json()["alertas"])
+    assert not any(
+        a["regla"] == "circadiana" and a["fecha"] == HOY.isoformat()
+        for a in client.get("/api/rendimiento/alertas").json()["alertas"]
+    )
     assert any(i["id"] == circ["item_id"] for i in client.get("/api/items").json()["items"])
 
 
@@ -47,8 +59,12 @@ def test_rellenar_dias_antiguos_no_crea_tareas(client):
 
 
 def test_registrar_marca_las_rutinas(client):
-    gym = client.post("/api/items", json={"text": "Gym rend", "type": "rutina", "repeat": {"freq": "daily"}}).json()["id"]
-    sol = client.post("/api/items", json={"text": "Sol rend", "type": "rutina", "repeat": {"freq": "daily"}}).json()["id"]
+    gym = client.post("/api/items", json={"text": "Gym rend", "type": "rutina", "repeat": {"freq": "daily"}}).json()[
+        "id"
+    ]
+    sol = client.post("/api/items", json={"text": "Sol rend", "type": "rutina", "repeat": {"freq": "daily"}}).json()[
+        "id"
+    ]
     client.put("/api/rendimiento/ajustes", json={"rutinas": {"entreno": gym, "luz_solar": sol, "activacion": 0}})
     f = (HOY - timedelta(days=2)).isoformat()
     r = client.put(f"/api/rendimiento/dia/{f}", json=dia(entreno=True, entreno_fin="19:00", luz_solar=False)).json()
@@ -79,18 +95,47 @@ def test_exportar(client):
 
 # ── Auditoría con IA ──────────────────────────────────────────────────────────
 
-RESPUESTA = {"capas": {c: {"estado": "ámbar" if c == "sueno" else "verde", "diagnostico": f"Diagnóstico {c} con d0.", "correccion": f"Corrección {c}."}
-                       for c in ("metabolico", "codificacion", "sueno", "rotacion")},
-             "prioridad_manana": "Acostarte antes de las 23:30 y empezar con Active Recall de A.", "alertas": [{"texto": "Sueño corto en d-1"}, "Otra"]}
+RESPUESTA = {
+    "capas": {
+        c: {
+            "estado": "ámbar" if c == "sueno" else "verde",
+            "diagnostico": f"Diagnóstico {c} con d0.",
+            "correccion": f"Corrección {c}.",
+        }
+        for c in ("metabolico", "codificacion", "sueno", "rotacion")
+    },
+    "prioridad_manana": "Acostarte antes de las 23:30 y empezar con Active Recall de A.",
+    "alertas": [{"texto": "Sueño corto en d-1"}, "Otra"],
+}
 
 
 @pytest.fixture()
 def ia(tmp_path, monkeypatch, client):
     f = tmp_path / "m.json"
-    f.write_text(json.dumps({"modelos": [
-        {"id": "ia-test-or", "proveedor": "OpenRouter", "base_url": "https://or.test/v1", "modelo": "x:free", "clave_env": "CLAVE_IA_TEST",
-         "extra": {"provider": {"data_collection": "deny"}}, "json_mode": True},
-        {"id": "ia-test-b", "proveedor": "B", "base_url": "https://b.test/v1", "modelo": "y", "clave_env": "CLAVE_IA_TEST"}]}))
+    f.write_text(
+        json.dumps(
+            {
+                "modelos": [
+                    {
+                        "id": "ia-test-or",
+                        "proveedor": "OpenRouter",
+                        "base_url": "https://or.test/v1",
+                        "modelo": "x:free",
+                        "clave_env": "CLAVE_IA_TEST",
+                        "extra": {"provider": {"data_collection": "deny"}},
+                        "json_mode": True,
+                    },
+                    {
+                        "id": "ia-test-b",
+                        "proveedor": "B",
+                        "base_url": "https://b.test/v1",
+                        "modelo": "y",
+                        "clave_env": "CLAVE_IA_TEST",
+                    },
+                ]
+            }
+        )
+    )
     monkeypatch.setattr(config, "LLM_MODELS_FILE", f)
     monkeypatch.setenv("CLAVE_IA_TEST", "k")
     llamadas = []
@@ -100,12 +145,16 @@ def ia(tmp_path, monkeypatch, client):
             llamadas.append(req)
             r = respuestas.pop(0) if len(respuestas) > 1 else respuestas[0]
             return r
+
         return httpx.MockTransport(handler)
+
     return preparar, llamadas
 
 
 def ok(d):
-    return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(d) if isinstance(d, dict) else d}}]})
+    return httpx.Response(
+        200, json={"choices": [{"message": {"content": json.dumps(d) if isinstance(d, dict) else d}}]}
+    )
 
 
 def test_auditoria_diaria_privacidad_esquema_cache_y_tarea(client, ia):
@@ -116,14 +165,22 @@ def test_auditoria_diaria_privacidad_esquema_cache_y_tarea(client, ia):
     t = preparar([ok({"capas": {}}), ok(RESPUESTA)])
     r = rendimiento_ia.auditar("dia", f, transport=t, dormir=lambda s: None)
     assert r["cache"] is False and r["modelo"] == "y" and r["intentos_fallidos"] == 1
-    assert r["resultado"]["capas"]["sueno"]["estado"] == "ambar" and r["resultado"]["alertas"] == ["Sueño corto en d-1", "Otra"]
+    assert r["resultado"]["capas"]["sueno"]["estado"] == "ambar" and r["resultado"]["alertas"] == [
+        "Sueño corto en d-1",
+        "Otra",
+    ]
     enviado = json.loads(llamadas[0].content)
     texto = json.dumps(enviado, ensure_ascii=False)
     assert enviado["provider"] == {"data_collection": "deny"}
-    assert "Marta" not in texto and "Física cuántica" not in texto and f not in texto  # sin nota, nombres ni fechas reales
+    assert (
+        "Marta" not in texto and "Física cuántica" not in texto and f not in texto
+    )  # sin nota, nombres ni fechas reales
     datos = json.loads(enviado["messages"][1]["content"].split("\n", 1)[1])
     assert datos["dias"][-1]["dia"] == "d0" and datos["dias"][-1]["bloques"][0]["asignatura"] == "A"
-    assert "neurobiología del rendimiento" in enviado["messages"][0]["content"] and '"prioridad_manana"' in enviado["messages"][0]["content"]
+    assert (
+        "neurobiología del rendimiento" in enviado["messages"][0]["content"]
+        and '"prioridad_manana"' in enviado["messages"][0]["content"]
+    )
     # tarea «Prioridad de mañana» para mañana
     manana = (HOY + timedelta(days=1)).isoformat()
     tarea = next(i for i in client.get("/api/items").json()["items"] if i["id"] == r["tarea_id"])

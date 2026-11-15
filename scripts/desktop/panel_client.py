@@ -9,12 +9,16 @@ Solo biblioteca estándar: lo lanza el python del sistema, sin el venv del proye
 
 Configuración (nunca en el repositorio):
     ~/.config/panel-maestro/token   token Bearer (permisos 600; lo crea `python -m scripts.desktop_token`)
-    ~/.config/panel-maestro/url     dirección del panel (por defecto http://127.0.0.1:8000)
-    PANEL_URL / PANEL_TOKEN_FILE / PANEL_STATE_DIR                    para pruebas
+    ~/.config/panel-maestro/url     dirección del panel (por defecto http://127.0.0.1:8000; https://… con HTTPS)
+    ~/.config/panel-maestro/ca.pem  CA que firma el certificado del panel, si no es pública (mkcert: el rootCA.pem de
+                                    `mkcert -CAROOT`); con Tailscale no hace falta (su certificado es público)
+    PANEL_URL / PANEL_TOKEN_FILE / PANEL_STATE_DIR / PANEL_CA_FILE    para pruebas
 Cola sin conexión: ~/.local/state/panel-maestro/cola.jsonl (un texto por línea, en orden).
 """
+
 import json
 import os
+import ssl
 import stat
 import sys
 import time
@@ -23,7 +27,10 @@ import urllib.request
 from pathlib import Path
 
 CONF = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "panel-maestro"
-STATE = Path(os.environ.get("PANEL_STATE_DIR") or Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "panel-maestro")
+STATE = Path(
+    os.environ.get("PANEL_STATE_DIR")
+    or Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "panel-maestro"
+)
 QUEUE = STATE / "cola.jsonl"
 TIMEOUT = float(os.environ.get("PANEL_TIMEOUT", "4"))
 
@@ -34,6 +41,16 @@ class Offline(Exception):
 
 class AuthError(Exception):
     """Falta el token o no vale."""
+
+
+class CertError(AuthError):
+    """El certificado HTTPS del panel no se puede comprobar: es configuración, no «sin conexión» (no se reintenta solo)."""
+
+
+def ssl_context() -> ssl.SSLContext | None:
+    """Con una CA propia (mkcert) se confía solo en ella; sin ca.pem, en las del sistema (Tailscale, Let's Encrypt)."""
+    ca = os.environ.get("PANEL_CA_FILE") or (str(CONF / "ca.pem") if (CONF / "ca.pem").exists() else "")
+    return ssl.create_default_context(cafile=ca) if ca else None
 
 
 def base_url() -> str:
@@ -54,12 +71,18 @@ def token() -> str:
 
 
 def request(method: str, path: str, body: dict | None = None) -> dict:
-    req = urllib.request.Request(base_url() + path, method=method,
-                                 data=json.dumps(body).encode() if body is not None else None,
-                                 headers={"Authorization": f"Bearer {token()}", "Content-Type": "application/json",
-                                          "Accept": "application/json"})
+    req = urllib.request.Request(
+        base_url() + path,
+        method=method,
+        data=json.dumps(body).encode() if body is not None else None,
+        headers={
+            "Authorization": f"Bearer {token()}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+    )
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+        with urllib.request.urlopen(req, timeout=TIMEOUT, context=ssl_context()) as r:
             return json.loads(r.read() or b"{}")
     except urllib.error.HTTPError as e:
         if e.code == 401:
@@ -70,6 +93,12 @@ def request(method: str, path: str, body: dict | None = None) -> dict:
             detail = f"Error {e.code}"
         raise RuntimeError(detail)
     except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as e:
+        motivo = getattr(e, "reason", e)
+        if isinstance(motivo, ssl.SSLCertVerificationError):
+            raise CertError(
+                f"No se puede comprobar el certificado de {base_url()} ({motivo.verify_message}): "
+                f"pon la CA en {CONF / 'ca.pem'} (docs/HTTPS.md)"
+            ) from e
         raise Offline(str(e))
 
 
@@ -95,7 +124,7 @@ def flush() -> dict:
     """Reenvía la cola en orden; lo que no sale se queda (y lo que sale, se quita)."""
     pending = queued()
     sent, results = 0, []
-    for i, item in enumerate(pending):
+    for item in pending:
         try:
             results.append(request("POST", "/api/capture", {"text": item["text"]}))
             sent += 1
@@ -121,11 +150,18 @@ def capture(text: str, dry_run: bool = False) -> dict:
         if not dry_run and queued():
             flush()
         return request("POST", "/api/capture", {"text": text, "dry_run": dry_run})
+    except CertError as e:  # no se pierde: queda en la cola hasta que el certificado se arregle
+        if not dry_run:
+            enqueue(text)
+        return {"status": "error", "message": f"{e}. Guardado en la cola"}
     except Offline:
         if dry_run:
             return {"status": "offline", "message": "El panel no responde"}
         enqueue(text)
-        return {"status": "queued", "message": f"Sin conexión: guardado en la cola ({len(queued())} pendiente{'s' if len(queued()) != 1 else ''})"}
+        return {
+            "status": "queued",
+            "message": f"Sin conexión: guardado en la cola ({len(queued())} pendiente{'s' if len(queued()) != 1 else ''})",
+        }
 
 
 def main(argv: list[str]) -> int:
@@ -136,6 +172,8 @@ def main(argv: list[str]) -> int:
         if argv[1] == "capture":
             res = capture(argv[2], dry_run="--dry-run" in argv)
             print(json.dumps(res, ensure_ascii=False))
+            if res.get("status") == "error":  # p. ej. una @mención que no existe: no se ha guardado nada
+                return 2
             return 3 if res.get("status") in ("queued", "offline") else 0
         if argv[1] == "flush":
             print(json.dumps(flush(), ensure_ascii=False))

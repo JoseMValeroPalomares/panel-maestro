@@ -22,6 +22,7 @@ rutina o a uno de sus pasos (`inbox.routine_step`): se ven dentro del bloque. Ra
 hoy toca y aún no está hecha, no rompe la racha). Cada marca va también a `item_log`
 (historial de la revisión semanal).
 """
+
 import json
 import re
 import time
@@ -156,9 +157,15 @@ def set_check(conn, row, day: date, done: bool, rule: dict | None = None, log_it
     rule = rule or parse(row["repeat"])
     if done and not occurs_on(rule, day, created_day(row) - timedelta(days=3650)):
         raise HTTPException(status_code=422, detail="Esa rutina no toca ese día")
-    was = conn.execute("SELECT 1 FROM routine_checks WHERE item_id=? AND day=?", (row["id"], day.isoformat())).fetchone() is not None
+    was = (
+        conn.execute("SELECT 1 FROM routine_checks WHERE item_id=? AND day=?", (row["id"], day.isoformat())).fetchone()
+        is not None
+    )
     if done:
-        conn.execute("INSERT OR IGNORE INTO routine_checks (item_id, day, at) VALUES (?, ?, ?)", (row["id"], day.isoformat(), time.time()))
+        conn.execute(
+            "INSERT OR IGNORE INTO routine_checks (item_id, day, at) VALUES (?, ?, ?)",
+            (row["id"], day.isoformat(), time.time()),
+        )
     else:
         conn.execute("DELETE FROM routine_checks WHERE item_id=? AND day=?", (row["id"], day.isoformat()))
     if log_it and was != done:
@@ -166,7 +173,9 @@ def set_check(conn, row, day: date, done: bool, rule: dict | None = None, log_it
 
 
 def steps_of(conn, routine_id: int) -> list:
-    return conn.execute("SELECT * FROM inbox WHERE parent_id=? ORDER BY sort_order DESC, created_at DESC", (routine_id,)).fetchall()
+    return conn.execute(
+        "SELECT * FROM inbox WHERE parent_id=? ORDER BY sort_order DESC, created_at DESC", (routine_id,)
+    ).fetchall()
 
 
 def step_rule(step) -> dict | None:
@@ -233,14 +242,29 @@ def mark_overlaps(rutinas: list[dict]) -> None:
     for s in blocks:
         a = _mins(s["at"])
         a_end = a + max(s["duration_min"] or 0, 1)
-        s["clash"] = next((o["title"] for o in blocks if o is not s and a < _mins(o["at"]) + max(o["duration_min"] or 0, 1) and _mins(o["at"]) < a_end), None)
+        s["clash"] = next(
+            (
+                o["title"]
+                for o in blocks
+                if o is not s and a < _mins(o["at"]) + max(o["duration_min"] or 0, 1) and _mins(o["at"]) < a_end
+            ),
+            None,
+        )
 
 
 def _block(row, rule: dict, own: dict | None, at: str, dur: int | None) -> dict:
     from app.items import clean_text
+
     start = _mins(at)
-    return {"id": row["id"], "title": clean_text(row["content"]).split("\n")[0], "start": start, "end": start + max(dur or 0, 1),
-            "timed": bool(dur), "rule": rule, "own": own}
+    return {
+        "id": row["id"],
+        "title": clean_text(row["content"]).split("\n")[0],
+        "start": start,
+        "end": start + max(dur or 0, 1),
+        "timed": bool(dur),
+        "rule": rule,
+        "own": own,
+    }
 
 
 def _busy(conn, skip: set) -> list[dict]:
@@ -295,8 +319,16 @@ def _require_free(block: dict, others: list[dict]) -> None:
     raise HTTPException(status_code=409, detail=f"«{block['title']}» choca con «{o['title']}» ({span}){when}.{hint}")
 
 
-def ensure_free(conn, row, *, due_time: str | None = None, duration_min: int | None = None,
-                step_days: list[int] | None = None, repeat: dict | None = None, ignore: frozenset = frozenset()) -> None:
+def ensure_free(
+    conn,
+    row,
+    *,
+    due_time: str | None = None,
+    duration_min: int | None = None,
+    step_days: list[int] | None = None,
+    repeat: dict | None = None,
+    ignore: frozenset = frozenset(),
+) -> None:
     """Antes de guardar: 409 si con estos cambios un bloque pisaría a otro el mismo día. None = no cambia;
     `ignore`: bloques que se están moviendo a la vez."""
     if row["item_type"] != "rutina":
@@ -317,7 +349,11 @@ def ensure_free(conn, row, *, due_time: str | None = None, duration_min: int | N
         return
     own = None
     if is_step:
-        own = step_rule(row) if step_days is None else ({"freq": "weekly", "days": step_days} if 0 < len(set(step_days)) < 7 else None)
+        own = (
+            step_rule(row)
+            if step_days is None
+            else ({"freq": "weekly", "days": step_days} if 0 < len(set(step_days)) < 7 else None)
+        )
     dur = row["duration_min"] if duration_min is None else duration_min
     # su rutina tampoco cuenta: el primer paso puede ir a la hora de ella, que deja de ocupar sitio
     _require_free(_block(row, rule, own, at, dur), _busy(conn, {row["id"], row["parent_id"], *ignore}))
@@ -360,8 +396,14 @@ def schedule(start: str | None, steps: list[dict]) -> list[dict]:
         if fixed is not None:
             t = fixed
         dur = s.get("duration_min") or 0
-        out.append({**s, "at": _hhmm(t) if t is not None else None, "end": _hhmm(t + dur) if t is not None and dur else None,
-                    "fixed": fixed is not None})
+        out.append(
+            {
+                **s,
+                "at": _hhmm(t) if t is not None else None,
+                "end": _hhmm(t + dur) if t is not None and dur else None,
+                "fixed": fixed is not None,
+            }
+        )
         if t is not None:
             t += dur
     return out
@@ -374,14 +416,24 @@ DURATION_RE = re.compile(r"\s*[·,-]?\s*\(?(\d{1,3})\s*(min|mins|minutos|m|h|hor
 def split_duration(text: str) -> tuple[str, int | None]:
     """«Ducha 10 min» → («Ducha», 10); «Estudiar 1h» → («Estudiar», 60). Sin duración, (texto, None)."""
     m = DURATION_RE.search(text)
-    if not m or not text[:m.start()].strip():
+    if not m or not text[: m.start()].strip():
         return text.strip(), None
     n = int(m.group(1)) * (60 if m.group(2).lower().startswith("h") else 1)
-    return text[:m.start()].strip(), n if 1 <= n <= 1440 else None
+    return text[: m.start()].strip(), n if 1 <= n <= 1440 else None
 
 
 def log(conn, row, action: str, day: date | None = None) -> None:
     """Historial de completados (revisión semanal)."""
     from app.items import clean_text, item_type
-    conn.execute("INSERT INTO item_log (item_id, action, day, text, type, at) VALUES (?, ?, ?, ?, ?, ?)",
-                 (row["id"], action, (day or date.today()).isoformat(), clean_text(row["content"])[:500], item_type(row), time.time()))
+
+    conn.execute(
+        "INSERT INTO item_log (item_id, action, day, text, type, at) VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            row["id"],
+            action,
+            (day or date.today()).isoformat(),
+            clean_text(row["content"])[:500],
+            item_type(row),
+            time.time(),
+        ),
+    )

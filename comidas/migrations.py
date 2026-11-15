@@ -1,4 +1,5 @@
 """Migraciones versionadas de comidas.db (ver core/migrations.py)."""
+
 import sqlite3
 
 from core.migrations import Migration, has_column
@@ -22,8 +23,11 @@ def ronda6_up(conn: sqlite3.Connection) -> None:
         fraccion REAL NOT NULL DEFAULT 0, hora TEXT, catalogo TEXT, activa INTEGER NOT NULL DEFAULT 1,
         base INTEGER NOT NULL DEFAULT 0)""")
     for clave, nombre, orden, fraccion, hora, catalogo in FRANJAS_BASE:
-        conn.execute("INSERT OR IGNORE INTO franjas (clave, nombre, orden, fraccion, hora, catalogo, activa, base) "
-                     "VALUES (?, ?, ?, ?, ?, ?, 1, 1)", (clave, nombre, orden, fraccion, hora, catalogo))
+        conn.execute(
+            "INSERT OR IGNORE INTO franjas (clave, nombre, orden, fraccion, hora, catalogo, activa, base) "
+            "VALUES (?, ?, ?, ?, ?, ?, 1, 1)",
+            (clave, nombre, orden, fraccion, hora, catalogo),
+        )
     if not has_column(conn, "plan_items", "rol"):
         conn.execute("ALTER TABLE plan_items ADD COLUMN rol TEXT")
     if not has_column(conn, "weekly_plan", "rol"):
@@ -46,13 +50,21 @@ def ronda6_down(conn: sqlite3.Connection) -> None:
     # Lo escrito en las tablas nuevas se pierde con ellas: se guarda antes
     conn.execute("CREATE TABLE IF NOT EXISTS ronda6_backup (tabla TEXT, datos TEXT)")
     import json
+
     for table in ("franjas", "meal_templates", "body_log"):
         if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
             rows = [dict(r) for r in conn.execute(f"SELECT * FROM {table}")]
-            conn.execute("INSERT INTO ronda6_backup (tabla, datos) VALUES (?, ?)", (table, json.dumps(rows, ensure_ascii=False)))
+            conn.execute(
+                "INSERT INTO ronda6_backup (tabla, datos) VALUES (?, ?)", (table, json.dumps(rows, ensure_ascii=False))
+            )
             conn.execute(f"DROP TABLE {table}")
-    for table, col in (("plan_items", "rol"), ("weekly_plan", "rol"), ("meals", "favorito"),
-                       ("shopping_list", "plan_semana"), ("shopping_list", "plan_gramos")):
+    for table, col in (
+        ("plan_items", "rol"),
+        ("weekly_plan", "rol"),
+        ("meals", "favorito"),
+        ("shopping_list", "plan_semana"),
+        ("shopping_list", "plan_gramos"),
+    ):
         if has_column(conn, table, col):
             conn.execute(f"ALTER TABLE {table} DROP COLUMN {col}")
 
@@ -74,8 +86,10 @@ def franja_dias_down(conn: sqlite3.Connection) -> None:
 def sin_media_manana_up(conn: sqlite3.Connection) -> None:
     if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='franjas'").fetchone():
         return
-    usada = conn.execute("SELECT 1 FROM weekly_plan w WHERE w.franja='media-manana' AND (w.meal_id IS NOT NULL "
-                         "OR EXISTS (SELECT 1 FROM plan_items p WHERE p.plan_id = w.id)) LIMIT 1").fetchone()
+    usada = conn.execute(
+        "SELECT 1 FROM weekly_plan w WHERE w.franja='media-manana' AND (w.meal_id IS NOT NULL "
+        "OR EXISTS (SELECT 1 FROM plan_items p WHERE p.plan_id = w.id)) LIMIT 1"
+    ).fetchone()
     if usada:
         conn.execute("UPDATE franjas SET activa=0 WHERE clave='media-manana'")
         return
@@ -85,8 +99,11 @@ def sin_media_manana_up(conn: sqlite3.Connection) -> None:
 
 def sin_media_manana_down(conn: sqlite3.Connection) -> None:
     clave, nombre, orden, fraccion, hora, catalogo = FRANJAS_BASE[1]
-    conn.execute("INSERT OR IGNORE INTO franjas (clave, nombre, orden, fraccion, hora, catalogo, activa, base) "
-                 "VALUES (?, ?, ?, ?, ?, ?, 1, 1)", (clave, nombre, orden, fraccion, hora, catalogo))
+    conn.execute(
+        "INSERT OR IGNORE INTO franjas (clave, nombre, orden, fraccion, hora, catalogo, activa, base) "
+        "VALUES (?, ?, ?, ?, ?, ?, 1, 1)",
+        (clave, nombre, orden, fraccion, hora, catalogo),
+    )
 
 
 MIGRATIONS = [

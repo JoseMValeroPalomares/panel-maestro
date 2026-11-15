@@ -1,7 +1,9 @@
 """Las páginas HTML del panel (Cerebro): cada ruta pinta su plantilla con el layout común."""
-from fastapi import APIRouter, Request
+
+from fastapi import APIRouter, HTTPException, Request
 
 from app import dotfiles, proyecto
+from core import config
 from core.templating import render
 
 router = APIRouter()
@@ -32,9 +34,49 @@ def read_tasks_page(request: Request):
     return render(request, "tareas.html", "tareas", "Tareas")
 
 
+@router.get("/universidad")
+def read_university_page(request: Request):
+    return render(request, "universidad.html", "universidad", "Universidad")
+
+
+@router.get("/proyectos")
+def read_projects_page(request: Request):
+    return render(request, "proyectos.html", "proyectos", "Proyectos")
+
+
+@router.get("/proyectos/{slug}")
+def read_project_page(request: Request, slug: str):
+    return render(request, "proyectos.html", "proyectos", "Proyectos")
+
+
+# Guías de docs/ que el propio panel enlaza (V-5: «Cifrar» sin HTTPS). Lista cerrada: nada de rutas libres a disco.
+AYUDA = {
+    "https": ("HTTPS.md", "Servir el panel por HTTPS"),
+    "fuera-de-casa": ("fuera-de-casa.md", "El panel desde fuera de casa"),
+    "movil": ("movil.md", "El panel en el móvil"),
+}
+
+
+@router.get("/ayuda/{nombre}")
+def read_help_page(request: Request, nombre: str):
+    if nombre not in AYUDA:
+        raise HTTPException(status_code=404, detail="No hay esa guía")
+    archivo, titulo = AYUDA[nombre]
+    texto = (config.PROJECT_ROOT / "docs" / archivo).read_text(encoding="utf-8")
+    # Enlaces entre guías: «HTTPS.md» → /ayuda/https (ayuda.js); el resto de docs/ no se sirve
+    guias = {a: f"/ayuda/{k}" for k, (a, _) in AYUDA.items()}
+    return render(request, "ayuda.html", "", titulo, doc=texto, guias=guias)
+
+
 @router.get("/hoy")
 def read_today_page(request: Request):
     return render(request, "hoy.html", "hoy", "Hoy")
+
+
+@router.get("/compartir")
+def read_share_page(request: Request):
+    """Destino de «Compartir» de la PWA (share_target): la página abre la captura rellena con ?title=&text=&url=."""
+    return render(request, "compartir.html", "", "Compartir")
 
 
 @router.get("/revision")
@@ -84,5 +126,11 @@ def read_gestion(request: Request):
 
 @router.get("/backups")
 def read_backups_page(request: Request):
-    return render(request, "backups.html", "backups", "Copias de seguridad",
-                  show_dotfiles=dotfiles.is_available(), show_project=proyecto.is_available())
+    return render(
+        request,
+        "backups.html",
+        "backups",
+        "Copias de seguridad",
+        show_dotfiles=dotfiles.is_available(),
+        show_project=proyecto.is_available(),
+    )

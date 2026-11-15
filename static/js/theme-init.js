@@ -5,6 +5,11 @@ try {
   // Cualquier nombre con forma válida: un tema que no exista cae en Mocha (es el de :root en themes.css)
   document.documentElement.setAttribute('data-theme', /^[a-z0-9-]{2,24}$/.test(th || '') ? th : 'mocha');
 } catch (e) { document.documentElement.setAttribute('data-theme', 'mocha'); }
+// Paleta propia (P-5, tema-propio.js): su CSS ya hecho, guardado en este navegador, antes de pintar
+try {
+  var pc = localStorage.getItem('theme-propia-css');
+  if (pc) { var st = document.createElement('style'); st.id = 'themePropia'; st.textContent = pc; document.head.appendChild(st); }
+} catch (e) {}
 // Navegación lateral plegada a iconos: la preferencia guardada manda; sin ella, plegada por debajo de 1024 px
 try {
   var n = localStorage.getItem('nav');

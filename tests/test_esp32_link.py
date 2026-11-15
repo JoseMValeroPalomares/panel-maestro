@@ -1,4 +1,5 @@
 """Conexión con el ESP32: pocos intentos, pausa, «Reintentar» y log sin bucles."""
+
 import asyncio
 import logging
 import threading
@@ -75,6 +76,7 @@ def test_wait_turn_despierta_al_reintentar():
         assert not waiter.done()
         link.retry()
         await asyncio.wait_for(waiter, 1)
+
     # En un hilo propio: las pruebas de navegador dejan un bucle de asyncio en el principal
     errors = []
     t = threading.Thread(target=lambda: _run(main, errors))

@@ -14,7 +14,10 @@ systemctl --user restart panel-maestro   # para que el panel lea el hash
 ```
 
 Es un token aparte del de la extensión de Firefox: crear uno no invalida el otro. La dirección del panel
-se puede cambiar en `~/.config/panel-maestro/url` (por defecto `http://127.0.0.1:8000`).
+se puede cambiar en `~/.config/panel-maestro/url` (por defecto `http://127.0.0.1:8000`). Con HTTPS
+([HTTPS.md](HTTPS.md)) va la dirección `https://…`; si el certificado es de mkcert, la CA en
+`~/.config/panel-maestro/ca.pem` (con Tailscale no hace falta). Sin ella, la captura avisa de que no se fía del
+certificado y guarda el texto en la cola, no lo da por «sin conexión».
 
 ## Captura rápida — `Super+K`
 
@@ -52,7 +55,9 @@ y se reenvía en orden en la siguiente captura o en cuanto la Waybar vea el pane
   hora; lo que está en curso, con «hasta HH:MM»).
 - **Clases** (`style/Fusion Personalizada.css`): `sin-eventos` y `con-eventos` (azul, como el reloj), `proximo`
   (melocotón), `ahora` (verde), `retrasado` (rojo: tareas o rutinas de hoy con la hora pasada) y
-  `sin-conexion` (atenuado).
+  `sin-conexion` (atenuado). Además, `copias-aviso` cuando las copias de seguridad no están al día (la última pasa de
+  36 h, falló o no hay ninguna): el tooltip lo dice en una línea y llega una notificación, como mucho una al día.
+  Para que se vea en la barra, dale estilo en tu CSS de Waybar (p. ej. `#custom-panel-agenda.copias-aviso { border-bottom: 2px solid @mocha-peach; }`).
 - **Tooltip**: el mes con hoy resaltado (los días con algo, subrayados) y la agenda de hoy y mañana
   (eventos, rutinas y tareas con fecha).
 - **Clic**: rofi con la agenda de 7 días; al elegir, completar, posponer (1 h o a mañana) o abrir en el Panel.

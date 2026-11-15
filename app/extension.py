@@ -1,4 +1,5 @@
 """Rutas de la extensión de Firefox: el alias POST /api/inbox (versiones 2.x ya instaladas) y su comprobación de estado."""
+
 import re
 from urllib.parse import unquote
 
@@ -49,8 +50,15 @@ class InboxItem(BaseModel):
 @router.post("/api/inbox")
 def add_inbox_item(item: InboxItem):
     """Alias de POST /api/items para la extensión de Firefox 2.x ya instalada (envía content/item_type)."""
-    new_id = create(ItemIn(text=item.content, type="idea" if normalize_item_type(item.item_type) == "nota" else "tarea",
-                           parent_id=item.parent_id, priority=item.priority, category=item.category))
+    new_id = create(
+        ItemIn(
+            text=item.content,
+            type="idea" if normalize_item_type(item.item_type) == "nota" else "tarea",
+            parent_id=item.parent_id,
+            priority=item.priority,
+            category=item.category,
+        )
+    )
     return {"status": "success", "id": new_id}
 
 
@@ -59,8 +67,12 @@ def extension_status():
     """Para la extensión de Firefox: comprueba la conexión y el token, y da los pendientes (mismo contador que el panel)."""
     pending = counts()["pendientes"]
     with get_db() as conn:
-        cats = [r[0] for r in conn.execute(
-            "SELECT DISTINCT category FROM inbox WHERE category IS NOT NULL AND category != '' ORDER BY category")]
+        cats = [
+            r[0]
+            for r in conn.execute(
+                "SELECT DISTINCT category FROM inbox WHERE category IS NOT NULL AND category != '' ORDER BY category"
+            )
+        ]
     return {"ok": True, "pending": pending, "inbox_categories": cats, "api": 2}
 
 
@@ -112,8 +124,10 @@ def youtube_visto(data: VistoIn, background_tasks: BackgroundTasks):
         canal = _canal_en_baul(conn, clave)
         if not canal:
             return {"tracked": False}
-        conn.execute("INSERT OR IGNORE INTO yt_vistos (video_id, channel, title) VALUES (?, ?, ?)",
-                     (data.video_id, clave, data.title or None))
+        conn.execute(
+            "INSERT OR IGNORE INTO yt_vistos (video_id, channel, title) VALUES (?, ?, ?)",
+            (data.video_id, clave, data.title or None),
+        )
         row = find_video(conn, data.video_id)
         if row:
             if not row["watched"]:
@@ -122,9 +136,11 @@ def youtube_visto(data: VistoIn, background_tasks: BackgroundTasks):
         else:
             url = f"https://www.youtube.com/watch?v={data.video_id}"
             cat = canal["category"] or "General"
-            conn.execute("""INSERT INTO resources (url, title, description, category, resource_type, channel, watch_later, watched, sort_order)
+            conn.execute(
+                """INSERT INTO resources (url, title, description, category, resource_type, channel, watch_later, watched, sort_order)
                             VALUES (?, ?, '', ?, 'youtube', ?, 0, 1, ?)""",
-                         (url, data.title or url, cat, canal["channel"] or canal["title"], next_resource_order(conn, cat)))
+                (url, data.title or url, cat, canal["channel"] or canal["title"], next_resource_order(conn, cat)),
+            )
             created = True
     if created:  # miniatura, título y canal reales, como al guardarlo a mano
         background_tasks.add_task(do_scrape_and_save, url, cat)
@@ -138,7 +154,12 @@ def youtube_video(id: str):
         raise HTTPException(400, "Identificador de vídeo no válido")
     with get_db() as conn:
         r = find_video(conn, id)
-    return {"exists": bool(r), "watched": bool(r and r["watched"]), "watch_later": bool(r and r["watch_later"]), "category": r["category"] if r else None}
+    return {
+        "exists": bool(r),
+        "watched": bool(r and r["watched"]),
+        "watch_later": bool(r and r["watch_later"]),
+        "category": r["category"] if r else None,
+    }
 
 
 @router.get("/api/ext/youtube/canal")
@@ -152,7 +173,9 @@ def youtube_canal(channel: str):
         ids = {r[0] for r in conn.execute("SELECT video_id FROM yt_vistos WHERE channel=?", (clave,))}
         # lo marcado a mano en el Baúl también cuenta (sus vídeos llevan el nombre del canal)
         nombre = canal["channel"] or canal["title"]
-        for r in conn.execute("SELECT url FROM resources WHERE watched=1 AND resource_type='youtube' AND channel=?", (nombre,)):
+        for r in conn.execute(
+            "SELECT url FROM resources WHERE watched=1 AND resource_type='youtube' AND channel=?", (nombre,)
+        ):
             m = re.search(r"(?:v=|youtu\.be/)([\w-]{11})", r[0])
             if m:
                 ids.add(m.group(1))

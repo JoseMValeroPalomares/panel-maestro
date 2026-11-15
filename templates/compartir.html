@@ -1,0 +1,45 @@
+{% extends "_layout.html" %}
+{% block head %}<link rel="stylesheet" href="{{ asset('/static/css/items.css') }}"><link rel="stylesheet" href="{{ asset('/static/css/compartir.css') }}">{% endblock %}
+{% block body_class %}page-compartir{% endblock %}
+{% block title_icon %}{{ icon('share') }}{% endblock %}
+{% block content %}
+<div class="compartir stack" id="shareRoot">
+  {#- Lo pinta compartir.js con lo recibido (?title=&text=&url=); sin datos, cómo se usa -#}
+  <section class="panel compartir-panel" id="shareSummary" aria-labelledby="shareHeading">
+    <div class="panel-header"><h2 id="shareHeading" data-share-heading>Compartir al panel</h2></div>
+    <div class="panel-body stack" data-share-body>
+      <p class="muted">Desde cualquier app del móvil, «Compartir» → <strong>Panel</strong> abre aquí la captura ya rellena:
+        un enlace se propone para el Baúl y un texto se guarda como tarea o idea (con los prefijos de siempre:
+        <code>e:</code> evento, <code>r:</code> rutina…).</p>
+      <p class="small subtle">Hace falta tener el panel instalado como app (Android: menú ⋮ → «Instalar aplicación»). En
+        iPhone no aparece en «Compartir»: <a href="/ayuda/movil">cómo usarlo desde iOS</a>.</p>
+    </div>
+  </section>
+</div>
+
+{#- Enlace compartido: se propone guardarlo en el Baúl (el texto, si lo hay, va como tarea o idea si se prefiere) -#}
+<dialog class="modal" id="shareLinkModal" aria-labelledby="shareLinkTitle">
+  <form id="shareLinkForm">
+    <div class="modal-header">
+      <h2 id="shareLinkTitle">Guardar en el Baúl</h2>
+      <button type="button" class="btn btn-ghost btn-icon modal-close" data-close aria-label="Cerrar">{{ icon('x') }}</button>
+    </div>
+    <div class="modal-body stack">
+      <div class="share-link">
+        <span class="tile" data-section="baul" aria-hidden="true" data-share-icon>{{ icon('globe') }}</span>
+        <span class="row-main"><span class="row-title" data-share-title></span><span class="row-sub" data-share-host></span></span>
+      </div>
+      <label class="field"><span class="field-label">Categoría</span>
+        <input class="input" name="category" value="General" maxlength="120" list="shareCats" autocomplete="off" required></label>
+      <datalist id="shareCats"></datalist>
+      <label class="row"><input type="checkbox" class="checkbox" name="watch_later"><span>Guardar en «Para más tarde»</span></label>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-ghost" data-share-as-item>{{ icon('square-check', 'icon-sm') }}Mejor como tarea o idea</button>
+      <span class="grow"></span>
+      <button type="submit" class="btn btn-primary">{{ icon('library', 'icon-sm') }}Guardar en el Baúl</button>
+    </div>
+  </form>
+</dialog>
+{% endblock %}
+{% block scripts %}<script src="{{ asset('/static/js/compartir.js') }}"></script>{% endblock %}

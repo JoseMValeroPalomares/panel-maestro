@@ -1,4 +1,5 @@
 """Iconos: todo nombre que se pinta existe en el sprite y cada estado de stateView tiene su ilustración."""
+
 import re
 from pathlib import Path
 

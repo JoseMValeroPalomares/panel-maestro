@@ -1,4 +1,5 @@
 """Notas: de una nota abierta se vuelve siempre a la vista general (botón, Atrás del navegador y menú lateral)."""
+
 import json
 
 import pytest
@@ -10,7 +11,10 @@ PORTADA = "#notesHome .nh-title-main"
 @pytest.fixture()
 def notas(api):
     for slug, titulo in (("portada-uno", "Portada uno"), ("portada-dos", "Portada dos")):
-        api.post(f"/api/notes/{slug}", json={"title": titulo, "category": "Portada", "status": "en-desarrollo", "content": "Texto", "tags": []})
+        api.post(
+            f"/api/notes/{slug}",
+            json={"title": titulo, "category": "Portada", "status": "en-desarrollo", "content": "Texto", "tags": []},
+        )
     yield
     for slug in ("portada-uno", "portada-dos"):
         api.delete(f"/api/notes/{slug}")
@@ -70,8 +74,14 @@ def test_lo_escrito_se_guarda_al_volver(page, server, api, notas):
 
 def test_si_no_se_puede_guardar_la_nota_sigue_abierta(page, server, api, notas):
     _abrir_desde_portada(page, server)
-    page.route("**/api/notes/portada-uno", lambda r: r.fulfill(status=409, content_type="application/json", body=json.dumps({"detail": "no"}))
-               if r.request.method == "POST" else r.continue_())
+    page.route(
+        "**/api/notes/portada-uno",
+        lambda r: (
+            r.fulfill(status=409, content_type="application/json", body=json.dumps({"detail": "no"}))
+            if r.request.method == "POST"
+            else r.continue_()
+        ),
+    )
     page.locator("#noteContent").fill("Esto no se puede perder")
     page.get_by_role("button", name="Notas", exact=True).click()
     page.locator(".toast", has_text="sigue abierta").wait_for()
@@ -106,6 +116,7 @@ def test_un_guardado_fallido_se_reintenta_solo(page, server, api, notas):
             return route.continue_()
         fallos.append(1)
         route.fulfill(status=409, content_type="application/json", body=json.dumps({"detail": "no"}))
+
     page.route("**/api/notes/portada-uno", falla)
     page.locator("#noteContent").fill("Vuelve la conexión")
     page.wait_for_timeout(1400)

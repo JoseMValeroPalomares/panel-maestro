@@ -16,9 +16,10 @@ Dependencias necesarias (añadir a requirements.txt):
 import ipaddress
 import re
 import socket
+from urllib.parse import quote, urljoin, urlparse
+
 import httpx
 from bs4 import BeautifulSoup
-from urllib.parse import urlparse, urljoin, quote
 from ddgs import DDGS
 
 from core.logging_config import get_logger
@@ -27,8 +28,7 @@ log = get_logger("scraper")
 
 HEADERS = {
     "User-Agent": (
-        "Mozilla/5.0 (compatible; DigitalBrainBot/1.0; "
-        "+https://github.com/JoseMValeroPalomares/panel-maestro)"
+        "Mozilla/5.0 (compatible; DigitalBrainBot/1.0; +https://github.com/JoseMValeroPalomares/panel-maestro)"
     )
 }
 TIMEOUT = 10  # segundos
@@ -47,6 +47,7 @@ MAX_BODY_BYTES = 2 * 1024 * 1024  # no descargamos más de 2 MB de HTML
 # Riesgo residual conocido: DNS rebinding entre la validación y la
 # conexión (httpx vuelve a resolver). Mitigado parcialmente al validar
 # cada redirección; para un panel personal en LAN es aceptable.
+
 
 class UnsafeURLError(ValueError):
     pass
@@ -80,8 +81,13 @@ def validate_public_url(url: str) -> str:
     return url
 
 
-def safe_get(url: str, max_bytes: int = MAX_BODY_BYTES, strict: bool = False, headers: dict | None = None,
-             cookies: dict | None = None) -> tuple[httpx.Response, bytes]:
+def safe_get(
+    url: str,
+    max_bytes: int = MAX_BODY_BYTES,
+    strict: bool = False,
+    headers: dict | None = None,
+    cookies: dict | None = None,
+) -> tuple[httpx.Response, bytes]:
     """GET con validación SSRF en cada salto y tope de tamaño de respuesta.
     Con strict=True, superar el tope es un error (imágenes); si no, se trunca (HTML)."""
     current = url
@@ -118,13 +124,14 @@ def _http_url_or_empty(value: str) -> str:
 # YOUTUBE
 # ──────────────────────────────────────────────────────────────
 
+
 def _is_youtube(url: str) -> bool:
-    return bool(re.search(r'(youtube\.com|youtu\.be)', url))
+    return bool(re.search(r"(youtube\.com|youtu\.be)", url))
 
 
 def _is_youtube_channel(url: str) -> bool:
     """Detecta si la URL es un canal (no un vídeo concreto)."""
-    return bool(re.search(r'youtube\.com/(@[\w.-]+|channel/|c/|user/)', url))
+    return bool(re.search(r"youtube\.com/(@[\w.-]+|channel/|c/|user/)", url))
 
 
 def _extract_channel_handle(url: str) -> str | None:
@@ -133,10 +140,10 @@ def _extract_channel_handle(url: str) -> str | None:
     scraping. Para '/@codemath1' devuelve 'codemath1'.
     Para '/c/Nombre' o '/user/Nombre' devuelve 'Nombre'.
     """
-    m = re.search(r'youtube\.com/@([\w.-]+)', url)
+    m = re.search(r"youtube\.com/@([\w.-]+)", url)
     if m:
         return m.group(1)
-    m = re.search(r'youtube\.com/(?:c|user)/([\w.-]+)', url)
+    m = re.search(r"youtube\.com/(?:c|user)/([\w.-]+)", url)
     if m:
         return m.group(1)
     return None
@@ -156,6 +163,7 @@ def _og_tags(html: str) -> dict:
     """og:title, og:image… de un HTML. Con una expresión regular sobre todo el texto: YouTube las pone tras un
     «</head>» que aparece antes dentro de un script, y parsear 2 MB para cuatro etiquetas no compensa."""
     import html as htmllib
+
     out = {}
     for prop, content in re.findall(r'<meta\s+property="og:([\w:]+)"\s+content="([^"]*)"', html):
         out.setdefault(prop, htmllib.unescape(content).strip())
@@ -232,6 +240,7 @@ def youtube_video_id(url: str) -> str | None:
     """ID de 11 caracteres de un vídeo de YouTube, sea cual sea la forma de la URL (watch?v=…&list=…, youtu.be/…, shorts/,
     live/, embed/, music.youtube.com…). None si no es una URL de vídeo de YouTube (un canal, una lista sin vídeo, otra web…)."""
     from urllib.parse import parse_qs, urlparse
+
     try:
         u = urlparse(url.strip())
     except ValueError:
@@ -253,10 +262,10 @@ def canonical_youtube_url(video_id: str) -> str:
 def _extract_youtube_id(url: str) -> str | None:
     """Extrae el video ID de distintos formatos de URL de YouTube."""
     patterns = [
-        r'v=([A-Za-z0-9_-]{11})',
-        r'youtu\.be/([A-Za-z0-9_-]{11})',
-        r'embed/([A-Za-z0-9_-]{11})',
-        r'shorts/([A-Za-z0-9_-]{11})',
+        r"v=([A-Za-z0-9_-]{11})",
+        r"youtu\.be/([A-Za-z0-9_-]{11})",
+        r"embed/([A-Za-z0-9_-]{11})",
+        r"shorts/([A-Za-z0-9_-]{11})",
     ]
     for p in patterns:
         m = re.search(p, url)
@@ -268,6 +277,7 @@ def _extract_youtube_id(url: str) -> str | None:
 # ──────────────────────────────────────────────────────────────
 # WEB GENÉRICA (Open Graph + fallbacks)
 # ──────────────────────────────────────────────────────────────
+
 
 def _web_metadata(url: str, force_type: str = "web") -> dict:
     try:
@@ -312,19 +322,11 @@ def _web_metadata(url: str, force_type: str = "web") -> dict:
         or ((soup.title.string or "").strip() if soup.title else "")
         or _hostname(url)
     )
-    description = (
-        og("description")
-        or meta_name("description")
-        or meta_name("twitter:description")
-        or ""
-    )[:300]  # Truncamos para no guardar párrafos enteros
+    description = (og("description") or meta_name("description") or meta_name("twitter:description") or "")[
+        :300
+    ]  # Truncamos para no guardar párrafos enteros
 
-    image = (
-        og("image")
-        or meta_name("twitter:image")
-        or _favicon(soup, url)
-        or ""
-    )
+    image = og("image") or meta_name("twitter:image") or _favicon(soup, url) or ""
 
     image = _http_url_or_empty(urljoin(str(r.url), image)) if image else ""
 
@@ -352,6 +354,7 @@ def _favicon(soup: BeautifulSoup, url: str) -> str:
 # ──────────────────────────────────────────────────────────────
 # FUNCIÓN PÚBLICA
 # ──────────────────────────────────────────────────────────────
+
 
 def fetch_metadata(url: str) -> dict:
     """
@@ -391,8 +394,15 @@ def search_images(query: str, n: int = 8) -> list[dict]:
         w, h = int(r.get("width") or 0), int(r.get("height") or 0)
         if not img or re.search(r"\.(svg|gif)(\?|$)", img, re.I) or w < 400 or h < 300 or not (0.7 <= w / h <= 2.2):
             continue
-        out.append({"image": img, "thumbnail": _http_url_or_empty(r.get("thumbnail", "")), "width": w, "height": h,
-                    "title": (r.get("title") or "")[:200]})
+        out.append(
+            {
+                "image": img,
+                "thumbnail": _http_url_or_empty(r.get("thumbnail", "")),
+                "width": w,
+                "height": h,
+                "title": (r.get("title") or "")[:200],
+            }
+        )
         if len(out) >= n:
             break
     return out

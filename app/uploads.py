@@ -1,4 +1,5 @@
 """Subida de imágenes (pegar con Ctrl+V en el editor)."""
+
 import io
 import os
 import uuid

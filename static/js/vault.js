@@ -26,6 +26,37 @@ async function loadResources() {
     updateBadges();
     checkPendingResources();
     maybeBackfillChannels();
+    revealWanted();
+}
+
+/* /vault?recurso=N (desde la búsqueda): su pestaña, sin filtros, y resaltado. Solo la primera vez */
+let wantedResource = Number(new URLSearchParams(location.search).get('recurso')) || 0;
+const tabFromUrl = Boolean(wantedResource);  // manda sobre la pestaña recordada
+function revealWanted() {
+    if (!wantedResource) return;
+    const id = wantedResource;
+    wantedResource = 0;
+    history.replaceState(null, '', location.pathname);
+    const r = allResources.find(x => x.id === id);
+    if (!r) { toast('Ese recurso ya no está en el Baúl', { type: 'info' }); return; }
+    const tab = r.watched ? 'watched' : r.watch_later ? 'watchlater' : 'library';
+    activeCat = ''; activeType = 'all'; searchQuery = '';
+    for (const sid of ['searchInput', 'searchInputMobile']) document.getElementById(sid).value = '';
+    document.querySelectorAll('.type-chip').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.type === 'all')));
+    renderCategories();
+    const btn = document.querySelector(`.main-tab[data-maintab="${tab}"]`);
+    if (btn) switchMainTab(btn, tab); else applyFiltersAndRender();
+    const el = document.querySelector(`#vaultContent [data-id="${id}"]`);
+    if (!el) return;
+    // En «Vistos» puede estar en un grupo plegado: se abre solo esta vez (no se guarda)
+    for (let g = el.parentElement; g && g.id !== 'vaultContent'; g = g.parentElement) {
+        if (!g.hidden) continue;
+        g.hidden = false;
+        document.querySelector(`[aria-controls="${g.id}"]`)?.setAttribute('aria-expanded', 'true');
+    }
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    el.classList.add('is-flash');
+    setTimeout(() => el.classList.remove('is-flash'), 2400);
 }
 
 /* Vídeos antiguos sin canal: el servidor los rellena en segundo plano (poco a poco); mientras tanto, «Canal desconocido» */
@@ -76,6 +107,7 @@ for (const id of ['searchInput', 'searchInputMobile']) {
 
 function switchMainTab(btn, tab) {
     mainTab = tab;
+    Prefs.set('baul-pestana', tab);  // al volver (o con F5) se abre donde estabas
     document.querySelectorAll('.main-tab').forEach(b => b.setAttribute('aria-selected', String(b === btn)));
     applyFiltersAndRender();
     maybeBackfillChannels();
@@ -217,7 +249,7 @@ function ytCard(r) {
         <a class="yt-title" href="${escapeHtml(r.url)}" target="_blank" rel="noopener noreferrer" tabindex="-1">${pending ? '<span class="skeleton skeleton-line"></span>' : escapeHtml(r.title)}</a>
         <p class="yt-channel">${escapeHtml(isChannel(r.url) && (!r.channel || r.channel === r.title) ? 'Canal de YouTube' : (r.channel || r.description || ''))}</p>
       </div>
-      <div class="yt-actions">${mainTab === 'watchlater' ? `<button type="button" class="btn btn-tinted btn-sm" data-act="watched">${icon('check', 'icon-sm')}Visto</button>` : ''}<span class="grow"></span>${actionsHtml(r)}</div>
+      <div class="yt-actions">${mainTab === 'watchlater' ? `<button type="button" class="btn btn-tinted btn-sm" data-act="watched">${icon('check', 'icon-sm')}Visto</button>` : ''}${window.Ctx ? Ctx.chip(r) : ''}<span class="grow"></span>${actionsHtml(r)}</div>
     </article>`;
 }
 
@@ -231,7 +263,7 @@ function webRow(r) {
         <span class="row-title">${escapeHtml(isPending(r) ? host || r.url : r.title)}</span>
         <span class="row-sub">${escapeHtml(r.description || host)}</span>
       </a>
-      <span class="row-trail">${actionsHtml(r)}</span>
+      <span class="row-trail">${window.Ctx ? Ctx.chip(r) : ''}${actionsHtml(r)}</span>
     </li>`;
 }
 
@@ -306,6 +338,8 @@ function openEditModal(id) {
     document.getElementById('editDesc').value = r.description || '';
     document.getElementById('editCat').value = r.category || '';
     document.getElementById('editWatchLater').checked = !!r.watch_later;
+    const where = document.getElementById('editWhere');  // contexto, asignatura o proyecto (static/js/contexto.js)
+    Ctx.load().then(() => { where.innerHTML = Ctx.whereOptions(r.contexto ? r : { contexto: 'puntual' }); where.dataset.was = Ctx.whereOf(r); }).catch(() => {});
     openModal('editModal', { focus: '#editTitle' });
 }
 document.getElementById('editForm').addEventListener('submit', async (e) => {
@@ -316,6 +350,12 @@ document.getElementById('editForm').addEventListener('submit', async (e) => {
         description: document.getElementById('editDesc').value.trim(),
         category: document.getElementById('editCat').value.trim() || 'General',
         watch_later: document.getElementById('editWatchLater').checked,
+        ...(() => {
+            const w = document.getElementById('editWhere');
+            if (!w.value || w.value === w.dataset.was) return {};
+            const p = Ctx.whereToPatch(w.value);
+            return p.contexto ? { ...p, asignatura_id: 0, proyecto_id: 0 } : p;
+        })(),
     } });
     closeModal('editModal');
     toast('Cambios guardados');
@@ -327,12 +367,18 @@ async function deleteResource(id) {
     const r = allResources.find(x => x.id === id);
     const ok = await uiConfirm('¿Eliminar este recurso?', r?.title || r?.url || '', { confirmLabel: 'Eliminar', danger: true });
     if (!ok) return;
-    await api(`/api/resources/${id}`, { method: 'DELETE' });
-    toast('Recurso eliminado', { action: r ? { label: 'Deshacer', onClick: async () => {
-        await api('/api/resources', { method: 'POST', body: { url: r.url, category: r.category || 'General', watch_later: !!r.watch_later } });
-        loadResources();
-    } } : null });
+    // A la papelera: «Deshacer» lo devuelve tal cual (mismo id, orden, visto y descripción)
+    const res = await api(`/api/resources/${id}`, { method: 'DELETE' });
+    undoToast('Recurso en la papelera', res, loadResources);
     loadResources();
 }
 
 loadResources();
+
+/* La última pestaña (Biblioteca, Para más tarde o Vistos), como en el resto de pantallas */
+Prefs.ready?.then(() => {
+    if (tabFromUrl) return;
+    const t = Prefs.get('baul-pestana', 'library');
+    const b = document.querySelector(`.main-tab[data-maintab="${t}"]`);
+    if (b && t !== mainTab) switchMainTab(b, t);
+}).catch(() => {});

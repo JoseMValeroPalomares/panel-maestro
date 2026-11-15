@@ -4,19 +4,22 @@ import pytest
 from app import scraper
 
 
-@pytest.mark.parametrize("url", [
-    "http://127.0.0.1:8000/api/notes",
-    "http://localhost/",
-    "http://10.0.0.1/",
-    "http://192.168.1.52/ws",
-    "http://169.254.169.254/latest/meta-data/",
-    "http://[::1]/",
-    "http://[::ffff:127.0.0.1]/",
-    "http://0.0.0.0/",
-    "file:///etc/passwd",
-    "ftp://8.8.8.8/",
-    "gopher://8.8.8.8/",
-])
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://127.0.0.1:8000/api/notes",
+        "http://localhost/",
+        "http://10.0.0.1/",
+        "http://192.168.1.52/ws",
+        "http://169.254.169.254/latest/meta-data/",
+        "http://[::1]/",
+        "http://[::ffff:127.0.0.1]/",
+        "http://0.0.0.0/",
+        "file:///etc/passwd",
+        "ftp://8.8.8.8/",
+        "gopher://8.8.8.8/",
+    ],
+)
 def test_urls_peligrosas_rechazadas(url):
     with pytest.raises(scraper.UnsafeURLError):
         scraper.validate_public_url(url)
@@ -34,6 +37,7 @@ def _patch_client(monkeypatch, handler):
 def test_redireccion_a_ip_privada_bloqueada(monkeypatch):
     def handler(request):
         return httpx.Response(302, headers={"location": "http://127.0.0.1:8000/api/notes"})
+
     _patch_client(monkeypatch, handler)
     with pytest.raises(scraper.UnsafeURLError):
         scraper.safe_get("http://8.8.8.8/")

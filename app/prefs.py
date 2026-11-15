@@ -6,6 +6,7 @@ localStorage solo para pintar al instante (static/js/ui.js, window.Prefs).
 
 Cada preferencia es una clave con un valor JSON (un objeto pequeño).
 """
+
 import json
 import re
 import time
@@ -47,9 +48,11 @@ def put(key: str, value) -> None:
     if len(raw.encode()) > MAX_BYTES:
         raise HTTPException(status_code=413, detail="Preferencia demasiado grande")
     with get_db() as conn:
-        conn.execute("INSERT INTO ui_prefs (key, value, updated_at) VALUES (?, ?, ?) "
-                     "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
-                     (key, raw, time.time()))
+        conn.execute(
+            "INSERT INTO ui_prefs (key, value, updated_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+            (key, raw, time.time()),
+        )
 
 
 @router.get("")

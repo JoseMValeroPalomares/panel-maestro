@@ -10,7 +10,6 @@ const files = [
   ['node_modules/katex/dist/katex.min.js', 'katex/katex.min.js'],
   ['node_modules/katex/dist/katex.min.css', 'katex/katex.min.css'],
   ['node_modules/katex/dist/contrib/auto-render.min.js', 'katex/auto-render.min.js'],
-  ['node_modules/katex/dist/fonts', 'katex/fonts'],
   ['node_modules/@highlightjs/cdn-assets/highlight.min.js', 'highlight/highlight.min.js'],
   ['node_modules/@highlightjs/cdn-assets/styles/github.min.css', 'highlight/github.min.css'],
   ['node_modules/@highlightjs/cdn-assets/styles/github-dark.min.css', 'highlight/github-dark.min.css'],
@@ -21,7 +20,17 @@ for (const [src, dst] of files) {
   mkdirSync(target.substring(0, target.lastIndexOf('/')), { recursive: true });
   cpSync(src, target, { recursive: true });
 }
-console.log(`Vendor copiado a ${out} (${files.length} entradas)`);
+// KaTeX: solo woff2 (todos los navegadores que abren el panel lo leen; woff y ttf eran 1 MB que nunca se pedía) y el CSS
+// sin las otras dos fuentes de cada @font-face, para que no queden referencias a archivos que no existen.
+mkdirSync(`${out}/katex/fonts`, { recursive: true });
+const katexFonts = readdirSync('node_modules/katex/dist/fonts').filter((f) => f.endsWith('.woff2'));
+for (const f of katexFonts) cpSync(`node_modules/katex/dist/fonts/${f}`, `${out}/katex/fonts/${f}`);
+const katexCss = readFileSync(`${out}/katex/katex.min.css`, 'utf8')
+  .replace(/,\s*url\([^)]*\.woff\)\s*format\("woff"\)/g, '')
+  .replace(/,\s*url\([^)]*\.ttf\)\s*format\("truetype"\)/g, '');
+if (/\.(woff|ttf)\)/.test(katexCss)) { console.error('katex.min.css sigue citando fuentes woff/ttf'); process.exitCode = 1; }
+writeFileSync(`${out}/katex/katex.min.css`, katexCss);
+console.log(`Vendor copiado a ${out} (${files.length} entradas + ${katexFonts.length} fuentes woff2 de KaTeX)`);
 
 // Fuente de interfaz (Inter Variable) para equipos sin SF Pro.
 mkdirSync('static/fonts', { recursive: true });

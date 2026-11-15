@@ -1,4 +1,5 @@
 """Ronda 2 · fase 4: navegación lateral plegable a iconos con botón (y recordada)."""
+
 import os
 from pathlib import Path
 
@@ -43,7 +44,10 @@ def test_plegar_y_desplegar_recordado(page, server):
 
 def test_tablet_por_defecto_plegada_y_se_puede_desplegar(browser, server):
     import httpx
-    httpx.put(f"{server}/api/prefs/nav", json={"value": None}, timeout=10)  # sin preferencia guardada (el test anterior la deja)
+
+    httpx.put(
+        f"{server}/api/prefs/nav", json={"value": None}, timeout=10
+    )  # sin preferencia guardada (el test anterior la deja)
     ctx = browser.new_context(viewport={"width": 900, "height": 900}, service_workers="block")
     page = ctx.new_page()
     try:

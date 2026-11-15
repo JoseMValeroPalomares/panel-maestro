@@ -97,6 +97,17 @@ mark { background: rgba(255, 204, 0, 0.35); color: inherit; border-radius: 3px; 
 .save-indicator { font-size: var(--fs-12); color: var(--text-3); font-weight: 500; white-space: nowrap; transition: opacity var(--dur); }
 .save-indicator.saved { color: var(--success); }
 .save-indicator.error { color: var(--danger); }
+.save-conflict-btn { font: inherit; color: var(--warning-text); background: none; border: 0; cursor: pointer; text-decoration: underline;
+  text-underline-offset: 3px; border-radius: var(--r-sm); padding: 2px 4px; margin: -2px -4px; }
+.save-conflict-btn:hover { background: var(--warning-soft); }
+.save-conflict-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.scb-short { display: none; }
+@media (max-width: 767px) {  /* en el móvil no cabe en la barra: «Conflicto» a la vista, la frase entera para el lector */
+  .scb-short { display: inline; }
+  .scb-long { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
+/* En pantallas táctiles, 44 px de zona de toque sin mover la barra */
+@media (pointer: coarse) { .save-conflict-btn { position: relative; } .save-conflict-btn::after { content: ''; position: absolute; inset: -12px -4px; } }
 
 .note-title-input {
   display: block; width: 100%; border: 0; background: transparent; padding: var(--sp-2) 0 var(--sp-1);
@@ -130,6 +141,7 @@ dialog.modal.modal-newnote { width: min(620px, calc(100vw - 32px)); overflow: vi
 .status-btn:hover { background: var(--fill-strong); }
 .status-btn .icon { width: 14px; height: 14px; color: var(--text-3); }
 .lock-toggle[aria-pressed="true"] { color: var(--warning); background: var(--warning-soft); }
+.lock-toggle.is-unavailable { opacity: 0.55; cursor: help; }  /* sin HTTPS: pulsarlo explica por qué (V-5) */
 
 .editor-toolbar {
   display: flex; align-items: center; gap: 2px; flex-shrink: 0;
@@ -193,6 +205,9 @@ dialog.modal.modal-newnote { width: min(620px, calc(100vw - 32px)); overflow: vi
 .annotation-block[data-tag="resumir"] { background: var(--warning-soft); color: var(--warning-text); }
 .annotation-block[data-tag="entender"] { background: var(--accent-soft); color: var(--accent-text); }
 .annotation-block[data-tag="mal"] { background: var(--danger-soft); color: var(--danger-text); }
+.annotation-block[data-tag="duda"] { background: color-mix(in srgb, var(--cat-4) 16%, transparent); color: var(--text); }
+.annotation-block[data-tag="examen"] { background: var(--danger-soft); color: var(--danger-text); }
+.annotation-block[data-tag="importante"] { background: var(--warning-soft); color: var(--warning-text); }
 .annotation-block .annot-label { font-size: var(--fs-12); font-weight: 700; margin-right: 4px; text-transform: uppercase; letter-spacing: 0.02em; }
 .sim-widget { border-radius: var(--r-md); overflow: hidden; box-shadow: 0 0 0 0.5px var(--separator), var(--shadow-1); background: var(--bg-elev-2); }
 .sim-header { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); font-size: var(--fs-13); font-weight: 600; color: var(--text-2); }
@@ -347,3 +362,17 @@ dialog.modal.modal-newnote { width: min(620px, calc(100vw - 32px)); overflow: vi
 .spinner { width: 28px; height: 28px; border-radius: 50%; border: 3px solid var(--separator-strong); border-top-color: var(--accent); animation: ai-spin .9s linear infinite; }
 @keyframes ai-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 3s; } .group-toggle .chev { transition: none; } }
+
+/* Proponer flashcards con IA (F-4): una fila por tarjeta, editable */
+.fcia-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+.fcia-card { display: flex; align-items: flex-start; gap: var(--sp-2); padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-3); border: 1px solid var(--border); border-radius: var(--r-md); }
+.fcia-card.is-off { opacity: 0.55; }
+.fcia-card.is-off .fcia-fields .input { text-decoration: line-through; }
+.fcia-pick { padding-top: 10px; }
+.fcia-fields { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.fcia-fields .fcia-q { font-weight: 600; }
+.fcia-err { margin: 0; color: var(--danger-text, var(--danger)); }
+.fcia-card > .btn { margin-top: 4px; }
+.fcia-why { display: flex; gap: var(--sp-2); align-items: flex-start; }
+.fcia-why .icon { flex: none; margin-top: 2px; }
+.fcia-fields textarea.input { resize: none; field-sizing: content; min-height: 0; line-height: 1.4; overflow-wrap: anywhere; }

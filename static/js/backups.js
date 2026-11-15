@@ -41,7 +41,17 @@
       ['Copias guardadas', `${st.count} · ${bytes(st.total_bytes)}`],
       ['Libre en disco', bytes(st.disk_free_bytes)],
     ];
-    $('statusFacts').innerHTML = facts.map(([k, v]) => `<div><dt>${k}</dt><dd>${escapeHtml(v)}</dd></div>`).join('');
+    $('statusFacts').innerHTML = facts.map(([k, v]) => `<div><dt>${k}</dt><dd>${escapeHtml(v)}</dd></div>`).join('') + mirrorFact(st.mirror);
+  }
+
+  /* Espejo (PANEL_BACKUP_MIRROR): a todo el ancho, con la carpeta aparte en pequeño. Si falla es un aviso, no un error */
+  function mirrorFact(m) {
+    if (!m) return '';
+    const text = m.state === 'ok' ? `${m.count} copias · la última ${m.last ? timeAgo(m.last.created_at) : '—'}${m.same_disk ? ' · en este mismo disco' : ''}`
+      : m.state === 'pendiente' ? 'Listo: recibirá la próxima copia'
+        : !m.available ? 'No disponible: ¿unidad sin montar?' : 'Falló la última copia al espejo';
+    const why = m.state === 'error' && m.available && m.error ? `<span class="fact-note">${escapeHtml(m.error)}</span>` : '';
+    return `<div class="fact-wide" data-state="${m.state}"><dt>Espejo</dt><dd>${escapeHtml(text)}${why}<span class="fact-note">${escapeHtml(m.dir)}</span></dd></div>`;
   }
 
   /* ---------- Listado ---------- */
@@ -115,6 +125,9 @@
       const c = manifest.counts || {};
       const notas = document.querySelector('[data-count="notas"]');
       if (notas && c.notas != null) notas.textContent = ` · ${c.notas} notas en la copia (se quitan las creadas después)`;
+      const versiones = document.querySelector('[data-count="versiones"]');
+      if (versiones) versiones.textContent = c.versiones != null ? ` · ${c.versiones} versiones en la copia (solo añade las que falten)`
+        : manifest.format < 2 ? ' · esta copia no las guarda' : ' · solo añade las que falten';
     } catch {}
   }
 

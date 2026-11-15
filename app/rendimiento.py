@@ -15,6 +15,7 @@ Las reglas y los semáforos son deterministas (app/rendimiento_rules.py); la IA 
     GET    /api/rendimiento/correlaciones     sueño de la noche anterior vs minutos y estado (≥ N días)
     GET/PUT /api/rendimiento/ajustes          umbrales y qué rutina precarga cada campo
 """
+
 import json
 import re
 import time
@@ -24,6 +25,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
 from app import rendimiento_rules as R
+from app.contador import bloques_de_estudio
 from app.database import get_db
 from core import undo
 
@@ -40,7 +42,16 @@ OPCIONES = {
     "estado": ("funcional", "degradado"),
 }
 # Campos del día que la sugerencia copia del último registro (hábitos que cambian poco)
-HABITOS = ("acostarse", "despertar", "primer_cafe", "pantallas_off", "activacion", "luz_solar", "siesta", "comida_tarde")
+HABITOS = (
+    "acostarse",
+    "despertar",
+    "primer_cafe",
+    "pantallas_off",
+    "activacion",
+    "luz_solar",
+    "siesta",
+    "comida_tarde",
+)
 # Rutinas que precargan un campo si están marcadas ese día (se buscan por nombre si no se eligieron en ajustes)
 RUTINA_CAMPOS = {
     "despertar": ("Despertar", r"levant|despert"),
@@ -80,12 +91,14 @@ def _opcion(campo):
         if v not in OPCIONES[campo]:
             raise ValueError(f"Valor no válido: {v}")
         return v
+
     return check
 
 
 # ─────────────────────────────────────────────
 # Modelos
 # ─────────────────────────────────────────────
+
 
 class BloqueIn(BaseModel):
     asignatura: str = Field(min_length=1, max_length=60)
@@ -160,6 +173,7 @@ class AsignaturaIn(BaseModel):
 # Lectura
 # ─────────────────────────────────────────────
 
+
 def ajustes(conn) -> dict:
     aj = dict(R.DEFAULTS)
     for r in conn.execute("SELECT clave, valor FROM rend_ajustes"):
@@ -171,9 +185,13 @@ def ajustes(conn) -> dict:
 
 
 def _dias(conn, desde: str, hasta: str) -> dict[str, dict]:
-    dias = {r["fecha"]: {**dict(r), "bloques": []} for r in
-            conn.execute("SELECT * FROM rend_dias WHERE fecha BETWEEN ? AND ?", (desde, hasta))}
-    for b in conn.execute("SELECT * FROM rend_bloques WHERE fecha BETWEEN ? AND ? ORDER BY fecha, orden, id", (desde, hasta)):
+    dias = {
+        r["fecha"]: {**dict(r), "bloques": []}
+        for r in conn.execute("SELECT * FROM rend_dias WHERE fecha BETWEEN ? AND ?", (desde, hasta))
+    }
+    for b in conn.execute(
+        "SELECT * FROM rend_bloques WHERE fecha BETWEEN ? AND ? ORDER BY fecha, orden, id", (desde, hasta)
+    ):
         if b["fecha"] in dias:
             dias[b["fecha"]]["bloques"].append(dict(b))
     return dias
@@ -182,7 +200,9 @@ def _dias(conn, desde: str, hasta: str) -> dict[str, dict]:
 def _rutinas_mapa(conn, aj: dict) -> dict[str, dict]:
     """campo → rutina (id, título). La elegida en ajustes manda; si no, la primera cuyo nombre encaje."""
     elegidas = aj.get("rutinas") or {}
-    filas = conn.execute("SELECT id, content, due_time, duration_min FROM inbox WHERE item_type='rutina' AND status != 'done' ORDER BY id").fetchall()
+    filas = conn.execute(
+        "SELECT id, content, due_time, duration_min FROM inbox WHERE item_type='rutina' AND status != 'done' ORDER BY id"
+    ).fetchall()
     por_id = {r["id"]: r for r in filas}
     out = {}
     for campo, (_, patron) in RUTINA_CAMPOS.items():
@@ -233,15 +253,23 @@ def _asignaturas(conn) -> list[str]:
     for r in _examenes(conn, desde):
         s.add(r["sigla"])
     s.update(r[0] for r in conn.execute("SELECT sigla FROM rend_asignaturas"))
-    usadas = [r[0] for r in conn.execute("SELECT asignatura FROM rend_bloques GROUP BY asignatura ORDER BY MAX(fecha) DESC, COUNT(*) DESC")]
+    usadas = [
+        r[0]
+        for r in conn.execute(
+            "SELECT asignatura FROM rend_bloques GROUP BY asignatura ORDER BY MAX(fecha) DESC, COUNT(*) DESC"
+        )
+    ]
     return usadas + sorted(s - set(usadas), key=str.lower)
 
 
 def _examenes(conn, desde: str) -> list[dict]:
     out = []
-    for r in conn.execute("""SELECT id, title, start FROM events
+    for r in conn.execute(
+        """SELECT id, title, start FROM events
                              WHERE (kind='examen' OR title LIKE '%xamen%' OR title LIKE '%arcial%') AND substr(start, 1, 10) >= ?
-                             ORDER BY start""", (desde,)):
+                             ORDER BY start""",
+        (desde,),
+    ):
         titulo = r["title"] or ""
         sigla, _, resto = titulo.partition(" · ")
         if not resto:
@@ -254,6 +282,7 @@ def _examenes(conn, desde: str) -> list[dict]:
 # Rutas
 # ─────────────────────────────────────────────
 
+
 @router.get("/dia")
 def api_dia(fecha: str | None = None):
     fecha = _fecha(fecha)
@@ -261,8 +290,16 @@ def api_dia(fecha: str | None = None):
         aj = ajustes(conn)
         dia = _dias(conn, fecha, fecha).get(fecha)
         sug, fuentes = _sugerencia(conn, fecha, aj)
-        return {"fecha": fecha, "registro": dia, "sugerencia": sug, "fuentes": fuentes,
-                "asignaturas": _asignaturas(conn), "ajustes": aj}
+        return {
+            "fecha": fecha,
+            "registro": dia,
+            "sugerencia": sug,
+            "fuentes": fuentes,
+            "asignaturas": _asignaturas(conn),
+            "ajustes": aj,
+            # P-2: lo cronometrado ese día en Universidad, por asignatura, para añadirlo como bloque con un toque
+            "bloques_propuestos": bloques_de_estudio(fecha),
+        }
 
 
 @router.put("/dia/{fecha}")
@@ -281,14 +318,18 @@ def api_guardar(fecha: str, data: DiaIn):
     with get_db() as conn:
         cols = ", ".join(COLUMNAS)
         sets = ", ".join(f"{k}=excluded.{k}" for k in COLUMNAS)
-        conn.execute(f"""INSERT INTO rend_dias (fecha, {cols}, actualizado) VALUES (?, {', '.join('?' * len(COLUMNAS))}, ?)
+        conn.execute(
+            f"""INSERT INTO rend_dias (fecha, {cols}, actualizado) VALUES (?, {", ".join("?" * len(COLUMNAS))}, ?)
                          ON CONFLICT(fecha) DO UPDATE SET {sets}, actualizado=excluded.actualizado""",
-                     [fecha, *fila.values(), time.time()])
+            [fecha, *fila.values(), time.time()],
+        )
         conn.execute("DELETE FROM rend_bloques WHERE fecha=?", (fecha,))
         for i, b in enumerate(data.bloques):
-            conn.execute("""INSERT INTO rend_bloques (fecha, asignatura, minutos, recall, codificacion, pausas, caida, estado, orden)
+            conn.execute(
+                """INSERT INTO rend_bloques (fecha, asignatura, minutos, recall, codificacion, pausas, caida, estado, orden)
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                         (fecha, b.asignatura, b.minutos, int(b.recall), b.codificacion, b.pausas, b.caida, b.estado, i))
+                (fecha, b.asignatura, b.minutos, int(b.recall), b.codificacion, b.pausas, b.caida, b.estado, i),
+            )
     marcadas = _marcar_rutinas(fecha, fila)  # fuera del bloque: set_done abre su propia conexión de escritura
     out = panel(fecha)
     sincronizar_alertas(fecha, out["alertas"])
@@ -299,16 +340,26 @@ def api_guardar(fecha: str, data: DiaIn):
 # Integración: rutinas cumplidas y alertas como tareas
 # ─────────────────────────────────────────────
 
+
 def _marcar_rutinas(fecha: str, fila: dict) -> list[str]:
     """Lo registrado marca su rutina ese día (activación, luz solar, entreno). Solo marca, nunca desmarca."""
     from app.items import set_done
-    quiere = {"activacion": fila.get("activacion") == "si", "luz_solar": bool(fila.get("luz_solar")), "entreno": bool(fila.get("entreno"))}
+
+    quiere = {
+        "activacion": fila.get("activacion") == "si",
+        "luz_solar": bool(fila.get("luz_solar")),
+        "entreno": bool(fila.get("entreno")),
+    }
     with get_db() as conn:
         mapa = _rutinas_mapa(conn, ajustes(conn))
-        pendientes = [(c, r) for c, r in mapa.items() if quiere.get(c)
-                      and not conn.execute("SELECT 1 FROM routine_checks WHERE item_id=? AND day=?", (r["id"], fecha)).fetchone()]
+        pendientes = [
+            (c, r)
+            for c, r in mapa.items()
+            if quiere.get(c)
+            and not conn.execute("SELECT 1 FROM routine_checks WHERE item_id=? AND day=?", (r["id"], fecha)).fetchone()
+        ]
     hechas = []
-    for campo, r in pendientes:
+    for _campo, r in pendientes:
         try:
             set_done(r["id"], True, fecha)
             hechas.append(r["content"])
@@ -320,15 +371,26 @@ def _marcar_rutinas(fecha: str, fila: dict) -> list[str]:
 def _tarea_alerta(fecha: str, a: dict) -> int | None:
     """Una tarea accionable por regla: si ya hay una pendiente de la misma regla, se reutiliza."""
     from app.items import ItemIn, create
+
     with get_db() as conn:
-        viva = conn.execute("""SELECT a.item_id FROM rend_alertas a JOIN inbox i ON i.id = a.item_id
-                              WHERE a.regla=? AND i.status != 'processed' ORDER BY a.fecha DESC LIMIT 1""", (a["id"],)).fetchone()
+        viva = conn.execute(
+            """SELECT a.item_id FROM rend_alertas a JOIN inbox i ON i.id = a.item_id
+                              WHERE a.regla=? AND i.status != 'processed' ORDER BY a.fecha DESC LIMIT 1""",
+            (a["id"],),
+        ).fetchone()
     if viva:
         return viva["item_id"]
     hoy = date.today().isoformat()
-    return create(ItemIn(text=f"Rendimiento · {a['titulo']}", type="tarea", category="Rendimiento",
-                         priority="alta" if a["nivel"] == "rojo" else "media", due_date=max(fecha, hoy),
-                         details=f"{a['texto']}\n\nDetectado el {fecha}: /rendimiento?fecha={fecha}"))
+    return create(
+        ItemIn(
+            text=f"Rendimiento · {a['titulo']}",
+            type="tarea",
+            category="Rendimiento",
+            priority="alta" if a["nivel"] == "rojo" else "media",
+            due_date=max(fecha, hoy),
+            details=f"{a['texto']}\n\nDetectado el {fecha}: [ver ese día en Rendimiento](/rendimiento?fecha={fecha})",
+        )
+    )
 
 
 def sincronizar_alertas(fecha: str, lista: list[dict]) -> None:
@@ -342,9 +404,15 @@ def sincronizar_alertas(fecha: str, lista: list[dict]) -> None:
         nuevas = []
         for a in lista:
             if a["id"] in prev:
-                conn.execute("UPDATE rend_alertas SET nivel=?, titulo=?, texto=? WHERE fecha=? AND regla=?", (a["nivel"], a["titulo"], a["texto"], fecha, a["id"]))
+                conn.execute(
+                    "UPDATE rend_alertas SET nivel=?, titulo=?, texto=? WHERE fecha=? AND regla=?",
+                    (a["nivel"], a["titulo"], a["texto"], fecha, a["id"]),
+                )
             else:
-                conn.execute("INSERT INTO rend_alertas (fecha, regla, nivel, titulo, texto) VALUES (?, ?, ?, ?, ?)", (fecha, a["id"], a["nivel"], a["titulo"], a["texto"]))
+                conn.execute(
+                    "INSERT INTO rend_alertas (fecha, regla, nivel, titulo, texto) VALUES (?, ?, ?, ?, ?)",
+                    (fecha, a["id"], a["nivel"], a["titulo"], a["texto"]),
+                )
                 nuevas.append(a)
     if fecha < (date.today() - timedelta(days=1)).isoformat():
         return
@@ -362,7 +430,9 @@ def api_borrar(fecha: str):
         if not dia:
             raise HTTPException(status_code=404, detail="No hay registro ese día")
         bloques = dia.pop("bloques")
-        token = undo.save(conn, "rendimiento.dia", {"dia": dia, "bloques": bloques}, title=f"Registro del {fecha}", count=1)
+        token = undo.save(
+            conn, "rendimiento.dia", {"dia": dia, "bloques": bloques}, title=f"Registro del {fecha}", count=1
+        )
         conn.execute("DELETE FROM rend_dias WHERE fecha=?", (fecha,))  # los bloques caen en cascada
     return {"status": "success", "trash": token}
 
@@ -382,11 +452,20 @@ def panel(fecha: str) -> dict:
     with get_db() as conn:
         aj = ajustes(conn)
         dias = _dias(conn, atras, fecha)
-        tareas = {r["regla"]: r["item_id"] for r in conn.execute("SELECT regla, item_id FROM rend_alertas WHERE fecha=?", (fecha,))}
+        tareas = {
+            r["regla"]: r["item_id"]
+            for r in conn.execute("SELECT regla, item_id FROM rend_alertas WHERE fecha=?", (fecha,))
+        }
     dia = dias.get(fecha)
     alertas = [{**a, "item_id": tareas.get(a["id"])} for a in R.alertas(dias, fecha, aj)]
-    return {"fecha": fecha, "registrado": bool(dia), "semaforos": R.semaforos(dia, aj), "alertas": alertas,
-            "resumen": R.resumen_bloques((dia or {}).get("bloques") or []), "horas_sueno": R.horas_sueno(dia or {})}
+    return {
+        "fecha": fecha,
+        "registrado": bool(dia),
+        "semaforos": R.semaforos(dia, aj),
+        "alertas": alertas,
+        "resumen": R.resumen_bloques((dia or {}).get("bloques") or []),
+        "horas_sueno": R.horas_sueno(dia or {}),
+    }
 
 
 @router.get("/panel")
@@ -417,10 +496,24 @@ def api_serie(dias: int = 7, hasta: str | None = None):
             out.append({"fecha": f, "registrado": False})
             continue
         r = R.resumen_bloques(d["bloques"])
-        out.append({"fecha": f, "registrado": True, "acostarse": d["acostarse"], "acostarse_min": R.noche(d["acostarse"]),
-                    "horas_sueno": R.horas_sueno(d), "minutos": r["minutos"], "bloques": r["n"],
-                    "pct_recall": r["pct_recall"], "pct_activa": r["pct_activa"], "dopamina": d["dopamina"],
-                    "energia": d["energia"], "niebla": d["niebla"], "humor": d["humor"], "dolor_cabeza": d["dolor_cabeza"]})
+        out.append(
+            {
+                "fecha": f,
+                "registrado": True,
+                "acostarse": d["acostarse"],
+                "acostarse_min": R.noche(d["acostarse"]),
+                "horas_sueno": R.horas_sueno(d),
+                "minutos": r["minutos"],
+                "bloques": r["n"],
+                "pct_recall": r["pct_recall"],
+                "pct_activa": r["pct_activa"],
+                "dopamina": d["dopamina"],
+                "energia": d["energia"],
+                "niebla": d["niebla"],
+                "humor": d["humor"],
+                "dolor_cabeza": d["dolor_cabeza"],
+            }
+        )
     hechos = [x for x in out if x["registrado"]]
     bl = [x for x in hechos if x["bloques"]]
 
@@ -428,15 +521,30 @@ def api_serie(dias: int = 7, hasta: str | None = None):
         v = [x[k] for x in xs if x.get(k) is not None]
         return round(sum(v) / len(v), 1) if v else None
 
-    return {"desde": desde, "hasta": hasta, "dias": out,
-            "objetivos": {"acostarse": aj["objetivo_acostarse"], "acostarse_min": R.noche(aj["objetivo_acostarse"]),
-                          "limite_acostarse_min": R.noche(aj["limite_acostarse"]), "sueno_h": aj["objetivo_sueno_h"],
-                          "max_enfoque_min": aj["max_enfoque_min"]},
-            "totales": {"registrados": len(hechos), "minutos": sum(x["minutos"] for x in hechos),
-                        "media_sueno": media("horas_sueno", hechos), "media_minutos": media("minutos", hechos),
-                        "pct_recall": media("pct_recall", bl), "pct_activa": media("pct_activa", bl),
-                        "blindaje": round(100 * sum(1 for x in hechos if not x["dopamina"]) / len(hechos)) if hechos else None,
-                        "energia": media("energia", hechos), "niebla": media("niebla", hechos), "humor": media("humor", hechos)}}
+    return {
+        "desde": desde,
+        "hasta": hasta,
+        "dias": out,
+        "objetivos": {
+            "acostarse": aj["objetivo_acostarse"],
+            "acostarse_min": R.noche(aj["objetivo_acostarse"]),
+            "limite_acostarse_min": R.noche(aj["limite_acostarse"]),
+            "sueno_h": aj["objetivo_sueno_h"],
+            "max_enfoque_min": aj["max_enfoque_min"],
+        },
+        "totales": {
+            "registrados": len(hechos),
+            "minutos": sum(x["minutos"] for x in hechos),
+            "media_sueno": media("horas_sueno", hechos),
+            "media_minutos": media("minutos", hechos),
+            "pct_recall": media("pct_recall", bl),
+            "pct_activa": media("pct_activa", bl),
+            "blindaje": round(100 * sum(1 for x in hechos if not x["dopamina"]) / len(hechos)) if hechos else None,
+            "energia": media("energia", hechos),
+            "niebla": media("niebla", hechos),
+            "humor": media("humor", hechos),
+        },
+    }
 
 
 @router.get("/alertas")
@@ -447,15 +555,28 @@ def api_alertas(dias: int = 30, hasta: str | None = None):
     hasta = _fecha(hasta)
     desde = (date.fromisoformat(hasta) - timedelta(days=dias - 1)).isoformat()
     with get_db() as conn:
-        filas = conn.execute("""SELECT a.*, i.status AS tarea_estado FROM rend_alertas a LEFT JOIN inbox i ON i.id = a.item_id
-                                WHERE a.fecha BETWEEN ? AND ? ORDER BY a.fecha DESC, a.id DESC""", (desde, hasta)).fetchall()
-    return {"alertas": [{**dict(r), "item_id": r["item_id"] if r["tarea_estado"] else None, "tarea_hecha": r["tarea_estado"] == "processed"} for r in filas]}
+        filas = conn.execute(
+            """SELECT a.*, i.status AS tarea_estado FROM rend_alertas a LEFT JOIN inbox i ON i.id = a.item_id
+                                WHERE a.fecha BETWEEN ? AND ? ORDER BY a.fecha DESC, a.id DESC""",
+            (desde, hasta),
+        ).fetchall()
+    return {
+        "alertas": [
+            {
+                **dict(r),
+                "item_id": r["item_id"] if r["tarea_estado"] else None,
+                "tarea_hecha": r["tarea_estado"] == "processed",
+            }
+            for r in filas
+        ]
+    }
 
 
 @router.get("/exportar")
 def api_exportar(formato: str = "json", tabla: str = "dias"):
     """Tus registros en CSV (una tabla: días o bloques) o en JSON (todo junto). Nada sale del equipo."""
     from core.tabular import csv_response, json_response
+
     with get_db() as conn:
         dias = [dict(r) for r in conn.execute("SELECT * FROM rend_dias ORDER BY fecha")]
         bloques = [dict(r) for r in conn.execute("SELECT * FROM rend_bloques ORDER BY fecha, orden, id")]
@@ -464,11 +585,17 @@ def api_exportar(formato: str = "json", tabla: str = "dias"):
         por_dia = {}
         for b in bloques:
             por_dia.setdefault(b["fecha"], []).append({k: v for k, v in b.items() if k not in ("id", "fecha")})
-        return json_response("dias", [{**d, "bloques": por_dia.get(d["fecha"], [])} for d in dias], f"rendimiento-{hoy}")
+        return json_response(
+            "dias", [{**d, "bloques": por_dia.get(d["fecha"], [])} for d in dias], f"rendimiento-{hoy}"
+        )
     if formato != "csv" or tabla not in ("dias", "bloques"):
         raise HTTPException(status_code=422, detail="formato json o csv; tabla dias o bloques")
     if tabla == "bloques":
-        return csv_response(bloques, ["fecha", "orden", "asignatura", "minutos", "recall", "codificacion", "pausas", "caida", "estado"], f"rendimiento-bloques-{hoy}")
+        return csv_response(
+            bloques,
+            ["fecha", "orden", "asignatura", "minutos", "recall", "codificacion", "pausas", "caida", "estado"],
+            f"rendimiento-bloques-{hoy}",
+        )
     return csv_response(dias, ["fecha", *COLUMNAS], f"rendimiento-dias-{hoy}")
 
 
@@ -478,10 +605,19 @@ def api_examenes():
     with get_db() as conn:
         futuros = _examenes(conn, hoy.isoformat())
         objetivos = {r["sigla"]: r["objetivo_h"] for r in conn.execute("SELECT * FROM rend_asignaturas")}
-        horas = {r["asignatura"]: (r["m"] / 60, r["u"]) for r in conn.execute(
-            "SELECT asignatura, SUM(minutos) AS m, MAX(fecha) AS u FROM rend_bloques GROUP BY asignatura")}
-        semana = {r["asignatura"]: r["m"] / 60 for r in conn.execute(
-            "SELECT asignatura, SUM(minutos) AS m FROM rend_bloques WHERE fecha > ? GROUP BY asignatura", ((hoy - timedelta(days=7)).isoformat(),))}
+        horas = {
+            r["asignatura"]: (r["m"] / 60, r["u"])
+            for r in conn.execute(
+                "SELECT asignatura, SUM(minutos) AS m, MAX(fecha) AS u FROM rend_bloques GROUP BY asignatura"
+            )
+        }
+        semana = {
+            r["asignatura"]: r["m"] / 60
+            for r in conn.execute(
+                "SELECT asignatura, SUM(minutos) AS m FROM rend_bloques WHERE fecha > ? GROUP BY asignatura",
+                ((hoy - timedelta(days=7)).isoformat(),),
+            )
+        }
     siglas = list(dict.fromkeys([e["sigla"] for e in futuros] + list(objetivos) + list(horas)))
     out = []
     for s in siglas:
@@ -491,9 +627,20 @@ def api_examenes():
         obj = objetivos.get(s)
         deuda = round(max(0.0, obj - hechas), 1) if obj else None
         quedan = (date.fromisoformat(prox["fecha"]) - hoy).days if prox else None
-        out.append({"sigla": s, "examenes": exs, "proximo": prox, "dias": quedan, "horas": round(hechas, 1),
-                    "horas_semana": round(semana.get(s, 0.0), 1), "ultima": ultima, "objetivo_h": obj, "deuda_h": deuda,
-                    "ritmo_h_dia": round(deuda / quedan, 1) if deuda and quedan and quedan > 0 else None})
+        out.append(
+            {
+                "sigla": s,
+                "examenes": exs,
+                "proximo": prox,
+                "dias": quedan,
+                "horas": round(hechas, 1),
+                "horas_semana": round(semana.get(s, 0.0), 1),
+                "ultima": ultima,
+                "objetivo_h": obj,
+                "deuda_h": deuda,
+                "ritmo_h_dia": round(deuda / quedan, 1) if deuda and quedan and quedan > 0 else None,
+            }
+        )
     out.sort(key=lambda x: (x["dias"] is None, x["dias"] if x["dias"] is not None else 0, x["sigla"].lower()))
     return {"asignaturas": out}
 
@@ -505,8 +652,10 @@ def api_asignatura(sigla: str, data: AsignaturaIn):
         raise HTTPException(status_code=422, detail="Asignatura no válida")
     with get_db() as conn:
         if data.objetivo_h:
-            conn.execute("INSERT INTO rend_asignaturas (sigla, objetivo_h) VALUES (?, ?) ON CONFLICT(sigla) DO UPDATE SET objetivo_h=excluded.objetivo_h",
-                         (sigla, data.objetivo_h))
+            conn.execute(
+                "INSERT INTO rend_asignaturas (sigla, objetivo_h) VALUES (?, ?) ON CONFLICT(sigla) DO UPDATE SET objetivo_h=excluded.objetivo_h",
+                (sigla, data.objetivo_h),
+            )
         else:
             conn.execute("DELETE FROM rend_asignaturas WHERE sigla=?", (sigla,))
     return {"status": "success"}
@@ -523,8 +672,14 @@ def api_correlaciones():
         if h is None:
             continue
         r = R.resumen_bloques(d["bloques"])
-        puntos.append({"fecha": f, "horas_sueno": h, "minutos": r["minutos"],
-                       "pct_funcional": round(100 * (r["n"] - r["degradados"]) / r["n"]) if r["n"] else None})
+        puntos.append(
+            {
+                "fecha": f,
+                "horas_sueno": h,
+                "minutos": r["minutos"],
+                "pct_funcional": round(100 * (r["n"] - r["degradados"]) / r["n"]) if r["n"] else None,
+            }
+        )
     minimo = int(aj["dias_correlacion"])
     out = {"minimo": minimo, "n": len(puntos), "suficiente": len(puntos) >= minimo}
     if out["suficiente"]:
@@ -540,13 +695,21 @@ def api_correlaciones():
 def api_ajustes():
     with get_db() as conn:
         aj = ajustes(conn)
-        rutinas = [dict(r) for r in conn.execute(
-            "SELECT id, content FROM inbox WHERE item_type='rutina' AND status != 'done' ORDER BY parent_id IS NOT NULL, content COLLATE NOCASE")]
+        rutinas = [
+            dict(r)
+            for r in conn.execute(
+                "SELECT id, content FROM inbox WHERE item_type='rutina' AND status != 'done' ORDER BY parent_id IS NOT NULL, content COLLATE NOCASE"
+            )
+        ]
         mapa = {k: v["id"] for k, v in _rutinas_mapa(conn, aj).items()}
-    return {"ajustes": aj, "defaults": R.DEFAULTS,
-            "campos": [{"clave": k, "tipo": t, "etiqueta": e, "rango": rg} for k, (t, e, rg) in R.AJUSTES.items()],
-            "rutinas": rutinas, "rutinas_campos": [{"clave": k, "etiqueta": e} for k, (e, _) in RUTINA_CAMPOS.items()],
-            "rutinas_mapa": mapa}
+    return {
+        "ajustes": aj,
+        "defaults": R.DEFAULTS,
+        "campos": [{"clave": k, "tipo": t, "etiqueta": e, "rango": rg} for k, (t, e, rg) in R.AJUSTES.items()],
+        "rutinas": rutinas,
+        "rutinas_campos": [{"clave": k, "etiqueta": e} for k, (e, _) in RUTINA_CAMPOS.items()],
+        "rutinas_mapa": mapa,
+    }
 
 
 @router.put("/ajustes")
@@ -562,7 +725,9 @@ def api_guardar_ajustes(data: dict):
             limpio[k] = v.strip()
             continue
         if k == "rutinas":
-            if not isinstance(v, dict) or any(c not in RUTINA_CAMPOS or not isinstance(i, int) or isinstance(i, bool) for c, i in v.items()):
+            if not isinstance(v, dict) or any(
+                c not in RUTINA_CAMPOS or not isinstance(i, int) or isinstance(i, bool) for c, i in v.items()
+            ):
                 raise HTTPException(status_code=422, detail="Rutinas no válidas")
             limpio[k] = v
             continue
@@ -587,6 +752,8 @@ def api_guardar_ajustes(data: dict):
             if (k in R.DEFAULTS and v == R.DEFAULTS[k]) or (k.startswith("ia_") and v in ("", False)):
                 conn.execute("DELETE FROM rend_ajustes WHERE clave=?", (k,))
             else:
-                conn.execute("INSERT INTO rend_ajustes (clave, valor) VALUES (?, ?) ON CONFLICT(clave) DO UPDATE SET valor=excluded.valor",
-                             (k, json.dumps(v)))
+                conn.execute(
+                    "INSERT INTO rend_ajustes (clave, valor) VALUES (?, ?) ON CONFLICT(clave) DO UPDATE SET valor=excluded.valor",
+                    (k, json.dumps(v)),
+                )
         return {"status": "success", "ajustes": ajustes(conn)}

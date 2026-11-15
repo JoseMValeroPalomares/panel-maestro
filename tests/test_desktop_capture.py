@@ -1,5 +1,6 @@
 """Captura rápida del escritorio (scripts/desktop/quick_capture.sh + panel_client.py) contra el Panel
 de pruebas, con rofi y notify-send simulados. Las peticiones llevan el token Bearer de verdad."""
+
 import json
 import os
 import subprocess
@@ -25,7 +26,12 @@ def panel(app, client, tmp_path):  # client: arranca el Panel (BD creada)
         def _go(self, method):
             n = int(self.headers.get("Content-Length") or 0)
             body = self.rfile.read(n) if n else None
-            r = tc.request(method, self.path, content=body, headers={k: v for k, v in self.headers.items() if k.lower() in ("authorization", "content-type")})
+            r = tc.request(
+                method,
+                self.path,
+                content=body,
+                headers={k: v for k, v in self.headers.items() if k.lower() in ("authorization", "content-type")},
+            )
             self.send_response(r.status_code)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -58,7 +64,7 @@ def env(tmp_path, panel):
 printf 'ROFI %s\\n' "$*" >> {log}
 line=$(head -n1 {answers}); sed -i '1d' {answers}; [ -z "$line" ] && exit 1
 # «@10 texto» = el texto con la tecla Alt+1 (código de salida 10), como rofi
-if [[ "$line" =~ ^@([0-9]+)\ (.*)$ ]]; then printf '%s' "${{BASH_REMATCH[2]}}"; exit "${{BASH_REMATCH[1]}}"; fi
+if [[ "$line" =~ ^@([0-9]+)\\ (.*)$ ]]; then printf '%s' "${{BASH_REMATCH[2]}}"; exit "${{BASH_REMATCH[1]}}"; fi
 printf '%s' "$line"
 """)
     fake_notify = tmp_path / "notify"
@@ -66,8 +72,15 @@ printf '%s' "$line"
     for f in (fake_rofi, fake_notify):
         f.chmod(0o755)
     answers.write_text("")
-    e = {**os.environ, "PANEL_URL": url, "PANEL_TOKEN_FILE": str(token), "PANEL_STATE_DIR": str(tmp_path / "state"),
-         "PANEL_ROFI": str(fake_rofi), "PANEL_NOTIFY": str(fake_notify), "PANEL_TIMEOUT": "3"}
+    e = {
+        **os.environ,
+        "PANEL_URL": url,
+        "PANEL_TOKEN_FILE": str(token),
+        "PANEL_STATE_DIR": str(tmp_path / "state"),
+        "PANEL_ROFI": str(fake_rofi),
+        "PANEL_NOTIFY": str(fake_notify),
+        "PANEL_TIMEOUT": "3",
+    }
     return e, answers, log
 
 
@@ -83,7 +96,12 @@ def items(panel):
 
 
 def test_cada_prefijo_crea_su_elemento(env, panel):
-    for text in ("comprar pilas desde rofi", "t: tarea desde rofi", "i: idea desde rofi", "r: estirar de lunes a viernes 7:30"):
+    for text in (
+        "comprar pilas desde rofi",
+        "t: tarea desde rofi",
+        "i: idea desde rofi",
+        "r: estirar de lunes a viernes 7:30",
+    ):
         r = run(env, text)
         assert r.returncode == 0, r.stderr
     por_texto = {i["text"]: i for i in items(panel)}
@@ -100,12 +118,15 @@ def test_menu_y_vista_previa_del_evento(env, panel):
     r = run(env, answers=["e: dentista mañana 17:00", "Guardar el evento"])
     assert r.returncode == 0, r.stderr
     log = env[2].read_text()
-    assert "panel-captura.rasi" in log and "t:</b> tarea" in log          # ayuda con los prefijos
+    assert "panel-captura.rasi" in log and "t:</b> tarea" in log  # ayuda con los prefijos
     assert "panel-confirmar.rasi" in log and "<b>Dentista</b>" in log and "17:00–18:00" in log
     _, tc = panel
     from datetime import date, timedelta
+
     d = (date.today() + timedelta(days=1)).isoformat()
-    ev = tc.get(f"/api/calendar/entries?start={d}&end={d}", headers={"Authorization": f"Bearer {TEST_API_TOKEN}"}).json()["entries"]
+    ev = tc.get(
+        f"/api/calendar/entries?start={d}&end={d}", headers={"Authorization": f"Bearer {TEST_API_TOKEN}"}
+    ).json()["entries"]
     assert any(e["title"] == "Dentista" and e["start"] == f"{d}T17:00" for e in ev)
     # Esc en la vista previa: no se guarda nada
     antes = len(items(panel))
@@ -125,11 +146,18 @@ def test_fecha_ambigua_va_al_inbox_para_revisar(env, panel):
 def test_sin_conexion_cola_y_reenvio(env, panel):
     e, _, log = env
     caido = {**e, "PANEL_URL": "http://127.0.0.1:9"}  # nadie escucha
-    r = subprocess.run(["bash", str(SCRIPT), "t: primera sin conexión"], env=caido, capture_output=True, text=True, timeout=30)
+    r = subprocess.run(
+        ["bash", str(SCRIPT), "t: primera sin conexión"], env=caido, capture_output=True, text=True, timeout=30
+    )
     assert r.returncode == 0 and "Panel sin conexión" in log.read_text()
-    subprocess.run(["bash", str(SCRIPT), "i: segunda sin conexión"], env=caido, capture_output=True, text=True, timeout=30)
+    subprocess.run(
+        ["bash", str(SCRIPT), "i: segunda sin conexión"], env=caido, capture_output=True, text=True, timeout=30
+    )
     cola = Path(e["PANEL_STATE_DIR"]) / "cola.jsonl"
-    assert [json.loads(x)["text"] for x in cola.read_text().splitlines()] == ["t: primera sin conexión", "i: segunda sin conexión"]
+    assert [json.loads(x)["text"] for x in cola.read_text().splitlines()] == [
+        "t: primera sin conexión",
+        "i: segunda sin conexión",
+    ]
     # vuelve el panel: la siguiente captura vacía la cola antes (en orden)
     run(env, "t: tercera con conexión")
     textos = [i["text"] for i in items(panel)]
@@ -137,14 +165,25 @@ def test_sin_conexion_cola_y_reenvio(env, panel):
     assert not cola.exists()
     # también se reenvía sola (la Waybar llama a «flush»)
     subprocess.run(["bash", str(SCRIPT), "t: cuarta"], env=caido, capture_output=True, timeout=30)
-    out = subprocess.run(["python3", str(ROOT / "scripts/desktop/panel_client.py"), "flush"], env=e, capture_output=True, text=True, timeout=30)
+    out = subprocess.run(
+        ["python3", str(ROOT / "scripts/desktop/panel_client.py"), "flush"],
+        env=e,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
     assert json.loads(out.stdout)["sent"] == 1
 
 
 def test_token_con_permisos_abiertos_se_rechaza(env, tmp_path):
     e, _, _ = env
     Path(e["PANEL_TOKEN_FILE"]).chmod(0o644)
-    out = subprocess.run(["python3", str(ROOT / "scripts/desktop/panel_client.py"), "capture", "x"], env=e, capture_output=True, text=True)
+    out = subprocess.run(
+        ["python3", str(ROOT / "scripts/desktop/panel_client.py"), "capture", "x"],
+        env=e,
+        capture_output=True,
+        text=True,
+    )
     assert out.returncode == 1 and "600" in json.loads(out.stdout)["message"]
 
 
@@ -153,7 +192,9 @@ def test_alt_numero_elige_el_tipo_y_tarea_con_fecha(env, panel):
     assert run(env, answers=["@11 idea con alt dos"]).returncode == 0
     assert next(i for i in items(panel) if i["text"] == "idea con alt dos")["type"] == "idea"
     # Alt+1 con fecha: vista previa de la tarea, «Corregir el texto» vuelve al menú con el texto, y se guarda
-    r = run(env, answers=["@10 llamar a Juan el viernes", "Corregir el texto", "t: llamar a Juana el viernes", "Guardar"])
+    r = run(
+        env, answers=["@10 llamar a Juan el viernes", "Corregir el texto", "t: llamar a Juana el viernes", "Guardar"]
+    )
     assert r.returncode == 0, r.stderr
     log = env[2].read_text()
     assert "Tarea: <b>Llamar a Juan</b>" in log and "-filter t: llamar a Juan el viernes" in log
@@ -162,3 +203,40 @@ def test_alt_numero_elige_el_tipo_y_tarea_con_fecha(env, panel):
     # rutina desde el menú: también se confirma («Cada día…»)
     run(env, answers=["@12 estirar la espalda cada día a las 7", "Cancelar"])
     assert not any(i["text"] == "Estirar la espalda" for i in items(panel))  # (otro test ya crea «Meditar»)
+
+
+def test_menciones_desde_el_escritorio(env, panel):
+    """«t: práctica 4 @gabd viernes» y «t: arreglar login #panel-maestro v0.3» (criterio 9); una mención que no
+    existe avisa y deja corregir el texto sin guardar nada; Alt+5 añade la mención elegida de la lista."""
+    _, tc = panel
+    h = {"Authorization": f"Bearer {TEST_API_TOKEN}"}
+    asig = tc.post(
+        "/api/uni/asignaturas", json={"nombre": "Gestión de BD (escritorio)", "codigo": "GBDE"}, headers=h
+    ).json()["id"]
+    p = tc.post("/api/proyectos", json={"nombre": "Robot escritorio", "slug": "robot-esc"}, headers=h).json()
+    v = tc.post(f"/api/proyectos/{p['id']}/versiones", json={"nombre": "v0.3"}, headers=h).json()["id"]
+    # sin menú (atajo con texto): se comprueba y se guarda
+    r = run(env, "t: práctica 4 @gbde viernes")
+    assert r.returncode == 0, r.stderr + r.stdout
+    it = next(i for i in items(panel) if i["text"] == "Práctica 4" and i["asignatura_id"] == asig)
+    assert it["contexto"] == "universidad" and it["uni_tipo"] == "entrega" and it["due_date"]
+    r = run(env, "t: arreglar login #robot-esc v0.3")
+    assert r.returncode == 0
+    it = next(i for i in items(panel) if i["proyecto_id"] == p["id"])
+    assert it["version_id"] == v and it["text"].lower() == "arreglar login"
+    # con el menú: la mención mala avisa (con la parecida), se corrige y se guarda
+    antes = len(items(panel))
+    r = run(env, answers=["t: repasar tema 2 @gbdx", "Corregir el texto", "t: repasar tema 2 @gbde"])
+    assert r.returncode == 0, r.stderr
+    log = env[2].read_text()
+    assert "No existe la asignatura «@gbdx»" in log and "@gbde" in log
+    assert len(items(panel)) == antes + 1
+    assert any(i["text"] == "repasar tema 2" and i["asignatura_id"] == asig for i in items(panel))
+    # sin menú, una mención mala no guarda nada y avisa
+    r = run(env, "t: algo @noexiste")
+    assert r.returncode == 1 and "Panel: no se ha guardado" in env[2].read_text()
+    assert len(items(panel)) == antes + 1
+    # Alt+5 (código 14): lista de menciones; la elegida se añade al texto y se vuelve a preguntar
+    r = run(env, answers=["@14 t: leer apuntes", "#robot-esc\tRobot escritorio", ""])
+    log = env[2].read_text()
+    assert "Añadir una mención" in log and "-filter t: leer apuntes #robot-esc" in log

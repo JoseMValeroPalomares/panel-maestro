@@ -12,6 +12,7 @@ Las flechas no guardan geometría si están ancladas: se calculan desde las caja
 Se descartan solo restos inválidos del formato antiguo (flecha con origen igual
 al destino, puntas de flecha sueltas) y se cuentan en `report`.
 """
+
 import json
 import math
 import secrets
@@ -75,20 +76,36 @@ def convert(data: dict) -> tuple[dict, dict]:
             if is_card:  # tarjeta del Inbox
                 stroke = _clean_color((shape or {}).get("stroke"), "#89b4fa")
                 parent = texts[1].get("text", "") if len(texts) > 1 else ""
-                node = {"kind": "inbox", "text": first.get("text", ""), "itemType": "nota" if "f59e0b" in stroke else "tarea",
-                        "parentLabel": parent.replace("↳", "").strip(), "inboxId": o.get("inboxId")}
+                node = {
+                    "kind": "inbox",
+                    "text": first.get("text", ""),
+                    "itemType": "nota" if "f59e0b" in stroke else "tarea",
+                    "parentLabel": parent.replace("↳", "").strip(),
+                    "inboxId": o.get("inboxId"),
+                }
             else:
-                node = {"kind": "ellipse" if shape and shape.get("type") in ("ellipse", "circle") else "rect",
-                        "text": "\n".join(tt.get("text", "") for tt in texts).strip(),
-                        "fill": _clean_color((shape or {}).get("fill"), None), "stroke": _clean_color((shape or {}).get("stroke"), None),
-                        "color": _clean_color(first.get("fill"), None),
-                        "fontSize": round(float(first.get("fontSize") or 18) * scale, 1) if texts else None}
+                node = {
+                    "kind": "ellipse" if shape and shape.get("type") in ("ellipse", "circle") else "rect",
+                    "text": "\n".join(tt.get("text", "") for tt in texts).strip(),
+                    "fill": _clean_color((shape or {}).get("fill"), None),
+                    "stroke": _clean_color((shape or {}).get("stroke"), None),
+                    "color": _clean_color(first.get("fill"), None),
+                    "fontSize": round(float(first.get("fontSize") or 18) * scale, 1) if texts else None,
+                }
         elif t in ("rect", "ellipse", "circle"):
-            node = {"kind": "ellipse" if t != "rect" else "rect", "text": "",
-                    "fill": _clean_color(o.get("fill"), None), "stroke": _clean_color(o.get("stroke"), None)}
+            node = {
+                "kind": "ellipse" if t != "rect" else "rect",
+                "text": "",
+                "fill": _clean_color(o.get("fill"), None),
+                "stroke": _clean_color(o.get("stroke"), None),
+            }
         elif t in ("i-text", "textbox", "text"):
-            node = {"kind": "text", "text": o.get("text", ""), "color": _clean_color(o.get("fill"), None),
-                    "fontSize": round(float(o.get("fontSize") or 18) * scale, 1)}
+            node = {
+                "kind": "text",
+                "text": o.get("text", ""),
+                "color": _clean_color(o.get("fill"), None),
+                "fontSize": round(float(o.get("fontSize") or 18) * scale, 1),
+            }
         elif t == "path":
             pts = []
             off = o.get("pathOffset") or {"x": 0, "y": 0}
@@ -98,14 +115,22 @@ def convert(data: dict) -> tuple[dict, dict]:
                 if len(cmd) >= 3:
                     pts.append([round(float(cmd[-2]) + dx, 1), round(float(cmd[-1]) + dy, 1)])
             if len(pts) >= 2:
-                strokes.append({"id": _id("s"), "points": pts, "color": _clean_color(o.get("stroke"), "#cdd6f4"),
-                                "width": float(o.get("strokeWidth") or 3)})
+                strokes.append(
+                    {
+                        "id": _id("s"),
+                        "points": pts,
+                        "color": _clean_color(o.get("stroke"), "#cdd6f4"),
+                        "width": float(o.get("strokeWidth") or 3),
+                    }
+                )
                 report["trazos"] += 1
             continue
         if node is None:
             report["descartados"].append(f"objeto {t}")
             continue
-        node.update({"id": _id("n"), "x": round(x, 1), "y": round(y, 1), "w": round(max(w, 24), 1), "h": round(max(h, 24), 1)})
+        node.update(
+            {"id": _id("n"), "x": round(x, 1), "y": round(y, 1), "w": round(max(w, 24), 1), "h": round(max(h, 24), 1)}
+        )
         node = {k: v for k, v in node.items() if v not in (None, "")} | {"text": node.get("text", "")}
         if o.get("linkId"):
             link_to_node[o["linkId"]] = node["id"]
@@ -119,8 +144,12 @@ def convert(data: dict) -> tuple[dict, dict]:
         if o.get("startObjId") and o.get("startObjId") == o.get("endObjId"):
             report["descartados"].append(f"flecha {o.get('connId')} con origen igual al destino")
             continue
-        edge = {"id": _id("e"), "color": _clean_color(o.get("stroke"), "#89b4fa"), "width": float(o.get("strokeWidth") or 2),
-                "head": "arrow" if o.get("customType") == "arrow" else "none"}
+        edge = {
+            "id": _id("e"),
+            "color": _clean_color(o.get("stroke"), "#89b4fa"),
+            "width": float(o.get("strokeWidth") or 2),
+            "head": "arrow" if o.get("customType") == "arrow" else "none",
+        }
         if start and end:
             edge.update({"from": start, "to": end})
         else:
@@ -141,7 +170,9 @@ def convert(data: dict) -> tuple[dict, dict]:
                 edge["p2"] = p2
         edges.append(edge)
         report["flechas"] += 1
-    lone_heads = {o.get("connId") for o in objects if o.get("type") == "triangle"} - {o.get("connId") for o in objects if o.get("type") == "line"}
+    lone_heads = {o.get("connId") for o in objects if o.get("type") == "triangle"} - {
+        o.get("connId") for o in objects if o.get("type") == "line"
+    }
     report["descartados"] += [f"punta de flecha suelta {c}" for c in sorted(c for c in lone_heads if c)]
     return {"format": 2, "nodes": nodes, "edges": edges, "strokes": strokes}, report
 

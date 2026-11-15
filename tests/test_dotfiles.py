@@ -1,9 +1,11 @@
 """Dotfiles: traer ~ al repo sin deshacer su limpieza y subirlo a GitHub (aquí, un repo bare local)."""
+
 import hashlib
 import os
 import stat
 import subprocess
 import time
+from pathlib import Path
 
 import pytest
 
@@ -75,6 +77,7 @@ def dot(tmp_path, monkeypatch):
 
     class Dot:
         pass
+
     d = Dot()
     d.home, d.repo, d.remote, d.conf, d.pkg = home, repo, remote, conf, pkg
     d.remote_file = lambda name: git(remote, "show", f"main:stow/app/.config/app/{name}")
@@ -87,7 +90,7 @@ def huella(root):
     for d, _, files in os.walk(root):
         for f in files:
             p = os.path.join(d, f)
-            out[p] = os.readlink(p) if os.path.islink(p) else hashlib.sha256(open(p, "rb").read()).hexdigest()
+            out[p] = os.readlink(p) if os.path.islink(p) else hashlib.sha256(Path(p).read_bytes()).hexdigest()
     return out
 
 
@@ -113,7 +116,9 @@ def test_sin_repo_lo_dice_sin_fallar(client, tmp_path, monkeypatch):
 def test_un_cambio_en_home_sube_sin_deshacer_la_limpieza(dot, client):
     (dot.conf / "a.conf").write_text(ORIGINAL.replace("cuatro", "cuatro nuevo"))
     st = client.get("/api/dotfiles").json()
-    assert [(c["path"], c["kind"], c["component"]) for c in st["changes"]] == [("stow/app/.config/app/a.conf", "modificado", "app")]
+    assert [(c["path"], c["kind"], c["component"]) for c in st["changes"]] == [
+        ("stow/app/.config/app/a.conf", "modificado", "app")
+    ]
 
     r = client.post("/api/dotfiles/push")
     assert r.status_code == 200, r.text
@@ -166,8 +171,11 @@ def test_cuenta_como_nuevo_desde_la_copia_base_y_luego_desde_la_ultima_subida(do
     """Un script creado tras la copia pero antes del último commit no se pierde; lo ya visto no vuelve a salir."""
     nuevo(dot.conf / "script.sh", "#!/bin/sh\n")
     later = str(int(time.time()) + 60)
-    run = subprocess.run(["git", "-C", str(dot.repo), "commit", "-q", "--allow-empty", "-m", "commit a mano"],
-                         env={**os.environ, "GIT_COMMITTER_DATE": f"{later} +0000"}, capture_output=True)
+    run = subprocess.run(
+        ["git", "-C", str(dot.repo), "commit", "-q", "--allow-empty", "-m", "commit a mano"],
+        env={**os.environ, "GIT_COMMITTER_DATE": f"{later} +0000"},
+        capture_output=True,
+    )
     assert run.returncode == 0
     assert [c["kind"] for c in client.get("/api/dotfiles").json()["changes"]] == ["nuevo"]
     client.post("/api/dotfiles/push")
@@ -308,7 +316,9 @@ def test_al_dia_no_hace_nada(dot, client):
 
 def test_cambios_hechos_en_el_propio_repo_tambien_cuentan(dot, client):
     (dot.repo / "install.sh").write_text("#!/bin/sh\n")
-    assert [(c["path"], c["kind"], c["component"]) for c in client.get("/api/dotfiles").json()["changes"]] == [("install.sh", "repo", "repositorio")]
+    assert [(c["path"], c["kind"], c["component"]) for c in client.get("/api/dotfiles").json()["changes"]] == [
+        ("install.sh", "repo", "repositorio")
+    ]
     client.post("/api/dotfiles/push")
     assert git(dot.remote, "show", "main:install.sh") == "#!/bin/sh\n"
 
@@ -341,6 +351,7 @@ def test_las_rutas_piden_sesion(dot):
     from fastapi.testclient import TestClient
 
     import main
+
     anon = TestClient(main.app)
     assert anon.get("/api/dotfiles").status_code == 401
     assert anon.post("/api/dotfiles/push").status_code == 401

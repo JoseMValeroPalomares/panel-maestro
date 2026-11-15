@@ -2,6 +2,7 @@
 API de las copias de seguridad (/api/backups): lista, estado, copia ahora, detalle, descarga, restaurar y
 borrar. La lógica está en app/backup.py; la página /backups, en app/main.py.
 """
+
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -59,7 +60,7 @@ def restore_backup(name: str, data: RestoreRequest):
     if data.confirm != "RESTAURAR":
         raise HTTPException(status_code=422, detail="Escribe RESTAURAR para confirmar")
     result = _backup_call(backup.restore_backup, name, data.parts)
-    sync_notes_to_db()
+    sync_notes_to_db(allow_mass_delete=True)  # restaurar puede quitar muchas notas a propósito (las creadas después)
     return {"status": "success", **result}
 
 

@@ -51,3 +51,18 @@ thermometer chart-scatter bed smile cloud-fog
 octagon-alert circle-x circle-dashed
 # Fase 3 de la interfaz: sustitutos de iconos con dos significados
 clipboard-check bookmark-plus bookmark-check list-plus calendar-off list-collapse circle-help list-filter highlighter file-search
+rocket
+folder-open
+clipboard-copy
+git-commit-horizontal
+milestone
+folder-sync
+file
+users
+list-tree
+square-kanban
+school
+circle-check-big
+percent
+git-compare
+bell-off clock-alert circle-stop timer-off

@@ -1,4 +1,5 @@
 """Migraciones versionadas: se aplican al arrancar y se revierten sin pérdida."""
+
 import sqlite3
 
 from app.migrations import MIGRATIONS
@@ -12,11 +13,23 @@ def _db(tmp_path):
                     parent_id INTEGER, sort_order REAL DEFAULT 0, created_at REAL DEFAULT 0, note_id TEXT, note_task TEXT)""")
     conn.execute("""CREATE TABLE resources (id INTEGER PRIMARY KEY, url TEXT, title TEXT, category TEXT, resource_type TEXT,
                     channel TEXT, added_at REAL, watch_later INTEGER DEFAULT 0, watched INTEGER DEFAULT 0)""")
-    conn.executemany("INSERT INTO resources (id, url, title, category, resource_type, channel, added_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                     [(1, "u1", "Web vieja", "A", "web", None, 1), (2, "u2", "Web nueva", "A", "web", None, 2),
-                      (3, "u3", "Vídeo", "A", "youtube", "Zeta", 3), (4, "u4", "Vídeo", "A", "youtube", "Alfa", 4)])
-    rows = [(25, "Comprar", "nota", None), (26, "Ropa", "nota", 25), (39, "Gestión", "tarea", 25),
-            (35, "Cosas", "tarea", 39), (43, "Sol", "tarea", 35), (51, "Vídeos", "tarea", 39)]
+    conn.executemany(
+        "INSERT INTO resources (id, url, title, category, resource_type, channel, added_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [
+            (1, "u1", "Web vieja", "A", "web", None, 1),
+            (2, "u2", "Web nueva", "A", "web", None, 2),
+            (3, "u3", "Vídeo", "A", "youtube", "Zeta", 3),
+            (4, "u4", "Vídeo", "A", "youtube", "Alfa", 4),
+        ],
+    )
+    rows = [
+        (25, "Comprar", "nota", None),
+        (26, "Ropa", "nota", 25),
+        (39, "Gestión", "tarea", 25),
+        (35, "Cosas", "tarea", 39),
+        (43, "Sol", "tarea", 35),
+        (51, "Vídeos", "tarea", 39),
+    ]
     conn.executemany("INSERT INTO inbox (id, content, item_type, parent_id) VALUES (?, ?, ?, ?)", rows)
     return conn
 
@@ -32,8 +45,12 @@ def test_todas_arriba_y_abajo(tmp_path):
     tree = {r["id"]: r["parent_id"] for r in _snap(conn)}
     assert tree[39] is None and tree[35] is None  # intermedios con hijos suben
     assert tree[43] == 35 and tree[51] == 39 and tree[26] == 25  # sus hijos siguen con ellos
-    nietos = conn.execute("SELECT COUNT(*) FROM inbox c JOIN inbox p ON p.id=c.parent_id WHERE p.parent_id IS NOT NULL").fetchone()[0]
-    cruzados = conn.execute("SELECT COUNT(*) FROM inbox c JOIN inbox p ON p.id=c.parent_id WHERE p.item_type != c.item_type").fetchone()[0]
+    nietos = conn.execute(
+        "SELECT COUNT(*) FROM inbox c JOIN inbox p ON p.id=c.parent_id WHERE p.parent_id IS NOT NULL"
+    ).fetchone()[0]
+    cruzados = conn.execute(
+        "SELECT COUNT(*) FROM inbox c JOIN inbox p ON p.id=c.parent_id WHERE p.item_type != c.item_type"
+    ).fetchone()[0]
     assert nietos == 0 and cruzados == 0
     assert apply_pending(conn, MIGRATIONS) == []  # idempotente
     orden = {r[0]: r[1] for r in conn.execute("SELECT id, sort_order FROM resources")}
@@ -51,16 +68,33 @@ def test_cada_paso_se_queda_con_su_hora(tmp_path):
     conn = _db(tmp_path)
     apply_pending(conn, [x for x in MIGRATIONS if x.version <= 15])
     conn.execute("DELETE FROM inbox")
-    rows = [(1, "Mi día", None, "07:30", None, '{"freq": "daily"}', 9), (2, "Ducha", 1, None, 10, None, 8), (3, "Uni", 1, "08:30", 60, '{"freq": "weekly", "days": [0]}', 7),
-            (4, "Comer", 1, None, 30, None, 6), (5, "Sábado", 1, None, None, '{"freq": "weekly", "days": [5]}', 5),
-            (6, "Sin hora", None, None, None, '{"freq": "daily"}', 4), (7, "Paso", 6, None, 5, None, 3)]
-    conn.executemany("INSERT INTO inbox (id, content, item_type, parent_id, due_time, duration_min, repeat, sort_order) VALUES (?, ?, 'rutina', ?, ?, ?, ?, ?)", rows)
+    rows = [
+        (1, "Mi día", None, "07:30", None, '{"freq": "daily"}', 9),
+        (2, "Ducha", 1, None, 10, None, 8),
+        (3, "Uni", 1, "08:30", 60, '{"freq": "weekly", "days": [0]}', 7),
+        (4, "Comer", 1, None, 30, None, 6),
+        (5, "Sábado", 1, None, None, '{"freq": "weekly", "days": [5]}', 5),
+        (6, "Sin hora", None, None, None, '{"freq": "daily"}', 4),
+        (7, "Paso", 6, None, 5, None, 3),
+    ]
+    conn.executemany(
+        "INSERT INTO inbox (id, content, item_type, parent_id, due_time, duration_min, repeat, sort_order) VALUES (?, ?, 'rutina', ?, ?, ?, ?, ?)",
+        rows,
+    )
     assert apply_pending(conn, [x for x in MIGRATIONS if x.version <= 16]) == [16]
     horas = dict(conn.execute("SELECT id, due_time FROM inbox").fetchall())
     # Comer sale del lunes (tras Uni); Sábado, del único día en que toca; sin hora de partida no se inventa
     assert horas == {1: "07:30", 2: "07:30", 3: "08:30", 4: "09:30", 5: "08:10", 6: None, 7: None}
     revert(conn, MIGRATIONS, 15)
-    assert dict(conn.execute("SELECT id, due_time FROM inbox").fetchall()) == {1: "07:30", 2: None, 3: "08:30", 4: None, 5: None, 6: None, 7: None}
+    assert dict(conn.execute("SELECT id, due_time FROM inbox").fetchall()) == {
+        1: "07:30",
+        2: None,
+        3: "08:30",
+        4: None,
+        5: None,
+        6: None,
+        7: None,
+    }
 
 
 def test_rendimiento_tablas_nuevas_y_vuelta(tmp_path):
@@ -69,7 +103,9 @@ def test_rendimiento_tablas_nuevas_y_vuelta(tmp_path):
     conn.execute("PRAGMA foreign_keys = ON")
     apply_pending(conn, MIGRATIONS)
     conn.execute("INSERT INTO rend_dias (fecha, acostarse) VALUES ('2030-01-01', '23:30')")
-    conn.execute("INSERT INTO rend_bloques (fecha, asignatura, minutos, codificacion, pausas, estado) VALUES ('2030-01-01', 'IG', 50, 'codigo', 'no', 'funcional')")
+    conn.execute(
+        "INSERT INTO rend_bloques (fecha, asignatura, minutos, codificacion, pausas, estado) VALUES ('2030-01-01', 'IG', 50, 'codigo', 'no', 'funcional')"
+    )
     conn.execute("DELETE FROM rend_dias")
     assert conn.execute("SELECT COUNT(*) FROM rend_bloques").fetchone()[0] == 0
     revert(conn, MIGRATIONS, 16)
@@ -81,7 +117,11 @@ def test_rendimiento_alertas_e_ia_y_vuelta(tmp_path):
     conn = _db(tmp_path)
     apply_pending(conn, MIGRATIONS)
     assert any(r[1] == "entrada_hash" for r in conn.execute("PRAGMA table_info(rend_auditorias)"))
-    conn.execute("INSERT INTO rend_alertas (fecha, regla, nivel, titulo, texto) VALUES ('2030-01-01', 'x', 'rojo', 't', 't')")
+    conn.execute(
+        "INSERT INTO rend_alertas (fecha, regla, nivel, titulo, texto) VALUES ('2030-01-01', 'x', 'rojo', 't', 't')"
+    )
     revert(conn, MIGRATIONS, 17)
-    assert not conn.execute("SELECT name FROM sqlite_master WHERE name IN ('rend_alertas', 'llm_uso', 'llm_enfriamiento', 'llm_registro')").fetchall()
+    assert not conn.execute(
+        "SELECT name FROM sqlite_master WHERE name IN ('rend_alertas', 'llm_uso', 'llm_enfriamiento', 'llm_registro')"
+    ).fetchall()
     assert not any(r[1] == "entrada_hash" for r in conn.execute("PRAGMA table_info(rend_auditorias)"))

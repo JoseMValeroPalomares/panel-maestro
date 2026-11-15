@@ -1,10 +1,12 @@
 """Copias: ver qué ha cambiado en los dotfiles y subirlo a GitHub con un botón."""
+
 import subprocess
 
 
 def _remote_file(env):
-    return subprocess.run(["git", "-C", str(env["remote"]), "show", "main:stow/app/.config/app/a.conf"],
-                          capture_output=True, text=True).stdout
+    return subprocess.run(
+        ["git", "-C", str(env["remote"]), "show", "main:stow/app/.config/app/a.conf"], capture_output=True, text=True
+    ).stdout
 
 
 def test_ver_y_subir(page, server, dotfiles_env):

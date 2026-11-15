@@ -41,6 +41,35 @@
 #panel-fc { color: var(--accent); }
 .node-panel .btn-block { margin-top: var(--sp-1); }
 
+/* Lista de notas (U-3): la alternativa al lienzo para teclado y lector de pantalla */
+.node-list {
+  position: absolute; z-index: 24; top: var(--sp-4); left: var(--sp-4); width: 300px; max-height: calc(100% - 2 * var(--sp-4));
+  padding: var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-2);
+  animation: pop-in var(--dur) var(--ease-out);
+}
+.node-list[hidden] { display: none; }
+.node-list > .row { gap: var(--sp-2); align-items: baseline; }
+.node-list-title { font-size: var(--fs-15); }
+.node-list-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; margin-inline: calc(-1 * var(--sp-2)); padding-inline: var(--sp-2); }
+.node-list-section + .node-list-section { margin-top: var(--sp-3); }
+.node-list-group, .panel-links-title { font-size: var(--fs-12); font-weight: 600; color: var(--text-2); }
+.node-list-group { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 6px; padding: 4px 0; background: var(--bg-elev); }
+.node-list-group .legend-swatch { border-radius: 3px; }
+.node-list-items, .panel-links-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.node-list-item, .panel-link-btn {
+  display: flex; align-items: center; gap: var(--sp-2); width: 100%; min-height: 36px; padding: 4px var(--sp-2);
+  border: 0; border-radius: var(--r-sm); background: none; color: var(--text); font: inherit; font-size: var(--fs-13);
+  text-align: left; cursor: pointer;
+}
+.node-list-item .grow, .panel-link-btn .grow { min-width: 0; overflow-wrap: anywhere; }
+.node-list-item:hover, .panel-link-btn:hover { background: var(--fill); }
+.node-list-item[aria-current="true"] { background: var(--accent-soft); font-weight: 600; }
+.panel-links { display: flex; flex-direction: column; gap: 2px; max-height: 40vh; overflow-y: auto; }
+.panel-links-title { margin-top: var(--sp-1); }
+@media (pointer: coarse) { .node-list-item, .panel-link-btn { min-height: 44px; } }
+.node-list-item { scroll-margin-top: 32px; }  /* al tabular, la cabecera fija del área no tapa la fila con el foco */
+@media (prefers-reduced-motion: reduce) { .node-list, .node-panel { animation: none; } }
+
 .graph-loading {
   position: absolute; inset: 0; z-index: 30; display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: var(--sp-3); background: var(--bg);
@@ -62,6 +91,8 @@
   .graph-controls .chips-scroll { flex-shrink: 0; overflow: visible; -webkit-mask-image: none; mask-image: none; }
   .graph-legend { display: none; }
   .graph-stage { margin-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom)); }
-  .node-panel { left: var(--sp-3); right: var(--sp-3); top: auto; bottom: var(--sp-3); width: auto; }
+  .node-panel { left: var(--sp-3); right: var(--sp-3); top: auto; bottom: var(--sp-3); width: auto; max-height: 60%; overflow-y: auto; }
+  .node-list { left: var(--sp-3); right: var(--sp-3); top: var(--sp-3); width: auto; max-height: calc(100% - 2 * var(--sp-3)); }
+  .node-list:has(~ .node-panel:not([hidden])) { max-height: 38%; }  /* con la ficha abierta abajo, caben las dos */
   .edit-banner { padding-inline: var(--sp-4); }
 }

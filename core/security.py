@@ -8,6 +8,7 @@ Primitivas de seguridad sin dependencias externas:
   las sesiones abiertas.
 - Token de API: se guarda solo su SHA-256 en .env.
 """
+
 import base64
 import hashlib
 import hmac
@@ -15,7 +16,7 @@ import json
 import secrets
 import time
 
-SCRYPT_N = 2 ** 14
+SCRYPT_N = 2**14
 SCRYPT_R = 8
 SCRYPT_P = 1
 
@@ -50,21 +51,24 @@ def verify_password(password: str, stored: str) -> bool:
 
 
 # ── Sesión ──────────────────────────────────────────────────────
-def _session_key(secret: str, password_hash: str) -> bytes:
-    return hmac.new(secret.encode("utf-8"), password_hash.encode("utf-8"), hashlib.sha256).digest()
+def _session_key(secret: str, password_hash: str, gen: int = 0) -> bytes:
+    # gen = config.SESSION_GEN: subirla invalida todas las cookies anteriores. Con 0 la clave es la de siempre (las
+    # sesiones abiertas antes de existir el contador siguen valiendo).
+    material = password_hash if not gen else f"{password_hash}|gen={gen}"
+    return hmac.new(secret.encode("utf-8"), material.encode("utf-8"), hashlib.sha256).digest()
 
 
-def create_session_token(secret: str, password_hash: str) -> str:
+def create_session_token(secret: str, password_hash: str, gen: int = 0) -> str:
     payload = _b64e(json.dumps({"iat": int(time.time()), "n": secrets.token_hex(8)}).encode())
-    sig = _b64e(hmac.new(_session_key(secret, password_hash), payload.encode(), hashlib.sha256).digest())
+    sig = _b64e(hmac.new(_session_key(secret, password_hash, gen), payload.encode(), hashlib.sha256).digest())
     return f"{payload}.{sig}"
 
 
-def verify_session_token(token: str, secret: str, password_hash: str, max_age_s: int) -> bool:
+def verify_session_token(token: str, secret: str, password_hash: str, max_age_s: int, gen: int = 0) -> bool:
     if not token or "." not in token or not secret or not password_hash:
         return False
     payload, sig = token.rsplit(".", 1)
-    expected = _b64e(hmac.new(_session_key(secret, password_hash), payload.encode(), hashlib.sha256).digest())
+    expected = _b64e(hmac.new(_session_key(secret, password_hash, gen), payload.encode(), hashlib.sha256).digest())
     if not hmac.compare_digest(sig, expected):
         return False
     try:

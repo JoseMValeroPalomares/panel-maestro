@@ -11,7 +11,7 @@
   <span class="tile" data-section="estudio">{{ icon('wifi-off') }}</span>
   {% if esp32_host %}
   <div class="grow"><strong>El panel ESP32 no responde</strong>
-    <p class="small muted">Las tareas del panel y el pomodoro viven en el ESP32 ({{ esp32_host }}). Tras unos intentos se deja de buscar para no saturar la red: pulsa «Reintentar» cuando esté encendido.</p></div></div>
+    <p class="small muted">Las tareas del panel y el pomodoro viven en el ESP32 ({{ esp32_host }}). Tras unos intentos se deja de buscar para no saturar la red: pulsa «Reintentar» cuando esté encendido.</p></div>
   <button type="button" class="btn btn-sm" id="btnRetry">{{ icon('refresh-cw', 'icon-sm') }}Reintentar</button>
   {% else %}
   <div class="grow"><strong>Sin panel ESP32</strong>

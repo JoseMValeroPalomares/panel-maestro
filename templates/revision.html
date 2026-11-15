@@ -14,7 +14,9 @@
   <p class="hoy-sub small muted" id="revRange" aria-live="polite"></p>
   <div class="hoy-grid">
     <section class="panel hoy-card" aria-labelledby="revResumen"><div class="panel-header"><h2 id="revResumen">{{ icon('chart-column', 'icon-sm') }}La semana</h2></div>
-      <div class="panel-body" id="revStats"></div></section>
+      <div class="panel-body"><div id="revStats"></div>
+        <h3 class="hoy-h3 rev-time-h" id="revTiempo">{{ icon('timer', 'icon-sm') }}Tiempo con el contador</h3>
+        <div id="revTime" aria-labelledby="revTiempo" role="group"></div></div></section>
     <section class="panel hoy-card" aria-labelledby="revHechas"><div class="panel-header"><h2 id="revHechas">{{ icon('circle-check', 'icon-sm') }}Completadas</h2></div>
       <div class="panel-body" id="revList"></div></section>
     <section class="panel hoy-card" aria-labelledby="revRutinas"><div class="panel-header"><h2 id="revRutinas">{{ icon('repeat', 'icon-sm') }}Rutinas cumplidas</h2></div>
