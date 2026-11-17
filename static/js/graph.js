@@ -391,9 +391,66 @@ function getDescendantIds(catId) {
   return children.reduce((acc, c) => [...acc, c, ...getDescendantIds(c)], []);
 }
 let lastToggle = { id: null, at: 0 };
+/* Plegar y desplegar como un mapa mental: al desplegar, las notas salen de su categoría hasta su sitio una tras otra
+   (con fundido y frenando suave, sin rebote); al plegar, vuelven a ella y se desvanecen antes de ocultarse. Las líneas
+   las siguen solas (vis las dibuja entre los nodos). Lo que no tiene posición lo sigue colocando la física. */
+const MAPA = { salir: 420, volver: 220, cascada: 18, cascadaMax: 260 };
+let plegando = false;
+const sinMovimiento = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+const frena = (t) => 1 - Math.pow(1 - t, 4);
+function moverNodos(ids, origen, { hacia, ms, alFinal, destinoFijo, opacidad }) {
+  // opacidad: la de cada nodo en reposo (las notas van al 0,88; con filtro de etiqueta, atenuadas)
+  const base = opacidad || Object.fromEntries(nodesDS.get(ids).map((n) => [n.id, n.opacity ?? 1]));
+  // hacia = 'fuera': de la categoría a su sitio; 'dentro': de su sitio a la categoría
+  const destino = destinoFijo || network.getPositions(ids);  // al salir, el sitio se lee antes de llevarlos al origen
+  const t0 = performance.now();
+  const retraso = (i) => Math.min(i * MAPA.cascada, MAPA.cascadaMax);
+  const paso = (now) => {
+    let quedan = false;
+    nodesDS.update(ids.map((id, i) => {
+      const k = Math.max(0, Math.min(1, (now - t0 - (hacia === 'fuera' ? retraso(i) : 0)) / ms));
+      if (k < 1) quedan = true;
+      const e = hacia === 'fuera' ? frena(k) : k * k;
+      const desde = hacia === 'fuera' ? origen : destino[id], hasta = hacia === 'fuera' ? destino[id] : origen;
+      return { id, x: desde.x + (hasta.x - desde.x) * e, y: desde.y + (hasta.y - desde.y) * e, opacity: base[id] * (hacia === 'fuera' ? Math.min(1, e * 1.4) : 1 - e), physics: false };
+    }));
+    if (quedan) requestAnimationFrame(paso); else alFinal?.();
+  };
+  requestAnimationFrame(paso);
+}
 function toggleCategoryCollapse(catId) {
-  if (collapsedCats.has(catId)) collapsedCats.delete(catId); else collapsedCats.add(catId);
+  if (plegando) return;
+  const desplegar = collapsedCats.has(catId);
+  const origen = network?.getPositions([catId])[catId];
+  if (!network || !origen || sinMovimiento()) {
+    if (desplegar) collapsedCats.delete(catId); else collapsedCats.add(catId);
+    renderGraph();
+    return;
+  }
+  if (!desplegar) {
+    // Plegar: lo que se ve de dentro vuelve a la categoría y, después, se oculta
+    const visibles = new Set(nodesDS.getIds());
+    const dentro = getDescendantIds(catId).filter((id) => visibles.has(id));
+    if (!dentro.length) { collapsedCats.add(catId); renderGraph(); return; }
+    plegando = true;
+    moverNodos(dentro, origen, { hacia: 'dentro', ms: MAPA.volver, alFinal: () => {
+      plegando = false;
+      collapsedCats.add(catId);
+      renderGraph();
+    } });
+    return;
+  }
+  // Desplegar: se repinta con todo en su sitio y lo nuevo sale de la categoría
+  const antes = new Set(nodesDS.getIds());
+  collapsedCats.delete(catId);
   renderGraph();
+  const nuevos = nodesDS.get({ filter: (n) => !antes.has(n.id) && n.physics === false }).map((n) => n.id);
+  if (!nuevos.length) return;
+  // Primero en la categoría (invisibles), y en el siguiente cuadro empiezan a salir
+  const sitio = network.getPositions(nuevos);
+  const opacidad = Object.fromEntries(nodesDS.get(nuevos).map((n) => [n.id, n.opacity ?? 1]));
+  nodesDS.update(nuevos.map((id) => ({ id, x: origen.x, y: origen.y, opacity: 0 })));
+  moverNodos(nuevos, origen, { hacia: 'fuera', ms: MAPA.salir, alFinal: null, destinoFijo: sitio, opacidad });
 }
 async function onRightClick(params) {
   params.event.preventDefault();

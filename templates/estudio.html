@@ -51,15 +51,25 @@
     <section class="panel" aria-labelledby="pomoTitle">
       <div class="panel-header"><h2 id="pomoTitle">Pomodoro</h2></div>
       <div class="panel-body pomo-layout">
+        {#- Esfera: el anillo es el tiempo que queda (lleno al empezar), con halo, punta y 60 marcas (app.js: Pomo) -#}
         <div class="pomo-ring" id="pomoRing" role="img" aria-label="Progreso del pomodoro">
+          <svg class="pomo-svg" viewBox="0 0 220 220" aria-hidden="true">
+            <g class="pomo-ticks" id="pomoTicks"></g>
+            <circle class="pomo-track" cx="110" cy="110" r="92"></circle>
+            <g transform="rotate(-90 110 110)">
+              <circle class="pomo-glow" id="pomoGlow" cx="110" cy="110" r="92" pathLength="1"></circle>
+              <circle class="pomo-arc" id="pomoArc" cx="110" cy="110" r="92" pathLength="1"></circle>
+              <circle class="pomo-head" id="pomoHead" cx="110" cy="110" r="92" pathLength="1"></circle>
+            </g>
+          </svg>
           <div class="pomo-ring-inner">
-            <div id="pomoTimeDisplay" class="pomo-time tabular">25:00</div>
+            <div id="pomoTimeDisplay" class="pomo-time tabular" aria-live="off">25:00</div>
             <div id="pomoPhaseLabel" class="pomo-phase">Trabajo</div>
           </div>
         </div>
         <div class="pomo-controls">
           <div class="row">
-            <button type="button" id="btnPomoStartPause" class="btn btn-primary btn-lg grow">{{ icon('play') }}Iniciar</button>
+            <button type="button" id="btnPomoStartPause" class="btn btn-primary btn-lg grow pomo-main"><span class="pomo-ic" aria-hidden="true"><span class="pomo-ic-play">{{ icon('play') }}</span><span class="pomo-ic-pause">{{ icon('pause') }}</span></span><span class="pomo-label">Iniciar</span></button>
             <button type="button" id="btnPomoReset" class="btn btn-lg btn-icon" aria-label="Reiniciar">{{ icon('rotate-ccw') }}</button>
           </div>
           <div class="pomo-steppers">

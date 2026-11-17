@@ -423,7 +423,9 @@
     const { el, anchor, cleanup } = activeMenu;
     activeMenu = null;
     cleanup();
-    el.remove();
+    // Sale con un fundido corto (ds.css: .menu.is-leaving); el foco y el estado cambian ya
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches || !el.isConnected) el.remove();
+    else { el.classList.add('is-leaving'); el.inert = true; el.setAttribute('aria-hidden', 'true'); setTimeout(() => el.remove(), 120); }  // el que se va ya no existe para nadie
     anchor?.setAttribute('aria-expanded', 'false');
     anchor?.focus({ preventScroll: true });
   }
@@ -512,6 +514,166 @@
       ${actionLabel ? `<button type="button" class="btn btn-tinted" data-empty-action="${escapeHtml(action)}">${icon('plus')}${escapeHtml(actionLabel)}</button>` : ''}
     </div>`;
   }
+
+  /* ---------- Cambio de sección fluido en todos los navegadores ----------
+     Chrome y Safari 18.2+ hacen la transición entre páginas con @view-transition (ds.css). Donde no la hay (Firefox),
+     el contenido se va al pulsar el enlace (la página nueva se pide a la vez: no se retrasa nada) y la nueva entra
+     animada desde el primer pintado (theme-init.js lee la marca). Además, al apuntar a un enlace del menú o tocarlo,
+     la página se pide por adelantado (<link rel=prefetch>), así llega antes. */
+  (() => {
+    const conTransicion = 'CSSViewTransitionRule' in window;
+    const quieto = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const interno = (a, e) => {
+      if (!a || !a.href || a.target && a.target !== '_self' || a.hasAttribute('download') || e?.defaultPrevented) return null;
+      if (e && (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)) return null;
+      const u = new URL(a.href, location.href);
+      if (u.origin !== location.origin || u.pathname.startsWith('/api/') || u.pathname.startsWith('/static/')) return null;
+      if (u.pathname === location.pathname && u.search === location.search) return null;  // misma página (o un ancla)
+      return u;
+    };
+    // Salida (solo sin transición del navegador)
+    document.addEventListener('click', (e) => {
+      const a = e.target.closest?.('a[href]');
+      const u = interno(a, e);
+      if (!u || conTransicion || quieto()) return;
+      setTimeout(() => {  // tras los manejadores de la pantalla: si alguno la cancela, no hay navegación
+        if (e.defaultPrevented) return;
+        try { sessionStorage.setItem('panel.nav-anim', String(Date.now())); } catch {}
+        document.documentElement.classList.add('nav-saliendo');
+        // Si al final no se navega (una descarga, un 204), la página no se queda desvanecida
+        setTimeout(() => document.documentElement.classList.remove('nav-saliendo'), 3000);
+      });
+    });
+    // Al volver con Atrás desde la caché, la página no puede seguir desvanecida
+    window.addEventListener('pageshow', () => document.documentElement.classList.remove('nav-saliendo'));
+    document.documentElement.addEventListener('animationend', (e) => {
+      if (e.animationName === 'vt-page-in') document.documentElement.classList.remove('nav-entrando');
+    });
+    // Pedir por adelantado lo que se va a abrir (menú, pestañas, hoja «Más»)
+    const pedidas = new Set();
+    const adelantar = (a) => {
+      const u = interno(a);
+      if (!u || pedidas.has(u.href) || pedidas.size > 20 || navigator.connection?.saveData) return;
+      pedidas.add(u.href);
+      const l = document.createElement('link');
+      l.rel = 'prefetch';
+      l.href = u.href;
+      document.head.appendChild(l);
+    };
+    const NAV = '.sidebar a[href], .tabbar a[href], #moreSheet a[href], .sidebar-brand';
+    let espera = 0;
+    document.addEventListener('pointerover', (e) => {
+      const a = e.target.closest?.(NAV);
+      if (!a || e.pointerType !== 'mouse') return;
+      clearTimeout(espera);
+      espera = setTimeout(() => adelantar(a), 80);  // pasar por encima sin pararse no pide nada
+    });
+    document.addEventListener('pointerdown', (e) => adelantar(e.target.closest?.(NAV)), { passive: true });
+  })();
+
+  /* ---------- Plegables y <details> animados ----------
+     Cualquier botón con aria-expanded que controla una zona (aria-controls, o los [data-il-fold] de ItemList) la abre
+     y cierra con altura + fundido. Antes del clic (captura) se toma una foto de la zona (altura y display); después del
+     clic (al final de la propagación, cuando la pantalla ya ha hecho su cambio, aunque haya repintado) se anima de la
+     foto al estado nuevo. Al cerrar, la zona ya está oculta: se enseña un momento con su display de antes (inert) y se
+     encoge. Los <details> igual, abriendo y cerrando a mano. Nada con «reducir movimiento». En una zona más alta que la
+     ventana se anima solo lo que se ve (hasta 1,2 pantallas): lo de más abajo aparece o se va fuera de la vista. */
+  (() => {
+    const ABRIR_MS = 220, CERRAR_MS = 160;
+    const tope = (h) => Math.min(h, Math.round(innerHeight * 1.2));
+    const EXPO = 'cubic-bezier(0.16, 1, 0.3, 1)', SALIDA = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
+    const quieto = () => matchMedia('(prefers-reduced-motion: reduce)').matches || !Element.prototype.animate;
+    const visible = (el) => !!el && el.isConnected && getComputedStyle(el).display !== 'none' && el.getClientRects().length > 0;
+    const clave = (b) => b.dataset.ilFold != null ? `il:${b.dataset.ilFold}` : b.getAttribute('aria-controls') ? `id:${b.getAttribute('aria-controls')}` : null;
+    const zonaDe = (b) => {
+      if (b.dataset.ilFold != null) return b.closest('.il-group-head, .il-cat-head, .il-note-head')?.nextElementSibling || null;
+      const id = b.getAttribute('aria-controls');
+      return id ? document.getElementById(id) : null;
+    };
+    const botonDe = (k) => k.startsWith('il:') ? document.querySelector(`[data-il-fold="${CSS.escape(k.slice(3))}"]`)
+      : document.querySelector(`[aria-controls="${CSS.escape(k.slice(3))}"][aria-expanded]`);
+    const esPlegable = (b) => b && b.hasAttribute('aria-expanded') && !b.hasAttribute('aria-haspopup')
+      && !['combobox', 'tab', 'menuitem'].includes(b.getAttribute('role')) && !b.closest('.menu, [role="menu"], [role="listbox"]');
+    const pad = (cs) => ({ paddingTop: cs.paddingTop, paddingBottom: cs.paddingBottom });
+
+    function abrir(el) {
+      const h = tope(el.offsetHeight);
+      if (!h) return;
+      const cs = getComputedStyle(el);
+      const prev = el.style.overflow;
+      el.style.overflow = 'clip';
+      const a = el.animate([
+        { height: '0px', paddingTop: '0px', paddingBottom: '0px', opacity: 0 },
+        { height: `${h}px`, ...pad(cs), opacity: 1 },
+      ], { duration: ABRIR_MS, easing: EXPO });
+      a.onfinish = a.oncancel = () => { el.style.overflow = prev; };
+    }
+    function cerrar(el, foto) {
+      if (!foto.alto) return;
+      el.style.setProperty('display', foto.display, 'important');
+      el.style.overflow = 'clip';
+      el.inert = true;
+      const ariaAntes = el.getAttribute('aria-hidden');
+      el.setAttribute('aria-hidden', 'true');  // ya está plegada: solo se ve marcharse
+      const a = el.animate([
+        { height: `${tope(foto.alto)}px`, paddingTop: foto.pt, paddingBottom: foto.pb, opacity: 1 },
+        { height: '0px', paddingTop: '0px', paddingBottom: '0px', opacity: 0 },
+      ], { duration: CERRAR_MS, easing: SALIDA });
+      a.onfinish = a.oncancel = () => { el.style.removeProperty('display'); el.style.overflow = ''; el.inert = false;
+        if (ariaAntes === null) el.removeAttribute('aria-hidden'); else el.setAttribute('aria-hidden', ariaAntes);
+      };
+    }
+
+    let foto = null;
+    document.addEventListener('click', (e) => {
+      foto = null;
+      if (quieto()) return;
+      const b = e.target.closest?.('[aria-expanded]');
+      if (!esPlegable(b)) return;
+      const k = clave(b), z = k && zonaDe(b);
+      if (!z) return;
+      z.getAnimations().forEach((an) => an.cancel());  // otro clic a mitad: se parte del estado real, no del animado
+      const cs = getComputedStyle(z);
+      foto = { k, abierta: visible(z), alto: z.offsetHeight, display: cs.display, pt: cs.paddingTop, pb: cs.paddingBottom, zona: z };
+    }, true);
+    const despues = () => {
+      const f = foto;
+      foto = null;
+      if (!f) return;
+      const b = botonDe(f.k);
+      const z = b && zonaDe(b);
+      if (!z) return;
+      const ahora = visible(z);
+      if (ahora && !f.abierta) abrir(z);
+      else if (!ahora && f.abierta) cerrar(z, f);
+    };
+    window.addEventListener('click', despues);  // burbuja en window: después de los manejadores de la pantalla
+
+    // <details>: se abre y cierra a mano para poder medir (el evento toggle llega igual)
+    document.addEventListener('click', (e) => {
+      const s = e.target.closest?.('summary');
+      const d = s?.parentElement;
+      if (!d || d.tagName !== 'DETAILS' || s !== d.querySelector(':scope > summary') || quieto() || e.defaultPrevented) return;
+      if (d.dataset.animando) { e.preventDefault(); return; }
+      const cs = getComputedStyle(d);
+      const cerrado = s.offsetHeight + parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom) + parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth);
+      e.preventDefault();
+      const desde = tope(d.offsetHeight);
+      d.style.overflow = 'clip';
+      d.dataset.animando = '1';
+      const fin = () => { d.style.overflow = ''; delete d.dataset.animando; };
+      if (d.open) {
+        const a = d.animate([{ height: `${desde}px` }, { height: `${cerrado}px` }], { duration: CERRAR_MS, easing: SALIDA });
+        a.onfinish = () => { d.open = false; fin(); };
+        a.oncancel = fin;
+      } else {
+        d.open = true;
+        const hasta = tope(d.offsetHeight);
+        const a = d.animate([{ height: `${desde}px` }, { height: `${hasta}px` }], { duration: ABRIR_MS, easing: EXPO });
+        a.onfinish = a.oncancel = fin;
+      }
+    }, true);
+  })();
 
   /* ---------- Micro-interacción común de las casillas (.card-check) ----------
      Al marcar como hecha, la casilla «entra» con un halo (ds.css: is-just-checked). Cada pantalla repinta a su manera
@@ -624,6 +786,11 @@
     const vv = window.visualViewport;
     const h = vv ? vv.height : window.innerHeight;
     document.documentElement.style.setProperty('--vvh', h + 'px');
+    // Lo que tapa el teclado por abajo (0 sin teclado): las hojas inferiores suben solo eso. En iOS el teclado no
+    // encoge la ventana (innerHeight), solo la vista visual; calcularlo así no depende de 100dvh, que Safari actualiza
+    // a otro ritmo que visualViewport (la hoja «Más» podía quedar fuera de la pantalla).
+    const kb = vv ? Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) : 0;
+    document.documentElement.style.setProperty('--kb', kb + 'px');
   }
   // En táctil, el campo que recibe el foco dentro de un diálogo se centra cuando el teclado
   // ya ha encogido la hoja: así ni el campo ni el botón de guardar del pie quedan tapados
@@ -683,6 +850,7 @@
   function init() {
     syncViewport();
     window.visualViewport?.addEventListener('resize', syncViewport);
+    window.visualViewport?.addEventListener('scroll', syncViewport);  // iOS: la vista se desplaza al abrir el teclado
     window.addEventListener('resize', syncViewport);
     wireAllDialogs();
     document.addEventListener('click', (e) => {

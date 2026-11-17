@@ -98,3 +98,76 @@ def test_api_estado_y_reintento(client):
     assert {"state", "online", "retry_in"} <= set(r.json())
     r = client.post("/estudio/api/esp32/retry")
     assert r.status_code == 200 and "online" in r.json()
+
+
+# ── Un puente vuelve a conectar en cuanto se cierra la conexión ─────────
+def test_atender_no_espera_al_bucle_dormido():
+    """Antes (asyncio.gather) el receptor acababa al cerrarse la conexión, pero el emisor seguía dormido hasta su
+    próximo envío: el repaso de notas, 15 minutos sin volver a conectar ni contestar a la pantalla «Notas»."""
+    from estudio.esp32_link import atender
+
+    cancelado = []
+
+    async def emisor():
+        try:
+            await asyncio.sleep(15 * 60)
+        except asyncio.CancelledError:
+            cancelado.append(True)
+            raise
+
+    async def receptor():
+        await asyncio.sleep(0.01)  # la conexión se cierra
+
+    async def prueba():
+        await asyncio.wait_for(atender(emisor(), receptor()), timeout=2)
+
+    asyncio.run(prueba())
+    assert cancelado == [True]
+
+
+def test_atender_propaga_el_fallo_de_un_bucle():
+    from estudio.esp32_link import atender
+
+    async def falla():
+        raise ConnectionResetError("se fue la wifi")
+
+    async def espera():
+        await asyncio.sleep(60)
+
+    async def prueba():
+        try:
+            await asyncio.wait_for(atender(espera(), falla()), timeout=2)
+        except ConnectionResetError as e:
+            return str(e)
+        return None
+
+    assert asyncio.run(prueba()) == "se fue la wifi"
+
+
+def test_el_puente_de_notas_suelta_la_conexion_cerrada_al_momento(monkeypatch):
+    """Con el WebSocket ya cerrado, _serve vuelve enseguida aunque acabe de enviar una nota de repaso."""
+    from estudio import note_review
+
+    class WsCerrado:
+        closed = False
+
+        async def send_str(self, _):
+            self.closed = True  # se cierra justo después de enviar
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise StopAsyncIteration
+
+    monkeypatch.setattr(
+        note_review,
+        "_pick_random_consolidated_snippet",
+        lambda: {"id": "a", "title": "A", "category": "C", "snippet": "texto"},
+    )
+    bridge = note_review.NoteReviewBridge(session=None, esp32_ws_url="ws://placa/ws")
+
+    async def prueba():
+        await asyncio.wait_for(bridge._serve(WsCerrado()), timeout=2)
+
+    asyncio.run(prueba())

@@ -331,6 +331,127 @@ function bindDebounced(elOrId, handler, delayMs = 300) {
 // =====================================================================
 // POMODORO
 // =====================================================================
+/* Esfera del pomodoro: el anillo es el tiempo que queda y se dibuja en cada cuadro mientras corre (sin saltos de
+   segundo en segundo); al empezar se llena de luz, al pausar respira una vez, al parar se vacía; los dígitos ruedan.
+   El estado manda la placa (pomodoro_state); aquí solo se anima. Con movimiento reducido, todo al instante. */
+const Pomo = (() => {
+  const $p = (id) => document.getElementById(id);
+  const quieto = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const ring = $p("pomoRing"), arc = $p("pomoArc"), glow = $p("pomoGlow"), head = $p("pomoHead"), btn = $p("btnPomoStartPause");
+  const timeEl = $p("pomoTimeDisplay");
+  // 60 marcas por dentro del anillo; una de cada cinco, más larga
+  const ticks = [];
+  const NS = "http://www.w3.org/2000/svg";
+  for (let i = 0; i < 60; i++) {
+    const a = (i / 60) * Math.PI * 2 - Math.PI / 2, largo = i % 5 === 0;
+    const l = document.createElementNS(NS, "line");
+    const r1 = largo ? 74 : 78, r2 = 82;
+    l.setAttribute("x1", (110 + Math.cos(a) * r1).toFixed(2)); l.setAttribute("y1", (110 + Math.sin(a) * r1).toFixed(2));
+    l.setAttribute("x2", (110 + Math.cos(a) * r2).toFixed(2)); l.setAttribute("y2", (110 + Math.sin(a) * r2).toFixed(2));
+    if (largo) l.classList.add("is-long");
+    $p("pomoTicks").appendChild(l);
+    ticks.push(l);
+  }
+  // Dígitos «mm:ss» como tiras que ruedan
+  timeEl.innerHTML = '<span class="pomo-dig"><span>2</span></span><span class="pomo-dig"><span>5</span></span><span class="pomo-colon">:</span><span class="pomo-dig"><span>0</span></span><span class="pomo-dig"><span>0</span></span>';
+  const digs = [...timeEl.querySelectorAll(".pomo-dig")];
+  let mostrados = "2500";
+  function digitos(txt) {
+    if (txt === mostrados) return;
+    digs.forEach((d, i) => {
+      if (txt[i] === mostrados[i]) return;
+      if (quieto()) { d.innerHTML = `<span>${txt[i]}</span>`; return; }
+      d.classList.remove("is-rolling");
+      d.innerHTML = `<span>${mostrados[i]}</span><span>${txt[i]}</span>`;
+      void d.offsetWidth;  // reinicia la animación aunque ya estuviera rodando
+      d.classList.add("is-rolling");
+    });
+    mostrados = txt;
+    timeEl.setAttribute("aria-label", `${txt.slice(0, 2)}:${txt.slice(2)}`);
+  }
+  timeEl.addEventListener("animationend", (e) => {
+    const d = e.target.closest(".pomo-dig");
+    if (d?.classList.contains("is-rolling")) { d.classList.remove("is-rolling"); d.innerHTML = `<span>${d.lastElementChild.textContent}</span>`; }
+  });
+  // Lo animable: cuánto anillo se ve encendido (show) y cuánto brilla (glow)
+  const vis = { show: 0, glow: 0 };
+  const anims = new Map();
+  function tween(key, to, ms, ease = (t) => 1 - Math.pow(1 - t, 3)) {
+    if (quieto() || !ms) { vis[key] = to; anims.delete(key); pedir(); return; }
+    anims.set(key, { from: vis[key], to, t0: performance.now(), ms, ease });
+    pedir();
+  }
+  function restante(now = Date.now()) {
+    const p = state.pomodoro;
+    return p.runState === "running" ? Math.max(0, p.remainingSec - (now - p.lastSync) / 1000) : p.remainingSec;
+  }
+  function dibujar() {
+    const p = state.pomodoro;
+    const total = (p.phase === "work" ? p.workMin : p.breakMin) * 60;
+    const rem = restante();
+    const frac = total > 0 ? Math.max(0, Math.min(1, rem / total)) : 0;
+    const v = frac * vis.show;
+    arc.style.opacity = v < 0.003 ? "0" : "1";  // un trazo vacío con extremos redondos aún pintaría un punto
+    arc.style.strokeDasharray = `${v.toFixed(4)} 1`;
+    glow.style.strokeDasharray = `${v.toFixed(4)} 1`;
+    glow.style.opacity = v < 0.003 ? "0" : (vis.glow * 0.5).toFixed(3);
+    const largo = Math.min(0.05, v);
+    head.style.strokeDasharray = `${largo.toFixed(4)} 1`;
+    head.style.strokeDashoffset = (-(v - largo)).toFixed(4);
+    head.style.opacity = (v > 0.002 ? Math.min(1, vis.glow) * 0.9 : 0).toFixed(3);
+    const lit = vis.glow > 0.2 && v > 0.01 ? Math.round(v * 60) % 60 : -1;
+    ticks.forEach((t, i) => t.classList.toggle("is-lit", i === lit));
+    // La cuenta atrás enseña el segundo en el que está: 25:00 hasta que pasa uno entero
+    const s = rem > 0 ? Math.ceil(rem - 1e-6) : 0;
+    digitos(String(Math.floor(s / 60)).padStart(2, "0").slice(-2) + String(s % 60).padStart(2, "0"));
+    ring.dataset.phase = p.phase;
+    $p("pomoPhaseLabel").textContent = p.phase === "work" ? "Trabajo" : "Descanso";
+  }
+  let raf = 0;
+  function cuadro(now) {
+    raf = 0;
+    for (const [k, a] of anims) {
+      const t = Math.min(1, (now - a.t0) / a.ms);
+      vis[k] = a.from + (a.to - a.from) * a.ease(t);
+      if (t >= 1) anims.delete(k);
+    }
+    dibujar();
+    if (anims.size || (state.pomodoro.runState === "running" && !document.hidden)) pedir();
+  }
+  function pedir() { if (!raf) raf = requestAnimationFrame(cuadro); }
+  document.addEventListener("visibilitychange", pedir);
+  setInterval(pedir, 1000);  // pestaña en segundo plano: al menos el número al día
+
+  let antes = null;
+  function estado(nuevo) {
+    const de = antes;
+    antes = nuevo;
+    btn.classList.toggle("is-running", nuevo === "running");
+    btn.querySelector(".pomo-label").textContent = nuevo === "running" ? "Pausar" : nuevo === "paused" ? "Seguir" : "Iniciar";
+    ring.classList.toggle("is-paused", nuevo === "paused");
+    if (de === null) {  // primera noticia de la placa: tal cual, sin animar
+      vis.show = nuevo === "stopped" ? 0 : 1;
+      vis.glow = nuevo === "running" ? 1 : nuevo === "paused" ? 0.35 : 0;
+      return pedir();
+    }
+    if (de === nuevo) return pedir();
+    if (nuevo === "running") {
+      if (de === "stopped") { tween("show", 1, 900, (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)); }
+      else vis.show = 1;
+      tween("glow", 1, 500);
+      if (de === "stopped" && !quieto()) ring.animate([{ transform: "scale(0.985)" }, { transform: "scale(1.012)" }, { transform: "none" }], { duration: 700, easing: "cubic-bezier(0.16, 1, 0.3, 1)" });
+    } else if (nuevo === "paused") {
+      // Respira una vez y se queda quieto: nunca en bucle
+      if (!quieto()) ring.animate([{ transform: "none" }, { transform: "scale(1.025)" }, { transform: "none" }], { duration: 1400, easing: "ease-in-out" });
+      tween("glow", 0.35, 900);
+    } else {
+      tween("show", 0, 700);
+      tween("glow", 0, 500);
+    }
+  }
+  return { estado, pedir };
+})();
+
 function onPomodoroState(data) {
   state.pomodoro = {
     workMin: data.work_min, breakMin: data.break_min, phase: data.phase,
@@ -338,30 +459,10 @@ function onPomodoroState(data) {
   };
   document.getElementById("workMinLabel").textContent = data.work_min;
   document.getElementById("breakMinLabel").textContent = data.break_min;
-  document.getElementById("btnPomoStartPause").innerHTML =
-    data.run_state === "running" ? icon("pause") + "Pausar" : icon("play") + "Iniciar";
-  renderPomodoro();
+  Pomo.estado(data.run_state);
 }
 
-function renderPomodoro() {
-  const p = state.pomodoro;
-  let remaining = p.remainingSec;
-  if (p.runState === "running") {
-    remaining = Math.max(0, p.remainingSec - Math.floor((Date.now() - p.lastSync) / 1000));
-  }
-  const totalSec = (p.phase === "work" ? p.workMin : p.breakMin) * 60;
-  const elapsed = totalSec - remaining;
-  const pct = totalSec > 0 ? Math.min(100, (elapsed / totalSec) * 100) : 0;
-  const ring = document.getElementById("pomoRing");
-  ring.style.setProperty("--pct", pct + "%");
-  ring.dataset.phase = p.phase;
-
-  const mm = String(Math.floor(remaining / 60)).padStart(2, "0");
-  const ss = String(remaining % 60).padStart(2, "0");
-  document.getElementById("pomoTimeDisplay").textContent = `${mm}:${ss}`;
-  document.getElementById("pomoPhaseLabel").textContent = p.phase === "work" ? "Trabajo" : "Descanso";
-}
-setInterval(renderPomodoro, 1000);
+function renderPomodoro() { Pomo.pedir(); }
 
 bindDebounced("btnPomoStartPause", () => send({ type: "pomodoro_cmd", action: "start_pause" }));
 bindDebounced("btnPomoReset", () => send({ type: "pomodoro_cmd", action: "reset" }));

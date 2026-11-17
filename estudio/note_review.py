@@ -18,7 +18,7 @@ import aiohttp
 
 from core import config
 
-from .esp32_link import keep_connected
+from .esp32_link import atender, keep_connected
 
 REVIEW_INTERVAL_SEC = 15 * 60  # una nota nueva cada 15 minutos
 SNIPPET_MAX_CHARS = 220
@@ -38,10 +38,7 @@ class NoteReviewBridge:
         await keep_connected(self.session, self.esp32_ws_url, self._serve, heartbeat=15)
 
     async def _serve(self, ws):
-        await asyncio.gather(
-            self._sender_loop(ws),
-            self._receiver_loop(ws),
-        )
+        await atender(self._sender_loop(ws), self._receiver_loop(ws))
 
     async def _sender_loop(self, ws: aiohttp.ClientWebSocketResponse):
         while not ws.closed:

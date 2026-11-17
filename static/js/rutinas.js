@@ -56,6 +56,45 @@
     render();
   }
 
+  /* Anillo del día junto a la fecha: al marcar un bloque avanza contando el porcentaje (sin pasarse y volver); al
+     completar el día se dibuja un ✓ y pasa a verde. Al cambiar de día se pone en su sitio sin animar. */
+  const prog = { v: null, fecha: null, raf: 0 };
+  function progreso(texto, cuenta, fecha) {
+    const sub = $('rtSub');
+    if (!sub.querySelector('.rt-prog')) {
+      sub.innerHTML = `<span class="rt-prog" aria-hidden="true"><svg viewBox="0 0 24 24"><circle class="rt-prog-track" cx="12" cy="12" r="10"></circle>
+        <circle class="rt-prog-arc" cx="12" cy="12" r="10" pathLength="1" transform="rotate(-90 12 12)"></circle>
+        <path class="rt-prog-tick" pathLength="1" d="M7.4 12.4 10.5 15.3 16.6 8.9"></path></svg></span><span class="rt-prog-pct tabular" aria-hidden="true"></span><span class="rt-sub-text"></span>`;
+    }
+    const ring = sub.querySelector('.rt-prog'), pct = sub.querySelector('.rt-prog-pct'), arc = sub.querySelector('.rt-prog-arc');
+    sub.querySelector('.rt-sub-text').textContent = cuenta ? `${texto} · ${cuenta.done} de ${cuenta.total} bloques hechos` : texto;
+    ring.hidden = pct.hidden = !cuenta;
+    if (!cuenta) { prog.v = null; prog.fecha = fecha; return; }
+    const hasta = cuenta.done / cuenta.total;
+    const pinta = (v) => { arc.style.strokeDashoffset = String(1 - v); arc.style.opacity = v > 0.004 ? '1' : '0'; pct.textContent = `${Math.round(v * 100)} %`; };
+    const completo = hasta >= 1;
+    const llegaAlFinal = completo && prog.v !== null && prog.v < 1 && prog.fecha === fecha;
+    ring.classList.toggle('is-done', completo);
+    const quieto = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    cancelAnimationFrame(prog.raf);
+    if (prog.v === null || prog.fecha !== fecha || quieto || prog.v === hasta) {
+      pinta(hasta);
+      ring.classList.toggle('tick-on', completo);
+    } else {
+      const desde = prog.v, t0 = performance.now(), ms = 700;
+      const paso = (now) => {
+        const k = Math.min(1, (now - t0) / ms), e = 1 - Math.pow(1 - k, 3);
+        pinta(desde + (hasta - desde) * e);
+        if (k < 1) prog.raf = requestAnimationFrame(paso);
+      };
+      prog.raf = requestAnimationFrame(paso);
+      ring.classList.toggle('tick-on', completo);
+      if (llegaAlFinal) ring.animate([{ transform: 'none' }, { transform: 'scale(1.12)' }, { transform: 'none' }], { duration: 520, easing: 'cubic-bezier(0.16, 1, 0.3, 1)', delay: 420 });
+    }
+    prog.v = hasta;
+    prog.fecha = fecha;
+  }
+
   function render() {
     const isToday = data.date === data.today;
     const past = data.date < data.today;
@@ -64,9 +103,8 @@
     const done = steps.filter((s) => s.done).length;
     const d = parse(data.date);
     const label = isToday ? 'Hoy' : `${DOW_LONG[data.weekday].charAt(0).toUpperCase()}${DOW_LONG[data.weekday].slice(1)}`;
-    $('rtSub').textContent = data.rutinas.length
-      ? `${label}, ${d.getDate()} de ${d.toLocaleDateString('es-ES', { month: 'long' })} · ${done} de ${steps.length} bloques hechos`
-      : `${label}, ${d.getDate()} de ${d.toLocaleDateString('es-ES', { month: 'long' })}`;
+    const fecha = `${label}, ${d.getDate()} de ${d.toLocaleDateString('es-ES', { month: 'long' })}`;
+    progreso(fecha, steps.length ? { done, total: steps.length } : null, data.date);
 
     if (!data.rutinas.length && !data.otras.length) {
       $('rtPage').innerHTML = `<section class="panel rp-empty">${emptyState({ iconName: 'repeat', title: 'Organiza tu día en bloques',

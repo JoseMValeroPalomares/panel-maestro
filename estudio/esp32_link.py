@@ -137,6 +137,24 @@ async def buscar_placa() -> None:
         log.debug(f"Búsqueda de la placa fallida: {e!r}")
 
 
+async def atender(*bucles) -> None:
+    """Corre los bucles de un puente (enviar y recibir) y, en cuanto uno termina o falla, cancela los demás.
+
+    Con asyncio.gather, al cerrarse la conexión el receptor acababa al momento pero el emisor seguía dormido hasta su
+    próximo envío (el de repaso de notas, 15 minutos): todo ese rato el puente no volvía a conectar y la pantalla
+    «Notas» del ESP32 se quedaba en «Pidiendo las notas al panel…» sin que nadie le contestara."""
+    tareas = [asyncio.ensure_future(b) for b in bucles]
+    try:
+        hechas, _ = await asyncio.wait(tareas, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        for t in tareas:
+            t.cancel()
+        await asyncio.gather(*tareas, return_exceptions=True)
+    for t in hechas:
+        if not t.cancelled() and t.exception() is not None:
+            raise t.exception()  # keep_connected lo trata como cualquier fallo de red
+
+
 async def keep_connected(session, url, serve, **ws_kwargs) -> None:
     """Bucle de un puente con conexión permanente: espera su turno, conecta, atiende con
     `serve(ws)` hasta que se cierre y vuelve a empezar. Sin conexión no escribe nada en el

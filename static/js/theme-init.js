@@ -15,3 +15,10 @@ try {
   var n = localStorage.getItem('nav');
   if (n === 'collapsed' || (n !== 'expanded' && window.innerWidth < 1024)) document.documentElement.classList.add('nav-collapsed');
 } catch (e) {}
+// Transición entre secciones donde el navegador no la tiene entre páginas (Firefox): si se llegó desde un enlace del
+// panel hace un momento (ui.js lo apunta al pulsarlo), la página entra animada desde el primer pintado (ds.css)
+try {
+  var va = Number(sessionStorage.getItem('panel.nav-anim') || 0);
+  sessionStorage.removeItem('panel.nav-anim');
+  if (va && Date.now() - va < 4000 && !('CSSViewTransitionRule' in window)) document.documentElement.classList.add('nav-entrando');
+} catch (e) {}

@@ -42,7 +42,7 @@ from core import config, red
 from core.templating import render
 
 from .calendar_sync import CalendarSyncBridge
-from .esp32_link import LINK, buscar_placa, keep_connected
+from .esp32_link import LINK, atender, buscar_placa, keep_connected
 from .note_review import NoteReviewBridge
 
 # Sin ESP32_HOST no hay placa. Con él («auto» o una dirección), dónde está lo dice core/red.py en cada momento:
@@ -235,10 +235,7 @@ class SpotifyBridge:
 
     async def _serve(self, ws):
         self._reset()  # tras reconectar, la carátula se vuelve a mandar
-        await asyncio.gather(
-            self._sender_loop(ws),
-            self._receiver_loop(ws),
-        )
+        await atender(self._sender_loop(ws), self._receiver_loop(ws))
 
     def _reset(self):
         self.last_track = None

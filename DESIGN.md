@@ -248,6 +248,11 @@ modales 22 px; chips en píldora; azulejos 7 px (9 px el grande). Iconos Lucide 
   scroll); en «Pendientes» la tarea recién completada sigue ~900 ms y se desvanece (`is-leaving`, no cuenta ni se
   recorre con flechas); lo recién creado entra con `item-in`. ItemList usa `Items.recent`; las demás pantallas, el
   mecanismo común de `ui.js` (anima la casilla pulsada aunque la lista se repinte; si hay duda, ninguna).
+- **Plegables, desplegables y cambio de sección** (ui.js / ds.css): cualquier botón con `aria-expanded` que controla una
+  zona (`aria-controls` o `[data-il-fold]`) y los `<details>` abren con altura + fundido (220 ms, curva exponencial) y
+  cierran en 160 ms; en zonas más altas que la ventana se anima solo lo visible (1,2 pantallas). Los menús entran (160 ms)
+  y salen (110 ms; el que sale lleva `aria-hidden`). Entre secciones solo se mueve `.main` (la anterior se va en 90 ms,
+  la nueva sube 10 px en 240 ms); el marco no se anima. Nada de esto con «reducir movimiento».
 - **Página 404** (`templates/404.html`): el estado «sin resultados» centrado, con la ruta pedida y tres salidas (Hoy,
   Buscar, Volver). Solo para navegaciones del navegador; la API sigue respondiendo JSON.
 - **Estado vacío** (`emptyState`) con icono en círculo, título y una frase de qué hacer; **skeletons** al cargar.
