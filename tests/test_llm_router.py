@@ -89,7 +89,7 @@ def test_429_enfria_el_modelo_y_pasa_al_siguiente(modelos):
     t, llamadas = transporte(
         {"p0.test": [httpx.Response(429, headers={"Retry-After": "120"})], "p1.test": [ok('{"ok": true}')]}
     )
-    ahora = 1_000_000.0
+    ahora = 1_800_000_000.0  # en Windows, time.mktime no admite fechas anteriores a 1970
     r = llm_router.completar([], transport=t, reloj=lambda: ahora, dormir=lambda s: None)
     assert r.modelo_id == ids[1] and r.intentos == [{"modelo": ids[0], "error": "429 límite"}]
     with get_db() as conn:
@@ -107,9 +107,10 @@ def test_429_enfria_el_modelo_y_pasa_al_siguiente(modelos):
 def test_429_sin_retry_after_usa_el_enfriamiento_por_defecto(modelos):
     ids = modelos({}, {}, enfriamiento_429_s=300)
     t, _ = transporte({"p0.test": [httpx.Response(429)], "p1.test": [ok("{}")]})
-    llm_router.completar([], transport=t, reloj=lambda: 500.0)
+    llm_router.completar([], transport=t, reloj=lambda: 1_800_000_000.0)
     with get_db() as conn:
-        assert conn.execute("SELECT hasta FROM llm_enfriamiento WHERE modelo=?", (ids[0],)).fetchone()["hasta"] == 800.0
+        hasta = conn.execute("SELECT hasta FROM llm_enfriamiento WHERE modelo=?", (ids[0],)).fetchone()["hasta"]
+        assert hasta == 1_800_000_300.0
 
 
 def test_timeout_y_5xx_se_reintentan_con_backoff(modelos):

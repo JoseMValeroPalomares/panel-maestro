@@ -123,7 +123,7 @@ def test_checkpoint_en_reposo_vacia_el_wal(datos):
 # ── Carpeta que no se puede escribir ─────────────────────────
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="root escribe en todo")
+@pytest.mark.skipif(getattr(os, "geteuid", lambda: -1)() == 0, reason="root escribe en todo")
 @pytest.mark.permisos_unix
 def test_carpeta_en_solo_lectura_se_niega_y_no_escribe(datos):
     antes = _foto(datos["DATA_DIR"])
@@ -140,6 +140,7 @@ def test_carpeta_en_solo_lectura_se_niega_y_no_escribe(datos):
     assert anotado["motivo"] == "solo-lectura" and anotado["accion"]
 
 
+@pytest.mark.skipif(not hasattr(os, "statvfs"), reason="statvfs solo existe en Unix")
 def test_montaje_en_solo_lectura_se_niega(datos, monkeypatch):
     real = os.statvfs
 
@@ -166,6 +167,7 @@ def test_particion_sin_montar_no_crea_una_carpeta_vacia(datos, monkeypatch, tmp_
     assert not falta.parent.exists()
 
 
+@pytest.mark.permisos_unix
 def test_tras_negarse_y_arrancar_bien_se_borra_el_aviso(datos):
     os.chmod(datos["DATA_DIR"], 0o500)
     try:
@@ -301,6 +303,7 @@ def test_cierre_sucio_con_la_bd_danada_se_niega_y_seguir_tambien(datos):
     assert not r["ok"] and not dc.leer_cerrojo()["cerrado"]
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="notify-send y script /bin/sh (solo Linux)")
 def test_el_aviso_del_escritorio_solo_como_servicio_y_por_panel_notify(datos, monkeypatch, tmp_path):
     """Como servicio (INVOCATION_ID) avisa con el programa de PANEL_NOTIFY; fuera de systemd, no. En los tests
     PANEL_NOTIFY es `true` (conftest): sus cierres sucios simulados no deben salir en el escritorio de verdad."""
@@ -350,6 +353,7 @@ def test_datos_locales_sin_incidencias_no_dicen_nada(datos, monkeypatch):
     assert dc.status_item() is None
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="lee /proc/self/mounts (solo Linux)")
 def test_tipo_de_sistema_de_archivos():
     assert dc.sistema_de_archivos(Path("/")) not in (None, "")
 

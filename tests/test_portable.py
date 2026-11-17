@@ -83,7 +83,7 @@ def test_nota_que_solo_cambia_en_mayusculas(client):
     r = client.post("/api/notes/mayus-prueba", json={"title": "mayus", "content": "dos", "category": "Pruebas"})
     assert r.status_code == 409
     assert "uno" in (config.NOTES_DIR / "Mayus-Prueba.md").read_text(encoding="utf-8")
-    assert not (config.NOTES_DIR / "mayus-prueba.md").exists()
+    assert "mayus-prueba.md" not in os.listdir(config.NOTES_DIR)  # exists() no distingue mayúsculas en Windows
     assert client.delete("/api/notes/Mayus-Prueba").status_code == 200
 
 

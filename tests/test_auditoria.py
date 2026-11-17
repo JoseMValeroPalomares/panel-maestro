@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 
 import frontmatter
+import pytest
 
 from app.database import get_db
 from app.indexer import NOTES_DIR, sync_notes_to_db
@@ -53,6 +54,7 @@ def test_los_puntos_no_saltan_el_login():
 # ── Notas ───────────────────────────────────────────────────────
 
 
+@pytest.mark.permisos_unix
 def test_escritura_atomica_sin_restos(tmp_path):
     destino = tmp_path / "nota.md"
     destino.write_text("antes", encoding="utf-8")

@@ -111,7 +111,8 @@ def pytest_collection_modifyitems(config, items):
     from app.datos_compartidos import NTFS, sistema_de_archivos
 
     base = config.option.basetemp or TMP
-    if sistema_de_archivos(TMP) not in NTFS and sistema_de_archivos(Path(base)) not in NTFS:
+    en_ntfs = sys.platform == "win32" or sistema_de_archivos(TMP) in NTFS or sistema_de_archivos(Path(base)) in NTFS
+    if not en_ntfs:
         return
     salta = pytest.mark.skip(reason="NTFS no tiene permisos Unix (docs/windows.md §2.5)")
     for item in items:

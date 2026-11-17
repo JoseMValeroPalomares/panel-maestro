@@ -34,6 +34,13 @@ $conf = Read-Env $envFile
 $dataDir = $conf['PANEL_DATA_DIR']
 $puerto = if ($conf['PANEL_PORT']) { [int]$conf['PANEL_PORT'] } else { 8000 }
 $hostPanel = if ($conf['PANEL_HOST']) { $conf['PANEL_HOST'] } else { '127.0.0.1' }
+# El lanzador venv\Scripts\python.exe mete al Python de verdad en un job que muere con él; al cerrar sesión Windows mata
+# al lanzador (consola sin ventana) y se lleva al panel antes de que su ventana oculta reciba WM_ENDSESSION. El panel
+# corre en el Python base apuntando al venv (__PYVENV_LAUNCHER__, lo mismo que hace el lanzador).
+# Sin pyvenv.cfg o sin «home» (venv roto) se queda el lanzador de siempre: funciona, solo sin cierre limpio al salir
+$pyHome = (Read-Env (Join-Path $script:Base 'venv\pyvenv.cfg'))['home']
+$pyBase = if ($pyHome) { Join-Path $pyHome 'python.exe' } else { $python }
+if (-not (Test-Path $pyBase)) { $pyBase = $python }
 $logs = if ($conf['PANEL_LOGS_DIR']) { $conf['PANEL_LOGS_DIR'] } else { Join-Path $script:Base 'logs' }
 $denegado = Join-Path $logs 'arranque-denegado.json'
 
@@ -87,7 +94,9 @@ try {
     $intentos = 0
     while ($true) {
         if (Test-Path $denegado) { Remove-Item $denegado -Force }
-        & $python -m uvicorn main:app --host $hostPanel --port $puerto
+        $env:__PYVENV_LAUNCHER__ = $python
+        & $pyBase -m uvicorn main:app --host $hostPanel --port $puerto
+        Remove-Item Env:__PYVENV_LAUNCHER__ -ErrorAction SilentlyContinue
         $codigo = $LASTEXITCODE
         if ($codigo -eq 0) { break }   # parada normal
         if ($codigo -eq 3 -and (Test-Path $denegado)) {

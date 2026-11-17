@@ -595,6 +595,7 @@ def _bucle_ventana() -> None:  # pragma: no cover - solo en Windows (prueba guia
     def proc(hwnd, msg, wparam, lparam):
         try:
             if msg == wm_queryendsession:
+                log.info("Aviso de fin de sesión de Windows recibido")
                 checkpoint("TRUNCATE")  # adelanta el trabajo; el cerrojo, solo si la sesión termina de verdad
                 return 1
             if msg == wm_endsession:
