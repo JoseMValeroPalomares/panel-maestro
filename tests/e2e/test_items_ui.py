@@ -303,7 +303,7 @@ def _contadores(pg):
         hechas: document.querySelector('[data-status-count=hechas]').textContent,
         menu: document.querySelector('.nav-count[data-inbox-count]').textContent,
         grupos: Object.fromEntries([...document.querySelectorAll('[data-count]')].map(e => [e.dataset.count, e.textContent])),
-        ids: [...document.querySelectorAll('.il-item')].map(e => e.dataset.id).sort().join(','),
+        ids: [...document.querySelectorAll('.il-item:not(.is-leaving)')].map(e => e.dataset.id).sort().join(','),  // la recién completada se va sola
     })""")
 
 

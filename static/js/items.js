@@ -161,11 +161,30 @@
   setInterval(() => { if (!document.hidden) flushQueue(); }, 60000);
   setTimeout(flushQueue, 1500);  // al abrir cualquier página, lo que quedó de otra vez
 
+  /* Micro-interacciones (Fase 5): lo recién completado o creado, para que la lista lo anime. La lista se repinta dos veces
+     (al instante y al confirmar el servidor): recent() da los ms ya pasados y la animación sigue por donde iba. */
+  const RECENT = new Map();  // id → { kind: 'done' | 'new', at }
+  const RECENT_MS = 900;
+  function mark(id, kind) {
+    if (id == null) return;
+    RECENT.set(Number(id), { kind, at: performance.now() });
+    // Lo completado sigue un momento en «Pendientes» (se ve marcarse); al acabar, otro repintado lo quita
+    if (kind === 'done' && !S.byId[id]?.parent_id) setTimeout(emit, RECENT_MS + 30);  // un paso no sale de la lista
+  }
+  function recent(id) {
+    const r = RECENT.get(Number(id));
+    if (!r) return null;
+    const ms = performance.now() - r.at;
+    if (ms > RECENT_MS) { RECENT.delete(Number(id)); return null; }
+    return { kind: r.kind, ms: Math.round(ms) };
+  }
+
   function create(body) {
     body = withContext(body);
     return write(async () => {
       const res = await postOrQueue('/api/items', body);
       if (res.queued) return null;
+      mark(res.id, 'new');
       return after(res.id);
     });
   }
@@ -176,6 +195,7 @@
 
   function setDone(id, done) {
     const it = get(id);
+    if (done) mark(id, 'done');
     if (it) { it.done = done; emit(); }  // se ve al instante; la recarga confirma
     if (done) window.Sonido?.play('hecho');
     return write(async () => {
@@ -259,6 +279,7 @@
     const res = await postOrQueue('/api/capture', { text, ...withContext(Object.fromEntries(Object.entries(where).filter(([, v]) => v != null))) });
     if (res.queued) return null;
     if (res.status === 'error') { toast(res.message, { type: 'error' }); return null; }  // p. ej. una @mención que no existe
+    mark(res.id, 'new');
     await load();
     toast(res.message, {
       type: res.revisar ? 'info' : 'success',
@@ -420,6 +441,7 @@
           const body = bodyFor(false);
           const res = await write(async () => {
             const r = await postOrQueue('/api/capture', body);
+            if (!r.queued) mark(r.id, 'new');
             return r.queued ? r : after(r);
           });
           if (res.queued) { reset(); if (again) ta.focus(); else onSaved?.(null); return; }  // guardada en la cola
@@ -472,6 +494,6 @@
     get state() { return S; },
     load, ready, get, children, originOf, moveError, typeFor,
     create, update, setDone, move, remove, undo, bulk, toNote, capture, wireCaptureForm, lastType,
-    get pendingCaptures() { return readQueue().length; }, flushQueue,
+    get pendingCaptures() { return readQueue().length; }, flushQueue, recent,
   };
 })();

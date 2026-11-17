@@ -198,10 +198,17 @@
     filtering() { return !!(this.filters.q || this.filters.category || !['all', 'inbox'].includes(this.filters.type)); }
 
     /* ---------- Qué se ve ---------- */
+    // Recién completada en «Pendientes»: sigue a la vista ~900 ms para que se vea marcarse y luego se va sola
+    // (Items.recent). Mientras tanto no cuenta en los grupos ni se recorre con las flechas.
+    saliendo(it) {
+      return this.filters.status === 'pending' && it.done && !it.parent_id && it.type !== 'rutina' && Items.recent?.(it.id)?.kind === 'done';
+    }
+    contar(items) { return items.filter((it) => !this.saliendo(it)).length; }
+
     matches(it) {
       const f = this.filters;
       // Una rutina se repite: hecha hoy sigue en «Pendientes» (marcada)
-      if (f.status === 'pending' && it.done && it.type !== 'rutina') return false;
+      if (f.status === 'pending' && it.done && it.type !== 'rutina' && !this.saliendo(it)) return false;
       if (f.status === 'done' && !it.done) return false;
       if (window.Ctx && !Ctx.match(it, f.contexto)) return false;
       if (f.asignatura && it.asignatura_id !== f.asignatura) return false;
@@ -347,7 +354,7 @@
           ${this.foldBtn(key, meta.title, open)}
           <span class="col-icon" data-kind="${g}" aria-hidden="true">${icon(meta.icon, 'icon-sm')}</span>
           <h2 id="il-h-${this.variant}-${g}">${meta.title}</h2>
-          <span class="badge tabular" data-count="${g}">${items.length}</span>
+          <span class="badge tabular" data-count="${g}">${this.contar(items)}</span>
           <span class="grow"></span>
           ${g === 'rutinas' ? `<a class="btn btn-ghost btn-sm" href="/rutinas" title="Tus rutinas como la línea del día">${icon('calendar-clock', 'icon-sm')}<span class="hide-mobile">Ver el día</span></a>` : ''}
           ${g === 'rutinas' ? `<button type="button" class="btn btn-ghost btn-sm" data-act="routine-templates" title="Crear una rutina desde una plantilla">${icon('layout-template', 'icon-sm')}<span class="hide-mobile">Plantillas</span></button>` : ''}
@@ -375,7 +382,7 @@
         const where = x.id ? `${uni ? 'a' : 'p'}:${x.id}` : this.filters.contexto;
         return `<div class="il-cat il-ctxgroup" data-where="${where}">
           <div class="il-cat-head">${this.foldBtn(key, x.title, open)}<span class="ctx-dot" style="background:${Ctx.color(x.color)}"></span><h3>${esc(x.title)}</h3>
-            <span class="badge tabular">${x.items.length}</span><span class="grow"></span>
+            <span class="badge tabular">${this.contar(x.items)}</span><span class="grow"></span>
             <button type="button" class="btn btn-ghost btn-icon btn-sm" data-act="add-to" data-type="${Items.typeFor(g)}" data-where="${where}" aria-label="Nueva ${Items.typeFor(g)} en ${esc(x.title)}" title="Nueva ${Items.typeFor(g)} aquí">${icon('plus', 'icon-sm')}</button></div>
           <div class="il-cat-body" ${open ? '' : 'hidden'}>${this.listHTML(x.items, { target: g, where }, uni ? 'Suelta aquí para llevarla a esta asignatura' : 'Suelta aquí para llevarla a este proyecto')}</div></div>`;
       }).join('');
@@ -450,7 +457,7 @@
       return `<div class="il-note" data-note="${esc(noteId)}">
         <div class="il-note-head">${this.foldBtn(key, n.title, open)}
           <a class="il-note-title" href="/?note=${encodeURIComponent(noteId)}" title="Abrir la nota">${icon('notebook-pen', 'icon-sm')}<span>${esc(n.title)}</span></a>
-          <span class="badge tabular">${n.items.length}</span><span class="grow"></span>
+          <span class="badge tabular">${this.contar(n.items)}</span><span class="grow"></span>
           <button type="button" class="btn btn-ghost btn-icon btn-sm" data-act="add-note" data-note="${esc(noteId)}" aria-label="Nueva tarea en «${esc(n.title)}»" title="Nueva tarea en esta nota">${icon('plus', 'icon-sm')}</button>
         </div>
         <div class="il-note-body" ${open ? '' : 'hidden'}>
@@ -530,7 +537,11 @@
       if (it.origin !== 'nota' && it.note_id) meta.push(`<a class="card-link no-drag" href="/?note=${encodeURIComponent(it.note_id)}">${icon('link', 'icon-sm')}En una nota</a>`);
       if (it.origin !== 'nota' && !child && this.variant === 'sidebar') meta.push(`<time class="il-when" datetime="${new Date(it.created_at * 1000).toISOString()}">${timeAgo(it.created_at)}</time>`);
 
-      return `<li class="il-item${child ? ' il-child' : ''}${it.done ? ' is-done' : ''}${sel ? ' is-selected' : ''}${this.flashId === it.id ? ' is-flash' : ''}" data-id="${it.id}" data-type="${it.type}" data-origin="${it.origin}"
+      // Recién completada o creada (Items.recent): la animación retoma su punto si la lista se repinta
+      const rec = Items.recent?.(it.id);
+      const sale = !child && this.saliendo(it) ? ' is-leaving' : '';
+      const anim = rec && (rec.kind === 'new' || it.done) ? ` is-just-${rec.kind === 'new' ? 'added' : 'done'}${sale}" style="--anim-t:-${rec.ms}ms` : '';
+      return `<li class="il-item${child ? ' il-child' : ''}${it.done ? ' is-done' : ''}${sel ? ' is-selected' : ''}${this.flashId === it.id ? ' is-flash' : ''}${anim}" data-id="${it.id}" data-type="${it.type}" data-origin="${it.origin}"
           aria-label="${esc(label)}${it.done ? ' (hecha)' : ''}">
         <div class="il-row">
           <button type="button" class="drag-handle" data-drag-handle aria-label="Mover «${esc(label)}» (Alt + flechas)">${icon('grip-vertical', 'icon-sm')}</button>
@@ -1073,12 +1084,12 @@
       else if (e.key === 'Escape' && this.selectMode) { e.preventDefault(); this.clearSelection(); }
       else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
-        const all = [...this.root.querySelectorAll('.il-item')];
+        const all = [...this.root.querySelectorAll('.il-item:not(.is-leaving)')];  // la recién completada ya se va
         all[all.indexOf(li) + (e.key === 'ArrowDown' ? 1 : -1)]?.focus();
       } else if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && this.root.closest('.is-matrix')) {
         // En la cuadrícula, a la tarjeta de al lado (sin pasar por sus pasos)
         e.preventDefault();
-        const cards = [...this.root.querySelectorAll('.il-list > .il-item')];
+        const cards = [...this.root.querySelectorAll('.il-list > .il-item:not(.is-leaving)')];
         const at = cards.indexOf(li.closest('.il-list > .il-item'));
         cards[at + (e.key === 'ArrowRight' ? 1 : -1)]?.focus();
       }

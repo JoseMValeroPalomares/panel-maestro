@@ -513,6 +513,44 @@
     </div>`;
   }
 
+  /* ---------- Micro-interacción común de las casillas (.card-check) ----------
+     Al marcar como hecha, la casilla «entra» con un halo (ds.css: is-just-checked). Cada pantalla repinta a su manera
+     (Hoy, Rutinas, Calendario, Universidad…), así que se recuerda qué casilla se pulsó (sus data-* y los del elemento
+     que la contiene) y se anima la que aparezca marcada con esos datos en el siguiente segundo. Si encajan varias, no
+     se anima ninguna (mejor nada que la equivocada). Las listas de ItemList van por su cuenta (Items.recent). */
+  (() => {
+    const VENTANA = 900;
+    let last = null;
+    const datos = (el) => (el ? [...el.attributes].filter((a) => a.name.startsWith('data-')).map((a) => `${a.name}=${a.value}`).sort().join('|') : '');
+    const firma = (b) => `${datos(b)}#${datos(b.parentElement?.closest('[data-id],[data-key],[data-step],[data-item],[data-ev]'))}`;
+    const pop = (el, ms) => {
+      el.style.setProperty('--anim-t', `-${Math.round(ms)}ms`);
+      el.classList.add('is-just-checked');
+      setTimeout(() => el.classList.remove('is-just-checked'), VENTANA);
+    };
+    document.addEventListener('click', (e) => {
+      const b = e.target.closest?.('.card-check');
+      if (!b || b.disabled || b.classList.contains('done') || b.closest('.il-item')) return;
+      last = { firma: firma(b), at: performance.now(), el: b };
+      // Pantallas que solo cambian la clase en el sitio, sin repintar
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (last?.el.isConnected && last.el.classList.contains('done')) pop(last.el, performance.now() - last.at);
+      }));
+    }, true);
+    new MutationObserver((muts) => {
+      if (!last) return;
+      const ms = performance.now() - last.at;
+      if (ms > VENTANA) { last = null; return; }
+      const encajan = [];
+      for (const m of muts) for (const n of m.addedNodes) {
+        if (n.nodeType !== 1) continue;
+        const cs = n.matches('.card-check.done') ? [n] : n.querySelectorAll('.card-check.done');
+        cs.forEach((c) => { if (!c.closest('.il-item') && firma(c) === last.firma) encajan.push(c); });
+      }
+      if (encajan.length === 1) pop(encajan[0], ms);
+    }).observe(document.documentElement, { childList: true, subtree: true });
+  })();
+
   /* ---------- Tema (sistema / claro / oscuro) ---------- */
 
 

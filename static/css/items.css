@@ -479,3 +479,12 @@ button.tag.prio:hover { background: var(--fill-strong); }
 .capture-tokens { margin: 0; }
 .capture-tokens code { font-size: 0.6875rem; }
 .inbox-sidebar .capture-opt-row { gap: var(--sp-2); }
+
+/* Micro-interacciones (Fase 5): animaciones comunes en ds.css. --anim-t = lo ya pasado (en negativo): si la lista se
+   repinta a mitad, la animación sigue por donde iba en vez de empezar otra vez. */
+.il-item.is-just-done > .il-row > .card-check { animation: check-ring 420ms var(--ease-out) both; animation-delay: var(--anim-t, 0ms); }
+.il-item.is-just-done > .il-row > .card-check .icon { animation: check-in var(--dur-slow) var(--ease-out-expo) both; animation-delay: var(--anim-t, 0ms); }
+.il-item.is-just-added { animation: item-in var(--dur-slow) var(--ease-out-expo) both; animation-delay: var(--anim-t, 0ms); }
+.il-item[data-type="idea"] { --check-ring: var(--c-idea); }
+/* En «Pendientes», la recién completada se ve marcarse y se desvanece antes de que el repintado la quite (900 ms) */
+.il-item.is-just-done.is-leaving { animation: item-out var(--dur) var(--ease-out) both; animation-delay: calc(680ms + var(--anim-t, 0ms)); }

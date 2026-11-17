@@ -243,6 +243,11 @@ modales 22 px; chips en píldora; azulejos 7 px (9 px el grande). Iconos Lucide 
 - **Toast** con acción opcional («Deshacer» tras borrar en lote, 12 s). Es un HUD oscuro igual en todos los temas
   (`#313244`, filo `#45475a`) con texto claro fijo (`#e6e9f5`) y la acción en el acento aclarado con blanco: así se lee
   también en los temas claros. Un error puede sonar (`sonido.js`, apagado de serie).
+- **Micro-interacciones** (≤ 260 ms, sin rebote; nada con `prefers-reduced-motion`): al marcar una casilla, el ✓ entra
+  y un halo del color del tipo se expande (`check-in`/`check-ring`; se escala el icono, no el botón, para no mover el
+  scroll); en «Pendientes» la tarea recién completada sigue ~900 ms y se desvanece (`is-leaving`, no cuenta ni se
+  recorre con flechas); lo recién creado entra con `item-in`. ItemList usa `Items.recent`; las demás pantallas, el
+  mecanismo común de `ui.js` (anima la casilla pulsada aunque la lista se repinte; si hay duda, ninguna).
 - **Página 404** (`templates/404.html`): el estado «sin resultados» centrado, con la ruta pedida y tres salidas (Hoy,
   Buscar, Volver). Solo para navegaciones del navegador; la API sigue respondiendo JSON.
 - **Estado vacío** (`emptyState`) con icono en círculo, título y una frase de qué hacer; **skeletons** al cargar.
