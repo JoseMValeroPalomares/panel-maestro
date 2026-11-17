@@ -106,10 +106,66 @@
     return { ...body, contexto: Ctx.forNew() };
   }
 
+  /* ---------- Cola sin conexión (F-6) ----------
+     Una captura que no llega al panel POR RED (sin cobertura, fuera de casa sin Tailscale, el portátil apagado) no se
+     pierde: se guarda en este dispositivo y se manda en orden al volver la conexión, al recuperar el foco y cada minuto
+     mientras quede algo. Lo que el panel rechaza (datos no válidos) no entra en la cola: se avisa como siempre.
+     Solo altas (/api/capture y /api/items); los textos con «e:» van sin la confirmación del evento, que necesita al
+     servidor: si la fecha no se entiende, el servidor la deja en el Inbox marcada «Revisar fecha». */
+  const QUEUE_KEY = 'panel.capturas-pendientes';
+  const QUEUE_MAX = 200;
+  const readQueue = () => { try { return JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]'); } catch { return []; } };
+  const writeQueue = (q) => { try { localStorage.setItem(QUEUE_KEY, JSON.stringify(q.slice(-QUEUE_MAX))); return true; } catch { return false; } };
+  const isNetworkError = (err) => err && err.status === undefined;  // fetch rechazado: no hubo respuesta del panel
+
+  // Envía un alta; si no hay red, la encola y devuelve { queued: n }
+  async function postOrQueue(url, body) {
+    try {
+      return await api(url, { method: 'POST', body, quiet: true });
+    } catch (err) {
+      if (!isNetworkError(err)) { if (err.status !== 401) toast(err.message, { type: 'error' }); throw err; }
+      const q = readQueue();
+      q.push({ url, body: { ...body, dry_run: false }, at: Date.now() });
+      if (!writeQueue(q)) { toast('Sin conexión con el panel y no se pudo guardar aquí: copia el texto', { type: 'error', duration: 8000 }); throw err; }
+      toast(q.length === 1 ? 'Sin conexión: se guardará al volver' : `Sin conexión: ${q.length} capturas esperando`, { type: 'info', duration: 5000 });
+      return { queued: q.length };
+    }
+  }
+
+  let flushing = false;
+  async function flushQueue() {
+    if (flushing || !readQueue().length) return;
+    flushing = true;
+    let sent = 0;
+    try {
+      for (;;) {
+        const q = readQueue();
+        if (!q.length) break;
+        try {
+          await api(q[0].url, { method: 'POST', body: q[0].body, quiet: true });
+          sent++;
+        } catch (err) {
+          if (isNetworkError(err) || err.status === 401 || err.status >= 500) break;  // se reintenta más tarde
+          toast(`Una captura sin conexión no se pudo guardar: ${err.message}`, { type: 'error', duration: 8000 });
+        }
+        writeQueue(readQueue().slice(1));  // la primera ya está (o era inválida): fuera
+      }
+    } finally { flushing = false; }
+    if (sent) {
+      toast(sent === 1 ? 'Guardada la captura que hiciste sin conexión' : `Guardadas ${sent} capturas que hiciste sin conexión`);
+      if (S.loaded) load();
+    }
+  }
+  window.addEventListener('online', flushQueue);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) flushQueue(); });
+  setInterval(() => { if (!document.hidden) flushQueue(); }, 60000);
+  setTimeout(flushQueue, 1500);  // al abrir cualquier página, lo que quedó de otra vez
+
   function create(body) {
     body = withContext(body);
     return write(async () => {
-      const res = await api('/api/items', { method: 'POST', body });
+      const res = await postOrQueue('/api/items', body);
+      if (res.queued) return null;
       return after(res.id);
     });
   }
@@ -121,6 +177,7 @@
   function setDone(id, done) {
     const it = get(id);
     if (it) { it.done = done; emit(); }  // se ve al instante; la recarga confirma
+    if (done) window.Sonido?.play('hecho');
     return write(async () => {
       try { await api(`/api/items/${id}`, { method: 'PATCH', body: { done } }); }
       finally { await load(); }
@@ -185,15 +242,22 @@
   const PREFIX_RE = /^\s*([tireg])\s*:/i;  // g: gasto (Economía)
   async function captureWithPrefix(text, extra = {}) {
     const where = { contexto: extra.contexto, asignatura_id: extra.asignatura_id, proyecto_id: extra.proyecto_id };
-    if (/^\s*e\s*:/i.test(text)) {
-      const prev = await api('/api/capture', { method: 'POST', body: { text, dry_run: true } });
-      if (prev.status === 'error') { toast(prev.message, { type: 'error' }); return null; }
-      const ok = prev.kind === 'evento'
-        ? await uiConfirm(prev.preview.title, prev.preview.when, { confirmLabel: 'Guardar el evento' })
-        : await uiConfirm('No entiendo la fecha', `${prev.reason}. Se guardará en el Inbox marcado «Revisar fecha».`, { confirmLabel: 'Guardar en el Inbox' });
-      if (!ok) return null;
+    if (/^\s*e\s*:/i.test(text) && navigator.onLine !== false) {
+      let prev;
+      try { prev = await api('/api/capture', { method: 'POST', body: { text, dry_run: true }, quiet: true }); } catch (err) {
+        if (!isNetworkError(err)) { toast(err.message, { type: 'error' }); return null; }
+        prev = null;  // sin red: se encola tal cual, sin confirmar
+      }
+      if (prev) {
+        if (prev.status === 'error') { toast(prev.message, { type: 'error' }); return null; }
+        const ok = prev.kind === 'evento'
+          ? await uiConfirm(prev.preview.title, prev.preview.when, { confirmLabel: 'Guardar el evento' })
+          : await uiConfirm('No entiendo la fecha', `${prev.reason}. Se guardará en el Inbox marcado «Revisar fecha».`, { confirmLabel: 'Guardar en el Inbox' });
+        if (!ok) return null;
+      }
     }
-    const res = await api('/api/capture', { method: 'POST', body: { text, ...withContext(Object.fromEntries(Object.entries(where).filter(([, v]) => v != null))) } });
+    const res = await postOrQueue('/api/capture', { text, ...withContext(Object.fromEntries(Object.entries(where).filter(([, v]) => v != null))) });
+    if (res.queued) return null;
     if (res.status === 'error') { toast(res.message, { type: 'error' }); return null; }  // p. ej. una @mención que no existe
     await load();
     toast(res.message, {
@@ -209,6 +273,7 @@
     if (PREFIX_RE.test(clean)) return write(() => captureWithPrefix(clean, extra));
     rememberType(type);
     const id = await create({ text: clean, type, ...extra });
+    if (id === null) return null;  // sin conexión: ya avisó la cola
     toast({ idea: 'Idea guardada', rutina: 'Rutina creada' }[type] || 'Tarea guardada', {
       action: ['/inbox', '/tareas'].includes(location.pathname) ? null : { label: 'Ver', onClick: () => { location.href = '/tareas'; } },
     });
@@ -353,7 +418,11 @@
         } else {
           rememberType(type);
           const body = bodyFor(false);
-          const res = await write(async () => after(await api('/api/capture', { method: 'POST', body })));
+          const res = await write(async () => {
+            const r = await postOrQueue('/api/capture', body);
+            return r.queued ? r : after(r);
+          });
+          if (res.queued) { reset(); if (again) ta.focus(); else onSaved?.(null); return; }  // guardada en la cola
           if (res.status === 'error') { toast(res.message, { type: 'error' }); return; }
           id = res.id;
           if (body.opciones.duration_min && opt.duration_min !== undefined && window.Rapido) Rapido.defaults.set(SCREEN, 'dur', body.opciones.duration_min);
@@ -403,5 +472,6 @@
     get state() { return S; },
     load, ready, get, children, originOf, moveError, typeFor,
     create, update, setDone, move, remove, undo, bulk, toNote, capture, wireCaptureForm, lastType,
+    get pendingCaptures() { return readQueue().length; }, flushQueue,
   };
 })();

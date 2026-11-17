@@ -38,13 +38,74 @@
     try { return await browser.permissions.contains({ origins: [pattern] }); } catch { return false; }
   }
 
+  /* ---------- Dónde está el Panel (2.11) ----------
+     La dirección se guarda en el almacenamiento (baseUrl), nunca en el código. Para no depender de una IP que cambia:
+       · «Detectar» (opciones) prueba, por orden, las direcciones que el propio Panel dijo en su último latido
+         (panelUrls: la primera es la recomendada, normalmente el nombre https de la tailnet), este equipo y la reserva
+         DHCP del servidor. Vale la que conteste a /healthz (público) con app = panel-maestro.
+       · Si la dirección guardada deja de contestar, la extensión cambia sola a otra de las del latido, pero solo a
+         una https o de este mismo equipo y con permiso ya dado: una IP http de la red local no se adopta sin que la
+         confirmes (en otra wifi podría ser otro aparato y se llevaría el token). */
+  const DEFAULT_URLS = ['http://127.0.0.1:8000', 'http://localhost:8000', 'http://192.168.1.50:8000'];
+  const RECOVER_EVERY_MS = 60000;
+  let lastRecover = 0;
+
+  async function knownUrls() {
+    const { panelUrls = [] } = await browser.storage.local.get('panelUrls');
+    return (Array.isArray(panelUrls) ? panelUrls : []).map(normalizeUrl).filter(Boolean);
+  }
+  async function candidates(extra = []) {
+    return [...new Set([...extra.map(normalizeUrl), ...(await knownUrls()), ...DEFAULT_URLS].filter(Boolean))];
+  }
+  const isLoopback = (url) => { try { return ['127.0.0.1', 'localhost', '[::1]'].includes(new URL(url).hostname); } catch { return false; } };
+  const safeToAdopt = (url) => /^https:\/\//i.test(url) || isLoopback(url);
+
+  // ¿Contesta el Panel en esa dirección? (sin token: /healthz es público)
+  async function isPanel(baseUrl, timeout = 2500) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeout);
+    try {
+      const res = await fetch(normalizeUrl(baseUrl) + '/healthz', { signal: ctrl.signal, credentials: 'omit', cache: 'no-store' });
+      return (await res.json())?.app === 'panel-maestro';
+    } catch { return false; } finally { clearTimeout(timer); }
+  }
+  // La primera de `urls` (en su orden) donde está el Panel; solo se prueban las que tienen permiso
+  async function detect(urls) {
+    const allowed = [];
+    for (const u of urls) if (await hasHost(hostPattern(u))) allowed.push(u);
+    const found = await Promise.all(allowed.map((u) => isPanel(u)));
+    return allowed.find((_, i) => found[i]) || '';
+  }
+  // La guardada no contesta: ¿está el Panel en otra de sus direcciones? (como mucho una búsqueda por minuto)
+  async function recover(current) {
+    if (Date.now() - lastRecover < RECOVER_EVERY_MS) return '';
+    lastRecover = Date.now();
+    const alt = await detect((await knownUrls()).filter((u) => u !== current && safeToAdopt(u)));
+    if (alt) await browser.storage.local.set({ baseUrl: alt, movedFrom: current, movedAt: Date.now() });
+    return alt;
+  }
+
+  // Latido: la extensión dice al Panel que sigue viva y por dónde entra (Ajustes → Red y dispositivos), y el Panel
+  // contesta con sus direcciones de ahora, que se guardan para «Detectar» y para el cambio automático.
+  async function heartbeat(cfg) {
+    const used = cfg || (await getConfig());
+    const ua = navigator.userAgent.match(/(Firefox|Chrome|Edg)\/(\d+)/);
+    const data = await request('/api/red/latido', {
+      method: 'POST', cfg,
+      body: { version: browser.runtime.getManifest?.().version || '', url: used.baseUrl, navegador: ua ? `${ua[1]} ${ua[2]}` : '' },
+    });
+    const urls = [...new Set([data?.principal, ...(data?.urls || [])].map(normalizeUrl).filter(Boolean))];
+    if (urls.length) await browser.storage.local.set({ panelUrls: urls });
+    return { principal: normalizeUrl(data?.principal), urls };
+  }
+
   async function getConfig() {
     const { baseUrl = '', token = '' } = await browser.storage.local.get(['baseUrl', 'token']);
     return { baseUrl: normalizeUrl(baseUrl), token: String(token || '').trim() };
   }
 
   // Petición al Panel. cfg permite probar una configuración sin guardarla (Opciones).
-  async function request(path, { method = 'GET', body, cfg } = {}) {
+  async function request(path, { method = 'GET', body, cfg, noRecover = false } = {}) {
     const { baseUrl, token } = cfg || (await getConfig());
     if (!baseUrl || !token) throw new PanelError('config', 'Falta configurar la dirección del Panel y el token');
     if (!(await hasHost(hostPattern(baseUrl)))) {
@@ -64,6 +125,10 @@
         credentials: 'omit',
       });
     } catch {
+      clearTimeout(timer);
+      // Solo con la configuración guardada (no al probar una del formulario) y una vez: ¿ha cambiado de dirección?
+      const alt = !cfg && !noRecover ? await recover(baseUrl) : '';
+      if (alt) return request(path, { method, body, noRecover: true });
       throw new PanelError('network', 'No se puede conectar con el Panel');
     } finally {
       clearTimeout(timer);
@@ -153,5 +218,6 @@
     return t ? `${t}\n\n${ref}` : ref;
   }
 
-  self.Panel = { PanelError, normalizeUrl, hostPattern, hasHost, YOUTUBE, getConfig, request, status, send, flush, getQueue, detectType, isWebUrl, composeInbox };
+  self.Panel = { PanelError, normalizeUrl, hostPattern, hasHost, YOUTUBE, getConfig, request, status, send, flush, getQueue, detectType, isWebUrl, composeInbox,
+    DEFAULT_URLS, candidates, isPanel, detect, heartbeat, safeToAdopt };
 })();

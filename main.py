@@ -35,11 +35,12 @@ from core.logging_config import setup_logging  # noqa: E402
 
 setup_logging()
 
+from app import datos_compartidos  # noqa: E402
 from app.main import app as cerebro_app  # noqa: E402
 from comidas.main import app as comidas_app  # noqa: E402  # macros / recetas / lista de la compra
 from core.auth import AuthMiddleware  # noqa: E402
 from core.auth import router as auth_router  # noqa: E402
-from core.errors import SecurityHeadersMiddleware, install_error_handlers  # noqa: E402
+from core.errors import HttpsRedirectMiddleware, SecurityHeadersMiddleware, install_error_handlers  # noqa: E402
 from core.pwa import router as pwa_router  # noqa: E402
 from estudio.main import app as estudio_app  # noqa: E402  # migracion de server.py (aiohttp -> FastAPI)
 
@@ -80,6 +81,8 @@ CSP = "; ".join(
 # Comprime HTML, JS, CSS y JSON (no imágenes, fuentes ni zip: ya lo van)
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.add_middleware(AuthMiddleware)
+# Antes del login: por http de la tailnet se manda a https sin enseñar nada (docs/HTTPS.md)
+app.add_middleware(HttpsRedirectMiddleware)
 app.add_middleware(SecurityHeadersMiddleware, csp=CSP)
 
 app.mount("/estudio", estudio_app)
@@ -92,7 +95,13 @@ _cerebro_lifespan = app.router.lifespan_context
 
 @contextlib.asynccontextmanager
 async def combined_lifespan(app):
+    # P-12: guardas de la carpeta de datos ANTES de abrir ninguna BD (solo lectura, cierre sucio, otro panel con los
+    # mismos datos; docs/windows.md §3). Si se niegan, ArranqueDenegado: uvicorn no arranca (sale con 3) y no se escribe
+    # nada en los datos
+    datos_compartidos.al_arrancar()
     async with contextlib.AsyncExitStack() as stack:
+        # Lo primero que entra es lo último que sale: checkpoint de las BDs y cerrojo «cerrado» tras parar todo lo demás
+        stack.callback(datos_compartidos.al_cerrar)
         # Cada uno de estos "entra" en el lifespan de su app, ejecutando
         # todo el codigo antes del "yield" de esa app (init_db, tareas
         # de fondo, etc.) y dejando pendiente el codigo de cierre hasta

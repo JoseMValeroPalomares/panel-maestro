@@ -186,10 +186,14 @@
       [`${k('Ctrl')} ${k('Intro')}`, 'Guardar en el editor']]],
     'page-tareas': ['Tareas', [[k('R'), 'Cambiar entre lista y cuadrícula'], [`${k('Mayús')} + flechas`, 'Cambiar el tamaño de la tarjeta (en cuadrícula)'], ...LIST_KEYS]],
     'page-inbox': ['Inbox y tablero', [...LIST_KEYS, [`${k('V')} ${k('H')}`, 'Seleccionar / desplazar el tablero'],
-      [`${k('R')} ${k('O')} ${k('S')} ${k('T')} ${k('A')} ${k('P')}`, 'Caja, óvalo, nota, texto, conector, lápiz'],
-      [`${k('Ctrl')} ${k('Z')}`, 'Deshacer en el tablero'], [`${k('F')} ${k('0')}`, 'Ajustar a pantalla / zoom 100 %']]],
+      [`${k('1')}…${k('9')}`, 'Herramientas del tablero, en el orden de su barra'],
+      [`${k('/')}`, 'Acciones del tablero con buscador (con el tablero enfocado; «?» enseña sus atajos)'],
+      [`${k('Ctrl')} ${k('Z')}`, 'Deshacer en el tablero'], [`${k('Shift')} ${k('1')}`, 'Ajustar el tablero a la pantalla']]],
     'page-rutinas': ['Rutinas', [[`${k('Ctrl')} ${k('Intro')}`, 'Guardar el formulario']]],
     'page-notas': ['Notas', [[k('/'), 'Buscar una nota'], [k('Esc'), 'Salir de la edición']]],
+    'page-proyectos': ['Proyectos', [[k('N'), 'Nuevo proyecto (o nueva tarea dentro de uno)'], [k('/'), 'Buscar y filtrar'],
+      [k('V'), 'Cambiar de vista: tarjetas, tablero, cronología (o lista, dentro de un proyecto)'], [`${k('1')}…${k('7')}`, 'Pestañas de un proyecto'],
+      [k('Esc'), 'Cerrar la ficha de una tarea']]],
   };
   function help() {
     if (document.querySelector('dialog[open]')) return;

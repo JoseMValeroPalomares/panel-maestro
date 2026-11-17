@@ -1,9 +1,11 @@
 /* =====================================================================
-   Universidad (/universidad): una sección por asignatura, como las categorías del Baúl, con sus
-   temas debajo (construidos desde su carpeta, en solo lectura), entregas y exámenes, horario de
-   clases y sus tareas. Nada vive aparte: las tareas son las de Items (contexto «universidad»),
+   Universidad (/universidad): portada con una tarjeta por asignatura (como Proyectos), resumen de
+   clases y entregas; al entrar en una (?asignatura=), pestañas Temas y Prácticas (cada tema plegable
+   con sus documentos en cuadrados y sus ejercicios), Ejercicios, Entregas, Horario y Tareas. Nada vive aparte: las tareas son las de Items (contexto «universidad»),
    las clases y exámenes son eventos del calendario y los apuntes, notas normales.
-   API: /api/uni (app/universidad.py). Abrir y copiar ruta: Ctx.openFolder / Ctx.copyPath.
+   API: /api/uni (app/universidad.py, app/uni_archivos.py, app/uni_ejercicios.py). Abrir y copiar ruta:
+   Ctx.openFolder / Ctx.copyPath. La propuesta de temas y la ficha de cada tema están en uni-temas.js, los
+   ejercicios en uni-ejercicios.js y el lector de PDF en pdf-visor.js; usan window.Uni (definido aquí).
    ===================================================================== */
 (function () {
   'use strict';
@@ -13,16 +15,24 @@
   const ESTADOS = { 'sin-ver': { label: 'Sin ver', icon: 'circle-dashed' }, estudiando: { label: 'Estudiando', icon: 'circle-dot' }, repasado: { label: 'Repasado', icon: 'circle-check' } };
   const NEXT = { 'sin-ver': 'estudiando', estudiando: 'repasado', repasado: 'sin-ver' };
   const GRUPOS = { teoria: 'Teoría', practicas: 'Prácticas', otros: 'Otros' };
-  const FOLD_KEY = 'uni-plegados';
-  const TAB_KEY = 'uni-pestana';
+  const FOLD_KEY = 'uni-temas-plegados';  // ids de los temas plegados dentro de su asignatura (se guarda en ui_prefs)
+  const TAB_KEY = 'uni-pestana-asignatura', HOME_TAB_KEY = 'uni-pestana-portada';
   const DIAS = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+  const HOME_TABS = [['asignaturas', 'Asignaturas', 'school'], ['entregas', 'Entregas y exámenes', 'flag'], ['horario', 'Horario', 'calendar-clock'], ['tareas', 'Tareas', 'list-todo']];
+  const ASIG_TABS = [['temas', 'Temas', 'book-open'], ['practicas', 'Prácticas', 'flask-conical'], ['ejercicios', 'Ejercicios', 'pencil-ruler'],
+    ['entregas', 'Entregas y exámenes', 'flag'], ['horario', 'Horario', 'calendar-clock'], ['tareas', 'Tareas', 'list-todo']];
 
   let V = { asignaturas: [], temas: [], raiz: '', raiz_ok: false };
   let R = { clases_hoy: [], proximas: [], medias: {} };
-  let tab = 'temas', asigFilter = Number(new URLSearchParams(location.search).get('asignatura')) || 0, estado = '', q = '';
+  // asigFilter = la asignatura abierta (0 = portada con todas)
+  let asigFilter = Number(new URLSearchParams(location.search).get('asignatura')) || 0;
+  let tab = asigFilter ? 'temas' : 'asignaturas', estado = '', q = '';
   let itemView = null;
+  // Documentos y ejercicios de la asignatura abierta (y el plan de «Organizar», para avisar de lo que se puede repartir)
+  let A = { id: 0, archivos: [], ejercicios: [], plan: null };
 
-  const folded = () => new Set(Prefs.get(FOLD_KEY, []));
+  const tabs = () => (asigFilter ? ASIG_TABS : HOME_TABS);
+  const folded = () => new Set(Prefs.get(FOLD_KEY, []) || []);
   const color = (a) => Ctx.color(a?.color);
   const asig = (id) => V.asignaturas.find((a) => a.id === id);
   const activas = () => V.asignaturas.filter((a) => !a.archivada);
@@ -31,6 +41,9 @@
   // «GABD · Práctica 4» junto a la etiqueta GABD: sin la sigla repetida (el texto guardado no cambia)
   const sinSigla = (t, code) => (code ? String(t).replace(new RegExp(`^\\s*${code.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*(prácticas)?\\s*[·:\\-]\\s*`, 'i'), '') : t);
   const countdown = (d) => (d === 0 ? 'hoy' : d === 1 ? 'mañana' : d < 0 ? `hace ${-d} d` : `en ${d} días`);
+  // Nombre para leer en un cuadrado: sin extensión y con «_» como espacios (el nombre real va en el title)
+  const sinExt = (n) => String(n).replace(/(\.[a-z0-9]{1,5})+$/i, '').replace(/_+/g, ' ').trim();
+  const temasTab = () => tab === 'temas' || tab === 'practicas';
 
   /* ---------- Carga ---------- */
   async function load() {
@@ -40,14 +53,28 @@
       showState($('uniContent'), loadFailed('No se pudo cargar Universidad', true), load);
       return;
     }
-    if (asigFilter && !asig(asigFilter)) asigFilter = 0;
+    if (asigFilter && !asig(asigFilter)) { asigFilter = 0; tab = 'asignaturas'; }
     renderSummary();
-    renderChips();
+    renderFrame();
+    if (asigFilter && temasTab()) await loadAsig();
     render();
+  }
+  // Documentos y ejercicios de la asignatura abierta; el plan de Organizar se pide aparte (lee la carpeta)
+  async function loadAsig() {
+    const id = asigFilter;
+    try {
+      const [ar, ej] = await Promise.all([api(`/api/uni/asignaturas/${id}/archivos`, { quiet: true }), api(`/api/uni/ejercicios?asignatura=${id}`, { quiet: true })]);
+      if (id !== asigFilter) return;
+      A = { id, archivos: ar.archivos, ejercicios: ej.ejercicios, plan: null };
+    } catch { A = { id, archivos: [], ejercicios: [], plan: null }; }
+    const a = asig(id);
+    if (a?.carpeta_estado === 'vinculada') {  // cada vez: lo que cambie en el disco o aquí se ve enseguida
+      api(`/api/uni/asignaturas/${id}/organizar`, { quiet: true }).then((p) => { if (asigFilter === id) { A.plan = p; renderAsigHead(); } }).catch(() => {});
+    }
   }
   onDataChange(/^\/api\/(uni|items|calendar|notes)/, () => { clearTimeout(load.t); load.t = setTimeout(load, 300); });
 
-  /* ---------- Resumen de arriba ---------- */
+  /* ---------- Resumen de arriba (portada) ---------- */
   function renderSummary() {
     const hoy = R.clases_hoy || [];
     $('uniToday').innerHTML = hoy.length ? `<ul class="uni-mini-list">${hoy.map((c) => `<li>
@@ -62,27 +89,105 @@
         <span class="tag${e.tipo === 'examen' ? ' uni-exam' : ''}">${e.tipo === 'examen' ? 'Examen' : 'Entrega'}</span>
         <span class="tiny tabular uni-count">${countdown(e.dias)}</span></li>`).join('')}</ul>`
       : '<p class="small muted">Nada pendiente con fecha. Marca una tarea como «Entrega» o crea un examen en el calendario.</p>';
-    const badge = $('uniNextBadge');
-    badge.textContent = next.length;
-    badge.hidden = !next.length;
   }
 
-  /* ---------- Chips de asignatura (como las categorías del Baúl) ---------- */
-  function renderChips() {
-    const list = activas();
-    $('uniChips').innerHTML = `<button type="button" class="chip" data-asig="0" aria-pressed="${!asigFilter}">Todas</button>`
-      + list.map((a) => `<button type="button" class="chip" data-asig="${a.id}" aria-pressed="${a.id === asigFilter}"><span class="dot" style="color:${color(a)}"></span>${esc(a.codigo)}</button>`).join('');
+  /* ---------- Marco: portada (todas las asignaturas) o una asignatura ---------- */
+  function renderFrame() {
+    const a = asigFilter ? asig(asigFilter) : null;
+    if (!tabs().some(([k]) => k === tab)) tab = tabs()[0][0];
+    $('uniHeading').textContent = a ? a.nombre : 'Universidad';
+    document.title = `${a ? a.nombre : 'Universidad'} · Panel`;
+    $('uniBack').hidden = !a;
+    $('uniSummary').hidden = !!a;
+    $('uniAsigHead').hidden = !a;
+    document.querySelector('.uni').style.setProperty('--subj', a ? color(a) : 'var(--tile-universidad)');
+    if (a) renderAsigHead();
+    const proximas = (R.proximas || []).filter((e) => !a || e.asignatura === a.codigo).length;
+    $('uniTabs').innerHTML = tabs().map(([k, l, ic]) => `<button type="button" class="main-tab" role="tab" id="uni-tab-${k}" data-tab="${k}" aria-selected="${k === tab}" aria-controls="uniContent" tabindex="${k === tab ? 0 : -1}">${icon(ic, 'icon-sm')}${l}${k === 'entregas' && proximas ? ` <span class="badge">${proximas}</span>` : ''}${k === 'practicas' ? countBadge(a, 'practicas') : k === 'temas' ? countBadge(a, 'temas') : ''}</button>`).join('');
+    $('uniContent').setAttribute('aria-labelledby', `uni-tab-${tab}`);
+    $('uniEstado').hidden = !temasTab();
   }
-  $('uniChips').addEventListener('click', (e) => {
-    const b = e.target.closest('[data-asig]');
-    if (!b) return;
-    asigFilter = Number(b.dataset.asig);
+  const countBadge = (a, cual) => {
+    const n = V.temas.filter((t) => t.asignatura_id === a?.id && (cual === 'practicas' ? t.grupo === 'practicas' : t.grupo !== 'practicas')).length;
+    return n ? ` <span class="count tabular">${n}</span>` : '';
+  };
+
+  function renderAsigHead() {
+    const a = asig(asigFilter);
+    if (!a) return;
+    const total = V.temas.filter((t) => t.asignatura_id === a.id && !t.falta);
+    const rep = total.filter((t) => t.estado === 'repasado').length;
+    const prox = a.proxima;
+    const plan = A.id === a.id && A.plan ? A.plan : null;
+    const nuevos = plan ? Object.values(plan.nuevos).map((x) => x.titulo) : [];
+    $('uniAsigHead').innerHTML = `<div class="uni-ahead-row">
+        <span class="uni-ahead-code" translate="no">${esc(a.codigo)}</span>
+        <div class="uni-meta small">
+          ${a.profesor ? `<span>${icon('user', 'icon-sm')}${esc(a.profesor)}</span>` : ''}
+          ${a.aula ? `<span>${icon('map-pin', 'icon-sm')}${esc(a.aula)}</span>` : ''}
+          ${total.length ? `<span class="tabular" title="Temas repasados">${icon('circle-check', 'icon-sm')}${rep}/${total.length} repasados</span>` : ''}
+          ${a.media ? `<span class="tabular" title="Media ponderada de lo evaluado (${a.media.peso_evaluado} % de la nota)">${icon('star', 'icon-sm')}${String(a.media.media).replace('.', ',')}</span>` : ''}
+          ${prox ? `<span class="uni-prox${prox.tipo === 'examen' ? ' is-exam' : ''}">${icon(prox.tipo === 'examen' ? 'triangle-alert' : 'flag', 'icon-sm')}${esc(sinSigla(prox.titulo, a.codigo))} · ${fmtDay(prox.fecha)}</span>` : ''}
+          ${(a.enlaces || []).map((l) => `<a class="uni-link" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${icon('external-link', 'icon-sm')}${esc(l.titulo)}</a>`).join('')}
+          ${carpetaBadge(a)}
+        </div>
+        <div class="uni-actions">
+          ${a.carpeta && a.carpeta_estado !== 'rota' ? `<button type="button" class="btn btn-ghost btn-sm" data-open-asig="${a.id}" title="Abrir la carpeta en el portátil">${icon('folder-open', 'icon-sm')}<span class="hide-mobile">Abrir carpeta</span><span class="sr-only show-mobile">Abrir la carpeta de ${esc(a.codigo)}</span></button>` : ''}
+          <button type="button" class="btn btn-tinted btn-sm" data-organizar="${a.id}" title="Repartir los documentos de la carpeta en sus temas (solo, por su número, o a mano)">${icon('folder-input', 'icon-sm')}<span class="hide-mobile">Organizar documentos</span><span class="sr-only show-mobile">Organizar documentos</span></button>
+          <button type="button" class="btn btn-ghost btn-icon btn-sm" data-class-note="${a.id}" aria-label="Nota de la clase de hoy de ${esc(a.codigo)}" title="Nota de clase (plantilla)">${icon('notebook-pen', 'icon-sm')}</button>
+          <button type="button" class="btn btn-ghost btn-icon btn-sm" data-asig-menu="${a.id}" aria-label="Más acciones de ${esc(a.codigo)}" aria-haspopup="menu">${icon('ellipsis', 'icon-sm')}</button>
+        </div></div>
+      ${!a.carpeta ? `<p class="small uni-pending">${icon('folder', 'icon-sm')}<span>Sin carpeta: elige la suya para traer sus temas y documentos solos, o añade temas y documentos a mano.</span>
+        <button type="button" class="btn btn-tinted btn-sm" data-asig-edit="${a.id}">Elegir carpeta</button></p>` : ''}
+      ${a.carpeta_estado === 'rota' ? `<p class="small uni-alert" role="status">${icon('folder-x', 'icon-sm')}<span>No encuentro su carpeta «${esc(a.carpeta)}»: ¿se ha movido o renombrado? Los temas y documentos siguen aquí.</span>
+        <button type="button" class="btn btn-tinted btn-sm" data-asig-edit="${a.id}">Volver a vincular</button></p>` : ''}
+      ${a.por_confirmar && a.carpeta_estado === 'vinculada' ? `<p class="small uni-pending">${icon('scan-search', 'icon-sm')}<span>${a.por_confirmar === 1 ? 'Hay 1 tema nuevo' : `Hay ${a.por_confirmar} temas nuevos`} en su carpeta.</span>
+        <button type="button" class="btn btn-tinted btn-sm" data-propuesta="${a.id}">Revisar y confirmar</button></p>` : ''}
+      ${plan?.sugerencias ? `<p class="small uni-pending is-suggest">${icon('wand-sparkles', 'icon-sm')}<span>${plan.sugerencias === 1 ? '1 documento se puede llevar' : `${plan.sugerencias} documentos se pueden llevar`} a su tema por el número del nombre${nuevos.length ? ` (${esc(nuevos.slice(0, 4).join(', '))}${nuevos.length > 4 ? '…' : ''})` : ''}.</span>
+        <button type="button" class="btn btn-tinted btn-sm" data-organizar="${a.id}">Revisar</button></p>` : ''}`;
+  }
+
+  /* ---------- Navegación: la asignatura va en la URL (Atrás vuelve a la portada) ---------- */
+  function syncUrl(push = false) {
     const u = new URL(location.href);
-    if (asigFilter) u.searchParams.set('asignatura', asigFilter); else u.searchParams.delete('asignatura');
-    history.replaceState(null, '', u);
-    renderChips();
+    u.search = '';
+    if (asigFilter) u.searchParams.set('asignatura', asigFilter);
+    if (tab !== tabs()[0][0]) u.searchParams.set('pestana', tab);
+    history[push ? 'pushState' : 'replaceState'](null, '', u);
+  }
+  function storedTab() {
+    const t = Prefs.get(asigFilter ? TAB_KEY : HOME_TAB_KEY, tabs()[0][0]);
+    return tabs().some(([k]) => k === t) ? t : tabs()[0][0];
+  }
+  async function openAsig(id, { push = true, tema = null, pestana = null } = {}) {
+    asigFilter = id;
+    tab = pestana && tabs().some(([k]) => k === pestana) ? pestana : storedTab();
+    if (tema) { const t = V.temas.find((x) => x.id === tema); if (t) tab = t.grupo === 'practicas' ? 'practicas' : 'temas'; }
+    q = '';
+    for (const s of ['uniSearch', 'uniSearchMobile']) $(s).value = '';
+    if (push) syncUrl(true);
+    renderFrame();
+    if (asigFilter && temasTab()) {
+      $('uniContent').innerHTML = '<span class="skeleton skeleton-card"></span>';
+      await loadAsig();
+    }
     render();
+    if (tema) {
+      const set = folded();
+      if (set.delete(tema)) Prefs.set(FOLD_KEY, [...set]);
+      requestAnimationFrame(() => { const el = document.querySelector(`.uni-ts[data-id="${tema}"]`); if (el) { el.hidden = false; el.scrollIntoView({ block: 'start', behavior: 'smooth' }); el.querySelector('.uni-ts-toggle')?.focus({ preventScroll: true }); } });
+    } else window.scrollTo(0, 0);
+  }
+  window.addEventListener('popstate', () => {
+    const p = new URLSearchParams(location.search);
+    openAsig(Number(p.get('asignatura')) || 0, { push: false, pestana: p.get('pestana') });
   });
+  $('uniBack').addEventListener('click', (e) => {
+    if (e.ctrlKey || e.metaKey || e.shiftKey || e.button) return;
+    e.preventDefault();
+    openAsig(0);
+  });
+
   $('uniEstado').addEventListener('click', (e) => {
     const b = e.target.closest('[data-estado]');
     if (!b) return;
@@ -90,20 +195,30 @@
     $('uniEstado').querySelectorAll('[data-estado]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
     render();
   });
-  for (const id of ['uniSearch', 'uniSearchMobile']) $(id).addEventListener('input', (e) => { q = e.target.value.trim(); render(); });
+  for (const id of ['uniSearch', 'uniSearchMobile']) {
+    $(id).addEventListener('input', (e) => {
+      q = e.target.value.trim();
+      clearTimeout(render.t);
+      render.t = setTimeout(render, tab === 'ejercicios' ? 250 : 0);  // en ejercicios busca en el servidor
+    });
+  }
 
   /* ---------- Pestañas ---------- */
-  function setTab(t) {
+  async function setTab(t) {
+    if (!tabs().some(([k]) => k === t)) return;
     tab = t;
-    Prefs.set(TAB_KEY, t);
-    const u = new URL(location.href);  // la pestaña también en la URL (enlazable)
-    if (t === 'temas') u.searchParams.delete('pestana'); else u.searchParams.set('pestana', t);
-    history.replaceState(null, '', u);
-    document.querySelectorAll('.main-tab[data-tab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === t)));
-    $('uniEstado').hidden = t !== 'temas';
+    Prefs.set(asigFilter ? TAB_KEY : HOME_TAB_KEY, t);
+    syncUrl();
+    renderFrame();
+    if (asigFilter && temasTab() && A.id !== asigFilter) await loadAsig();
     render();
   }
-  document.querySelectorAll('.main-tab[data-tab]').forEach((b) => b.addEventListener('click', () => setTab(b.dataset.tab)));
+  $('uniTabs').addEventListener('click', (e) => { const b = e.target.closest('[data-tab]'); if (b) setTab(b.dataset.tab); });
+  $('uniTabs').addEventListener('keydown', (e) => {  // flechas entre pestañas
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+    const list = tabs(), i = list.findIndex(([k]) => k === tab), n = list[(i + (e.key === 'ArrowRight' ? 1 : -1) + list.length) % list.length][0];
+    setTab(n).then(() => $(`uni-tab-${n}`)?.focus());
+  });
   document.addEventListener('click', (e) => { const g = e.target.closest('[data-goto-tab]'); if (g) setTab(g.dataset.gotoTab); });
 
   function render() {
@@ -113,94 +228,135 @@
     if (tab === 'tareas') return renderTareas();
     if (!V.asignaturas.length) {
       content.innerHTML = emptyState({ iconName: 'school', title: 'Tu universidad, por asignaturas',
-        text: V.raiz ? 'Crea tus asignaturas a partir de las carpetas de la raíz: cada subcarpeta o PDF suelto será un tema. Nada se toca en el disco.'
+        text: V.raiz ? 'Crea tus asignaturas a partir de las carpetas de la raíz: los temas y sus documentos salen solos. Nada se toca en el disco.'
           : 'Primero elige la carpeta raíz donde guardas todo de la universidad (Ajustes). Luego cada asignatura sale de una carpeta.',
         actionLabel: V.raiz ? 'Crear desde las carpetas' : 'Elegir la carpeta raíz', action: 'start' });
       content.querySelector('[data-empty-action=start]')?.addEventListener('click', () => (V.raiz ? openWizard() : openSettings()));
       return;
     }
-    if (tab === 'temas') content.innerHTML = temasHTML();
+    if (tab === 'asignaturas') content.innerHTML = cardsHTML();
+    else if (temasTab()) { content.innerHTML = temasHTML(); wireTemas(); }
+    else if (tab === 'ejercicios') window.UniEjercicios?.render(content);
     else if (tab === 'entregas') renderEntregas(content);
     else if (tab === 'horario') renderHorario(content);
-    if (tab === 'temas') wireSortables();
   }
 
-  /* ---------- Temas: una sección por asignatura ---------- */
-  function visibleTemas(a) {
-    return V.temas.filter((t) => t.asignatura_id === a.id && (!estado || t.estado === estado)
-      && (!q || norm(`${t.titulo} ${t.nombre || ''}`).includes(norm(q))));
+  /* ---------- Portada: una tarjeta por asignatura (como Proyectos) ---------- */
+  function cardsHTML() {
+    const nq = norm(q);
+    const list = activas().filter((a) => !nq || norm(`${a.codigo} ${a.nombre} ${(a.alias || []).join(' ')} ${V.temas.filter((t) => t.asignatura_id === a.id).map((t) => t.titulo).join(' ')}`).includes(nq));
+    if (!list.length) return emptyState({ iconName: 'search', title: 'Sin resultados', text: 'Ninguna asignatura ni tema coincide con la búsqueda.', compact: true });
+    return `<ul class="uni-cards" aria-label="Asignaturas">${list.map(card).join('')}
+      ${nq ? '' : `<li><button type="button" class="uni-card-new" data-new-asig>${icon('plus')}<span>Asignatura</span></button></li>`}</ul>`;
   }
-
-  function temasHTML() {
-    const closed = folded();
-    const list = activas().filter((a) => !asigFilter || a.id === asigFilter);
-    const html = list.map((a) => {
-      const temas = visibleTemas(a);
-      if ((q || estado) && !temas.length) return '';
-      const key = `a:${a.id}`;
-      const open = !closed.has(key);
-      const prox = a.proxima;
-      const groups = Object.keys(GRUPOS).map((g) => ({ g, items: temas.filter((t) => t.grupo === g) })).filter((x) => x.items.length);
-      const total = V.temas.filter((t) => t.asignatura_id === a.id && !t.falta);
-      const rep = total.filter((t) => t.estado === 'repasado').length;
-      return `<section class="uni-subject" data-asig="${a.id}" style="--subj:${color(a)}" aria-labelledby="uni-h-${a.id}">
-        <header class="uni-subject-head">
-          <h2 class="cat-header" id="uni-h-${a.id}"><button type="button" class="group-toggle" data-fold="${key}" aria-expanded="${open}" aria-controls="uni-b-${a.id}">${icon('chevron-down', 'icon-sm chev')}<span class="dot" style="background:${color(a)}"></span><span class="uni-code">${esc(a.codigo)}</span><span class="uni-name">${esc(a.nombre)}</span><span class="count">${total.length}</span></button></h2>
-          <div class="uni-meta small">
-            ${a.profesor ? `<span>${icon('user', 'icon-sm')}${esc(a.profesor)}</span>` : ''}
-            ${a.aula ? `<span>${icon('map-pin', 'icon-sm')}${esc(a.aula)}</span>` : ''}
-            ${total.length ? `<span class="tabular" title="Temas repasados">${icon('circle-check', 'icon-sm')}${rep}/${total.length}</span>` : ''}
-            ${a.tareas_abiertas ? `<button type="button" class="link-btn" data-subj-tareas="${a.id}">${icon('list-todo', 'icon-sm')}${a.tareas_abiertas} tareas</button>` : ''}
-            ${a.media ? `<span class="tabular" title="Media ponderada de lo evaluado (${a.media.peso_evaluado} % de la nota)">${icon('star', 'icon-sm')}${String(a.media.media).replace('.', ',')}</span>` : ''}
-            ${prox ? `<span class="uni-prox${prox.tipo === 'examen' ? ' is-exam' : ''}">${icon(prox.tipo === 'examen' ? 'triangle-alert' : 'flag', 'icon-sm')}${esc(sinSigla(prox.titulo, a.codigo))} · ${fmtDay(prox.fecha)}</span>` : ''}
-            ${(a.enlaces || []).map((l) => `<a class="uni-link" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${icon('external-link', 'icon-sm')}${esc(l.titulo)}</a>`).join('')}
-          </div>
-          <div class="uni-actions">
-            ${a.carpeta ? `<button type="button" class="btn btn-tinted btn-sm" data-open-asig="${a.id}" title="Abrir la carpeta en el portátil">${icon('folder-open', 'icon-sm')}<span class="hide-mobile">Abrir carpeta</span><span class="sr-only show-mobile">Abrir la carpeta de ${esc(a.codigo)}</span></button>
-              <button type="button" class="btn btn-ghost btn-icon btn-sm" data-copy-asig="${a.id}" aria-label="Copiar la ruta de ${esc(a.codigo)}" title="Copiar ruta">${icon('copy', 'icon-sm')}</button>` : ''}
-            <button type="button" class="btn btn-ghost btn-icon btn-sm" data-class-note="${a.id}" aria-label="Nota de la clase de hoy de ${esc(a.codigo)}" title="Nota de clase (plantilla)">${icon('notebook-pen', 'icon-sm')}</button>
-            <button type="button" class="btn btn-ghost btn-icon btn-sm" data-asig-menu="${a.id}" aria-label="Más acciones de ${esc(a.codigo)}" aria-haspopup="menu">${icon('ellipsis', 'icon-sm')}</button>
-          </div>
-        </header>
-        <div class="uni-subject-body" id="uni-b-${a.id}" ${open ? '' : 'hidden'}>
-          ${!a.carpeta && !total.length ? `<p class="small muted uni-hint">Sin carpeta. <button type="button" class="link-btn" data-asig-edit="${a.id}">Elige su carpeta</button> para traer sus temas, o añade temas a mano.</p>` : ''}
-          ${groups.map(({ g, items }) => `<div class="uni-group"><h3 class="uni-group-title">${GRUPOS[g]} <span class="count">${items.length}</span></h3>
-            <ul class="uni-grid" data-asig="${a.id}" data-grupo="${g}" aria-label="${esc(a.codigo)} · ${GRUPOS[g]}">${items.map(temaCard).join('')}</ul></div>`).join('')}
-          <button type="button" class="btn btn-ghost btn-sm uni-add-tema" data-add-tema="${a.id}">${icon('plus', 'icon-sm')}Tema a mano</button>
-        </div>
-      </section>`;
-    }).join('');
-    return html || emptyState({ iconName: 'search', title: 'Sin resultados', text: 'Prueba con otra búsqueda o quita los filtros.' });
-  }
-
-  function temaCard(t) {
-    const e = ESTADOS[t.estado] || ESTADOS['sin-ver'];
-    return `<li class="uni-tema${t.falta ? ' is-missing' : ''}" data-id="${t.id}" data-estado="${t.estado}">
-      <div class="uni-tema-top">
-        <button type="button" class="drag-handle" data-drag-handle aria-label="Mover «${esc(t.titulo)}»">${icon('grip-vertical', 'icon-sm')}</button>
-        <span class="uni-tema-kind" aria-hidden="true">${icon(t.tipo === 'carpeta' ? 'folder' : t.tipo === 'archivo' ? 'file-text' : 'pencil', 'icon-sm')}</span>
-        <span class="uni-tema-title" title="${esc(t.nombre || t.titulo)}">${esc(t.titulo)}</span>
+  function card(a) {
+    const temas = V.temas.filter((t) => t.asignatura_id === a.id && !t.falta);
+    const teoria = temas.filter((t) => t.grupo !== 'practicas').length, pract = temas.length - teoria;
+    const rep = temas.filter((t) => t.estado === 'repasado').length;
+    const pct = temas.length ? Math.round((100 * rep) / temas.length) : 0;
+    const docs = temas.reduce((n, t) => n + (t.archivos || 0), 0);
+    const prox = a.proxima;
+    const dias = prox ? Math.round((new Date(prox.fecha + 'T00:00') - new Date(new Date().toISOString().slice(0, 10) + 'T00:00')) / 864e5) : null;
+    return `<li class="uni-card" style="--subj:${color(a)}"><a class="uni-card-link" href="/universidad?asignatura=${a.id}" data-goto-asig="${a.id}">
+      <div class="uni-card-top"><span class="uni-card-code" translate="no">${esc(a.codigo)}</span>
+        ${a.por_confirmar ? `<span class="tag uni-card-flag">${icon('scan-search', 'icon-sm')}${a.por_confirmar} nuevos</span>` : ''}
+        ${a.carpeta_estado === 'rota' ? `<span class="tag uni-card-flag is-broken">${icon('folder-x', 'icon-sm')}Carpeta</span>` : ''}</div>
+      <h2 class="uni-card-title">${esc(a.nombre)}</h2>
+      ${a.profesor || a.aula ? `<p class="uni-card-sub small">${[a.profesor, a.aula].filter(Boolean).map(esc).join(' · ')}</p>` : ''}
+      <div class="uni-card-stats small">
+        <span>${icon('book-open', 'icon-sm')}<span class="tabular">${teoria}</span> ${teoria === 1 ? 'tema' : 'temas'}</span>
+        <span>${icon('flask-conical', 'icon-sm')}<span class="tabular">${pract}</span> ${pract === 1 ? 'práctica' : 'prácticas'}</span>
+        <span>${icon('file-text', 'icon-sm')}<span class="tabular">${docs}</span> doc.</span>
+        ${a.ejercicios ? `<span title="Ejercicios hechos">${icon('pencil-ruler', 'icon-sm')}<span class="tabular">${a.ejercicios_hechos}/${a.ejercicios}</span></span>` : ''}
+        ${a.tareas_abiertas ? `<span>${icon('list-todo', 'icon-sm')}<span class="tabular">${a.tareas_abiertas}</span></span>` : ''}
       </div>
-      ${t.falta ? `<p class="tiny uni-missing">${icon('triangle-alert', 'icon-sm')}Ya no está en la carpeta</p>` : ''}
-      <div class="uni-tema-meta">
-        <button type="button" class="uni-estado no-drag" data-estado-btn="${t.id}" title="Cambiar estado (${e.label} → ${ESTADOS[NEXT[t.estado]].label})">${icon(e.icon, 'icon-sm')}${e.label}</button>
-        ${t.note_id ? `<a class="card-link no-drag" href="/?note=${encodeURIComponent(t.note_id)}" title="Abrir los apuntes">${icon('notebook-pen', 'icon-sm')}Apuntes</a>`
-          : `<button type="button" class="link-btn tiny no-drag" data-tema-nota="${t.id}">${icon('file-plus', 'icon-sm')}Apuntes</button>`}
-        ${t.tareas ? `<span class="tiny muted tabular" title="Tareas abiertas de este tema">${icon('list-todo', 'icon-sm')}${t.tareas}</span>` : ''}
-        <span class="grow"></span>
-        ${t.ruta_abs ? `<button type="button" class="btn btn-ghost btn-icon btn-sm no-drag" data-open-tema="${t.id}" aria-label="Abrir «${esc(t.titulo)}»" title="Abrir ${t.tipo === 'carpeta' ? 'la carpeta' : 'el archivo'}">${icon('folder-open', 'icon-sm')}</button>` : ''}
-        <button type="button" class="btn btn-ghost btn-icon btn-sm no-drag" data-copy-prompt="${t.id}" aria-label="Copiar el prompt para que una IA te explique «${esc(t.titulo)}»" title="Copiar prompt para la IA">${icon('clipboard-copy', 'icon-sm')}</button>
-        <button type="button" class="btn btn-ghost btn-icon btn-sm no-drag" data-tema-menu="${t.id}" aria-label="Más acciones de «${esc(t.titulo)}»" aria-haspopup="menu">${icon('ellipsis', 'icon-sm')}</button>
-      </div></li>`;
+      <div class="uni-card-progress"><span class="uni-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-label="Temas repasados de ${esc(a.codigo)}"><span style="width:${pct}%"></span></span>
+        <span class="tiny tabular muted">${rep}/${temas.length} repasados</span></div>
+      ${prox ? `<p class="uni-card-prox small${dias !== null && dias <= 2 ? ' is-soon' : ''}">${icon(prox.tipo === 'examen' ? 'triangle-alert' : 'flag', 'icon-sm')}<span class="ellipsis">${esc(sinSigla(prox.titulo, a.codigo))}</span><span class="tabular">${dias === null ? fmtDay(prox.fecha) : countdown(dias)}</span></p>` : ''}
+    </a></li>`;
   }
 
-  // Ordenar temas a mano: dentro de su asignatura (las rutas son de su carpeta); entre grupos cambia el grupo
-  function wireSortables() {
-    $('uniContent').querySelectorAll('.uni-grid').forEach((list) => {
+  /* ---------- Una asignatura: cada tema con sus documentos (cuadrados) y sus ejercicios ---------- */
+  function temasHTML() {
+    const a = asig(asigFilter);
+    const practicas = tab === 'practicas';
+    const delGrupo = V.temas.filter((t) => t.asignatura_id === a.id && (practicas ? t.grupo === 'practicas' : t.grupo !== 'practicas'));
+    const nq = norm(q);
+    const vis = delGrupo.filter((t) => (!estado || t.estado === estado)
+      && (!nq || norm(`${t.titulo} ${t.nombre || ''} ${A.archivos.filter((f) => f.tema_id === t.id).map((f) => f.nombre).join(' ')}`).includes(nq)));
+    const que = practicas ? 'Práctica' : 'Tema';
+    const pie = `<div class="uni-tfoot"><button type="button" class="btn btn-ghost btn-sm" data-add-tema="${a.id}" data-grupo="${practicas ? 'practicas' : 'teoria'}">${icon('plus', 'icon-sm')}${que} a mano</button>
+      <button type="button" class="btn btn-ghost btn-sm" data-organizar="${a.id}">${icon('folder-input', 'icon-sm')}Organizar documentos</button></div>`;
+    if (!delGrupo.length) {
+      return `${emptyState({ iconName: practicas ? 'flask-conical' : 'book-open', title: practicas ? 'Sin prácticas' : 'Sin temas', compact: true,
+        text: practicas ? 'Las carpetas como «Práctica 2» o «pr2» y los PDF «práctica3.pdf» salen aquí al confirmar los temas de la carpeta. También puedes crear una a mano y añadirle documentos.'
+          : 'Las subcarpetas y documentos de la carpeta salen aquí al confirmarlos (los «Tema 3 – primera parte» y «segunda parte» se juntan solos). También puedes crear uno a mano y añadirle documentos.' })}${pie}`;
+    }
+    if (!vis.length) return emptyState({ iconName: 'search', title: 'Sin resultados', text: 'Prueba con otra búsqueda o quita el filtro de estado.', compact: true });
+    const grupos = practicas ? [['practicas', vis]] : [['teoria', vis.filter((t) => t.grupo === 'teoria')], ['otros', vis.filter((t) => t.grupo === 'otros')]];
+    const conTitulo = grupos.filter(([, l]) => l.length).length > 1;
+    return `<div class="uni-tlist">${grupos.filter(([, l]) => l.length).map(([g, l]) => `${conTitulo ? `<h2 class="uni-group-title">${GRUPOS[g]} <span class="count">${l.length}</span></h2>` : ''}
+      <div class="uni-tsecs" data-grupo="${g}" aria-label="${esc(a.codigo)} · ${GRUPOS[g]}">${l.map(temaSection).join('')}</div>`).join('')}</div>${pie}`;
+  }
+
+  function temaSection(t) {
+    const files = A.archivos.filter((f) => f.tema_id === t.id);
+    const vistos = files.filter((f) => !f.falta), faltan = files.filter((f) => f.falta);
+    const ejs = A.ejercicios.filter((e) => e.temas.includes(t.id));
+    const hechos = ejs.filter((e) => e.estado === 'hecho').length;
+    const open = !folded().has(t.id) || !!q;
+    const e = ESTADOS[t.estado] || ESTADOS['sin-ver'];
+    return `<section class="uni-ts${t.falta ? ' is-missing' : ''}" data-id="${t.id}" data-estado="${t.estado}" aria-labelledby="uts-h-${t.id}">
+      <header class="uni-ts-head">
+        <button type="button" class="drag-handle" data-drag-handle aria-label="Mover «${esc(t.titulo)}»">${icon('grip-vertical', 'icon-sm')}</button>
+        <h3 class="uni-ts-title"><button type="button" class="uni-ts-toggle" id="uts-h-${t.id}" data-fold="${t.id}" aria-expanded="${open}" aria-controls="uts-b-${t.id}" title="${esc(t.nombre || t.titulo)}">${icon('chevron-down', 'icon-sm chev')}<span class="uni-ts-name">${esc(t.titulo)}</span></button></h3>
+        <span class="uni-ts-counts tiny">
+          <span title="Documentos">${icon('file-text', 'icon-sm')}<span class="tabular">${vistos.length}</span></span>
+          ${ejs.length ? `<span title="Ejercicios hechos">${icon('pencil-ruler', 'icon-sm')}<span class="tabular">${hechos}/${ejs.length}</span></span>` : ''}
+          ${t.tareas ? `<span title="Tareas abiertas de este tema">${icon('list-todo', 'icon-sm')}<span class="tabular">${t.tareas}</span></span>` : ''}
+          ${t.falta ? `<span class="uni-missing">${icon('triangle-alert', 'icon-sm')}Ya no está en la carpeta</span>` : ''}</span>
+        <span class="grow"></span>
+        <button type="button" class="uni-estado" data-estado-btn="${t.id}" title="Cambiar estado (${e.label} → ${ESTADOS[NEXT[t.estado]].label})">${icon(e.icon, 'icon-sm')}<span class="hide-mobile">${e.label}</span><span class="sr-only show-mobile">${e.label}</span></button>
+        ${t.note_id ? `<a class="btn btn-ghost btn-icon btn-sm" href="/?note=${encodeURIComponent(t.note_id)}" aria-label="Apuntes de «${esc(t.titulo)}»" title="Abrir los apuntes">${icon('notebook-pen', 'icon-sm')}</a>`
+          : `<button type="button" class="btn btn-ghost btn-icon btn-sm uni-ts-dim" data-tema-nota="${t.id}" aria-label="Crear los apuntes de «${esc(t.titulo)}»" title="Crear los apuntes">${icon('file-plus', 'icon-sm')}</button>`}
+        <button type="button" class="btn btn-ghost btn-icon btn-sm" data-tema-menu="${t.id}" aria-label="Más acciones de «${esc(t.titulo)}»" aria-haspopup="menu">${icon('ellipsis', 'icon-sm')}</button>
+      </header>
+      <div class="uni-ts-body" id="uts-b-${t.id}" ${open ? '' : 'hidden'}>
+        ${t.fusionados?.length ? `<p class="tiny muted uni-ts-note">${icon('merge', 'icon-sm')}Incluye ${t.fusionados.map((f) => `«${esc(f.titulo)}»`).join(', ')}</p>` : ''}
+        <ul class="uni-tiles" data-tema="${t.id}" aria-label="Documentos de ${esc(t.titulo)}">${vistos.map(tile).join('')}<li class="uni-tile-slot"><button type="button" class="uni-tile-add" data-vincular="${t.id}">${icon('plus')}<span>Añadir<br>documentos</span></button></li></ul>
+        ${faltan.length ? `<details class="uni-faltan"><summary class="tiny">${icon('file-x', 'icon-sm')}No encontrados (${faltan.length})</summary>
+          <ul class="uni-tiles is-static" aria-label="Documentos no encontrados de ${esc(t.titulo)}">${faltan.map(tile).join('')}</ul>
+          <p class="tiny muted">Ya no están en la carpeta. Se conserva dónde ibas; si vuelven, se desmarcan al sincronizar.</p></details>` : ''}
+        <div class="uni-ts-ejs">
+          <div class="uni-ts-subhead"><h4>Ejercicios${ejs.length ? ` <span class="count tabular">${hechos}/${ejs.length}</span>` : ''}</h4>
+            <button type="button" class="btn btn-ghost btn-sm" data-ej-new-tema="${t.id}">${icon('plus', 'icon-sm')}Ejercicio</button></div>
+          ${ejs.length ? `<ul class="list uni-ejs">${ejs.map((x) => UniEjercicios.rowHTML(x, { tema: t.id })).join('')}</ul>` : ''}
+        </div>
+      </div></section>`;
+  }
+
+  function tile(f) {
+    const pct = f.pagina && f.paginas ? Math.round((100 * f.pagina) / f.paginas) : 0;
+    const ext = (f.ext || 'doc').toUpperCase().slice(0, 4);
+    const inner = `<span class="uni-tile-ext" data-ext="${esc(f.ext || '')}">${icon(f.falta ? 'file-x' : 'file-text')}<span>${esc(ext)}</span></span>
+      <span class="uni-tile-name">${esc(sinExt(f.nombre))}</span>
+      ${f.pagina ? `<span class="uni-tile-foot"><span class="uni-bar" aria-hidden="true"><span style="width:${pct}%"></span></span><span class="tiny tabular">p. ${f.pagina}${f.paginas ? `/${f.paginas}` : ''}</span></span>`
+        : f.fuera || f.tema_manual ? `<span class="uni-tile-foot tiny muted" title="${f.fuera ? 'Vinculado desde otra carpeta' : 'Puesto en este tema a mano o por su número'}">${icon('link-2', 'icon-sm')}${f.fuera ? 'Otra carpeta' : 'Vinculado'}</span>` : ''}`;
+    const label = `${f.visor ? 'Leer' : 'Abrir'} «${f.nombre}»${f.pagina ? `, ibas por la página ${f.pagina}` : ''}`;
+    const main = f.falta ? `<span class="uni-tile-main" title="${esc(f.nombre)} (no encontrado)">${inner}</span>`
+      : f.visor ? `<button type="button" class="uni-tile-main" data-ver="${f.id}" title="${esc(f.nombre)}" aria-label="${esc(label)}">${inner}</button>`
+        : `<a class="uni-tile-main" href="${PdfVisor.url(f.id)}" target="_blank" rel="noopener" title="${esc(f.nombre)}" aria-label="${esc(label)}">${inner}</a>`;
+    return `<li class="uni-tile${f.falta ? ' is-missing' : ''}" data-id="${f.id}">${main}
+      <button type="button" class="uni-tile-menu" data-file-menu="${f.id}" aria-label="Más acciones de «${esc(f.nombre)}»" aria-haspopup="menu">${icon('ellipsis', 'icon-sm')}</button></li>`;
+  }
+
+  // Ordenar temas a mano (asa) y arrastrar un documento a su sitio o a otro tema de la asignatura
+  function wireTemas() {
+    const content = $('uniContent');
+    content.querySelectorAll('.uni-tsecs').forEach((list) => {
       Sortable.create(list, {
-        group: 'uni-temas', items: '.uni-tema', handle: '[data-drag-handle]', label: list.getAttribute('aria-label'),
-        id: (el) => Number(el.dataset.id), data: { asig: Number(list.dataset.asig), grupo: list.dataset.grupo },
-        accepts: (ctx) => (ctx.to.data.asig === ctx.from.data.asig ? true : 'Un tema se queda en su asignatura'),
+        group: `uni-temas-${asigFilter}`, items: '.uni-ts', handle: '[data-drag-handle]', label: list.getAttribute('aria-label'),
+        id: (el) => Number(el.dataset.id), data: { grupo: list.dataset.grupo },
         onDrop: async (ctx) => {
           const body = { before_id: ctx.beforeId ? Number(ctx.beforeId) : 0 };
           if (ctx.to.data.grupo !== ctx.from.data.grupo) body.grupo = ctx.to.data.grupo;
@@ -209,29 +365,55 @@
         },
       });
     });
+    content.querySelectorAll('.uni-tiles[data-tema]').forEach((list) => {
+      Sortable.create(list, {
+        group: `uni-docs-${asigFilter}`, items: '.uni-tile', label: list.getAttribute('aria-label'),
+        id: (el) => Number(el.dataset.id), data: { tema: Number(list.dataset.tema) },
+        onDrop: async (ctx) => {
+          const body = { before_id: ctx.beforeId ? Number(ctx.beforeId) : 0 };
+          if (ctx.to.data.tema !== ctx.from.data.tema) body.tema_id = ctx.to.data.tema;
+          await api(`/api/uni/archivos/${ctx.id}`, { method: 'PATCH', quiet: true, body });
+          if (body.tema_id) toast(`Movido a «${V.temas.find((x) => x.id === body.tema_id)?.titulo || 'otro tema'}»: el archivo no se mueve del disco`, { duration: 2200 });
+          load();
+        },
+      });
+    });
   }
 
-  /* ---------- Clics de las secciones ---------- */
-  $('uniContent').addEventListener('click', async (e) => {
+  /* ---------- Clics de la portada, la cabecera y los temas ---------- */
+  async function onClick(e) {
     const t = e.target.closest('button, a');
     if (!t) return;
     const d = t.dataset;
+    if (d.gotoAsig) {
+      if (e.ctrlKey || e.metaKey || e.shiftKey || e.button) return;
+      e.preventDefault();
+      return openAsig(Number(d.gotoAsig));
+    }
+    if (d.newAsig !== undefined) return openAsigDialog();
     if (d.fold) {
-      const set = folded(), open = t.getAttribute('aria-expanded') !== 'true';
-      if (open) set.delete(d.fold); else set.add(d.fold);
+      const id = Number(d.fold), set = folded(), open = t.getAttribute('aria-expanded') !== 'true';
+      if (open) set.delete(id); else set.add(id);
       Prefs.set(FOLD_KEY, [...set]);
       t.setAttribute('aria-expanded', String(open));
       $(t.getAttribute('aria-controls')).hidden = !open;
       return;
     }
+    if (d.ver) return verDoc(Number(d.ver));
+    if (d.fileMenu) return fileMenu(t, A.archivos.find((f) => f.id === Number(d.fileMenu)));
+    if (d.vincular) return UniTemas.openExplorar({ tema: V.temas.find((x) => x.id === Number(d.vincular)) });
+    if (d.organizar) return UniTemas.openOrganizar(asig(Number(d.organizar)));
+    if (d.ejNewTema) { const tm = V.temas.find((x) => x.id === Number(d.ejNewTema)); return UniEjercicios.openEditor({ asignatura_id: tm.asignatura_id, temas: [tm.id] }, load); }
+    const ejLi = t.closest('[data-ej]');
+    if (ejLi && temasTab()) return UniEjercicios.handle(d, A.ejercicios.find((x) => x.id === Number(ejLi.dataset.ej)), load);
     if (d.openAsig) return Ctx.openFolder('asignatura', d.openAsig);
     if (d.copyAsig) return Ctx.copyPath(asig(Number(d.copyAsig))?.ruta_abs);
     if (d.openTema) return Ctx.openFolder('tema', d.openTema);
     if (d.copyPrompt) { const tm = V.temas.find((x) => x.id === Number(d.copyPrompt)); return copyPrompt(asig(tm.asignatura_id), tm); }
     if (d.asigEdit) return openAsigDialog(asig(Number(d.asigEdit)));
-    if (d.subjTareas) { asigFilter = Number(d.subjTareas); renderChips(); return setTab('tareas'); }
+    if (d.propuesta) return UniTemas.openPropuesta(asig(Number(d.propuesta)));
     if (d.classNote) return classNote(Number(d.classNote));
-    if (d.addTema) return addTema(Number(d.addTema));
+    if (d.addTema) return addTema(Number(d.addTema), d.grupo);
     if (d.temaNota) return temaNota(Number(d.temaNota), t);
     if (d.estadoBtn) {
       const tema = V.temas.find((x) => x.id === Number(d.estadoBtn));
@@ -242,18 +424,57 @@
     }
     if (d.asigMenu) return asigMenu(t, asig(Number(d.asigMenu)));
     if (d.temaMenu) return temaMenu(t, V.temas.find((x) => x.id === Number(d.temaMenu)));
-  });
+  }
+  $('uniContent').addEventListener('click', onClick);
+  $('uniAsigHead').addEventListener('click', onClick);
+
+  /* ---------- Documentos: leer, mover, quitar ---------- */
+  function verDoc(id) {
+    const f = A.archivos.find((x) => x.id === id);
+    if (f) PdfVisor.open(f, { onClose: load, onMissing: load });
+  }
+  function fileMenu(btn, f) {
+    if (!f) return;
+    const tema = V.temas.find((x) => x.id === f.tema_id);
+    const otros = V.temas.filter((x) => x.asignatura_id === asigFilter && x.id !== f.tema_id);
+    const patch = (body) => api(`/api/uni/archivos/${f.id}`, { method: 'PATCH', body });
+    openMenu(btn, [
+      f.visor && !f.falta && { label: 'Leer aquí', icon: 'book-open', onClick: () => verDoc(f.id) },
+      !f.falta && { label: 'Abrir en una pestaña nueva', icon: 'external-link', onClick: () => window.open(`${PdfVisor.url(f.id)}${f.pagina ? `#page=${f.pagina}` : ''}`, '_blank', 'noopener') },
+      otros.length && { label: 'Mover a otro tema…', icon: 'move', onClick: async () => {
+        const r = await formDialog(`Mover «${f.nombre}»`, `<label class="field"><span class="field-label">Tema</span><select name="tema_id" class="select">${['teoria', 'otros', 'practicas'].map((g) => {
+          const ts = otros.filter((x) => x.grupo === g);
+          return ts.length ? `<optgroup label="${GRUPOS[g]}">${ts.map((x) => `<option value="${x.id}">${esc(x.titulo)}</option>`).join('')}</optgroup>` : '';
+        }).join('')}</select></label>
+          <p class="tiny muted">Solo cambia dónde lo ves en el panel; el archivo no se mueve de su carpeta. También puedes arrastrarlo.</p>`, 'Mover');
+        if (r) { await patch({ tema_id: Number(r.tema_id) }); load(); }
+      } },
+      f.tema_manual && !f.fuera && { label: 'Devolver al tema de su carpeta', icon: 'undo-2', onClick: async () => { await patch({ tema_id: 0 }); load(); } },
+      !f.falta && { label: `Quitar de «${tema?.titulo || 'este tema'}»`, icon: 'eye-off', onClick: async () => {
+        await patch({ oculto: true });
+        toast(`«${f.nombre}» ya no se ve en el tema (el archivo sigue en el disco)`, { action: { label: 'Deshacer', onClick: () => patch({ oculto: false }).then(load) } });
+        load();
+      } },
+      f.falta && { label: 'Quitar de la lista', icon: 'trash-2', danger: true, onClick: async () => {
+        if (!(await uiConfirm(`¿Quitar «${f.nombre}» de la lista?`, 'Ya no está en la carpeta. Se olvida dónde ibas; si el archivo vuelve, aparecerá de nuevo al sincronizar.', { confirmLabel: 'Quitar', danger: true }))) return;
+        await api(`/api/uni/archivos/${f.id}`, { method: 'DELETE' });
+        load();
+      } },
+    ].filter(Boolean));
+  }
 
   function asigMenu(btn, a) {
     openMenu(btn, [
-      { label: 'Editar', icon: 'pencil', onClick: () => openAsigDialog(a) },
+      { label: 'Editar (nombre, carpeta, color…)', icon: 'pencil', onClick: () => openAsigDialog(a) },
       a.carpeta && { label: 'Sincronizar con carpeta', icon: 'folder-sync', onClick: () => syncOne(a) },
+      a.carpeta && { label: 'Temas nuevos de la carpeta', icon: 'scan-search', onClick: () => UniTemas.openPropuesta(a) },
+      { label: 'Organizar documentos', icon: 'folder-input', onClick: () => UniTemas.openOrganizar(a) },
       { label: 'Copiar prompt para la IA', icon: 'clipboard-copy', onClick: () => copyPrompt(a, null) },
-      { label: 'Tareas de la asignatura', icon: 'list-todo', onClick: () => { asigFilter = a.id; renderChips(); setTab('tareas'); } },
       { label: 'Ver sus notas', icon: 'notebook-pen', onClick: () => { location.href = `/buscar?q=${encodeURIComponent(a.codigo)}`; } },
       a.carpeta && { label: 'Copiar ruta', icon: 'copy', onClick: () => Ctx.copyPath(a.ruta_abs) },
       { label: 'Archivar (fin de cuatrimestre)', icon: 'archive', onClick: async () => {
         await api(`/api/uni/asignaturas/${a.id}`, { method: 'PATCH', body: { archivada: true } });
+        if (asigFilter === a.id) openAsig(0);
         toast(`${a.codigo} archivada: sus tareas y notas siguen ahí`, { action: { label: 'Deshacer', onClick: () => api(`/api/uni/asignaturas/${a.id}`, { method: 'PATCH', body: { archivada: false } }).then(load) } });
         load();
       } },
@@ -264,7 +485,10 @@
     openMenu(btn, [
       t.ruta_abs && { label: t.tipo === 'carpeta' ? 'Abrir la carpeta' : 'Abrir el archivo', icon: 'folder-open', onClick: () => Ctx.openFolder('tema', t.id) },
       t.ruta_abs && { label: 'Copiar ruta', icon: 'copy', onClick: () => Ctx.copyPath(t.ruta_abs) },
-      t.tipo === 'carpeta' && { label: 'Ver sus archivos', icon: 'folder-tree', onClick: () => showRecursos(t) },
+      { label: 'Añadir documentos…', icon: 'file-plus', onClick: () => UniTemas.openExplorar({ tema: t }) },
+      { label: 'Nuevo ejercicio', icon: 'pencil-ruler', onClick: () => UniEjercicios.openEditor({ asignatura_id: t.asignatura_id, temas: [t.id] }, load) },
+      t.tipo === 'carpeta' && { label: 'Todo lo de la carpeta (también código)', icon: 'folder-tree', onClick: () => showRecursos(t) },
+      { label: 'Fusionar con otro tema…', icon: 'merge', onClick: () => UniTemas.fusionarCon(t) },
       { label: t.note_id ? 'Abrir los apuntes' : 'Crear los apuntes', icon: 'notebook-pen', onClick: () => temaNota(t.id) },
       { label: 'Copiar prompt para la IA', icon: 'clipboard-copy', onClick: () => copyPrompt(asig(t.asignatura_id), t) },
       { label: 'Nueva tarea de este tema', icon: 'square-check', onClick: () => newTask({ asignatura_id: t.asignatura_id, temas: [t.id] }, `Repasar ${t.titulo}`) },
@@ -307,10 +531,11 @@
     location.href = `/?note=${encodeURIComponent(r.note_id)}`;
   }
 
-  async function addTema(asigId) {
-    const res = await formDialog('Tema a mano', `
-      <label class="field"><span class="field-label">Título</span><input name="titulo" class="input" maxlength="200" required placeholder="Repaso del parcial…"></label>
-      <label class="field"><span class="field-label">Grupo</span><select name="grupo" class="select">${Object.entries(GRUPOS).map(([g, l]) => `<option value="${g}">${l}</option>`).join('')}</select></label>`, 'Añadir');
+  async function addTema(asigId, grupo = 'teoria') {
+    const res = await formDialog(grupo === 'practicas' ? 'Práctica a mano' : 'Tema a mano', `
+      <label class="field"><span class="field-label">Título</span><input name="titulo" class="input" maxlength="200" required placeholder="${grupo === 'practicas' ? 'Práctica 4 · Árboles…' : 'Tema 7 · Repaso del parcial…'}"></label>
+      <label class="field"><span class="field-label">Grupo</span><select name="grupo" class="select">${Object.entries(GRUPOS).map(([g, l]) => `<option value="${g}" ${g === grupo ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <p class="tiny muted">Luego añádele documentos de cualquier carpeta de la raíz con «Añadir documentos».</p>`, 'Añadir');
     if (!res?.titulo?.trim()) return;
     await api(`/api/uni/asignaturas/${asigId}/temas`, { method: 'POST', body: { titulo: res.titulo.trim(), grupo: res.grupo } });
     load();
@@ -326,7 +551,11 @@
   async function syncOne(a) {
     try {
       const r = await api(`/api/uni/asignaturas/${a.id}/sync`, { method: 'POST' });
-      toast(`${a.codigo}: ${r.nuevos} nuevos${r.faltan ? `, ${r.faltan} ya no están (marcados)` : ''}${r.vuelven ? `, ${r.vuelven} vuelven` : ''}`);
+      const ar = r.archivos || {};
+      const partes = [r.faltan && `${r.faltan} temas ya no están (marcados)`, r.vuelven && `${r.vuelven} temas vuelven`,
+        ar.nuevos && `${ar.nuevos} archivos nuevos`, ar.faltan && `${ar.faltan} archivos no encontrados`].filter(Boolean);
+      toast(`${a.codigo}: ${partes.join(', ') || 'al día'}${r.por_confirmar ? ` · ${r.por_confirmar} temas por confirmar` : ''}`,
+        r.por_confirmar ? { type: 'info', action: { label: 'Revisar', onClick: () => UniTemas.openPropuesta(a) } } : {});
       load();
     } catch { /* api ya avisa */ }
   }
@@ -337,9 +566,11 @@
     try {
       const r = await api('/api/uni/sync', { method: 'POST' });
       const res = Object.entries(r.resultado);
-      const nuevos = res.reduce((n, [, x]) => n + (x.nuevos || 0), 0);
+      const pend = res.reduce((n, [, x]) => n + (x.por_confirmar || 0), 0);
+      const archivos = res.reduce((n, [, x]) => n + (x.archivos?.nuevos || 0), 0);
       const errores = res.filter(([, x]) => x.error);
-      toast(res.length ? `${nuevos} temas nuevos${errores.length ? ` · ${errores.map(([k, x]) => `${k}: ${x.error}`).join(' · ')}` : ''}` : 'Ninguna asignatura tiene carpeta', { type: errores.length ? 'info' : 'success' });
+      const resumen = [archivos && `${archivos} archivos nuevos`, pend && `${pend} temas por confirmar`].filter(Boolean).join(' · ') || 'Todo al día';
+      toast(res.length ? `${resumen}${errores.length ? ` · ${errores.map(([k, x]) => `${k}: ${x.error}`).join(' · ')}` : ''}` : 'Ninguna asignatura tiene carpeta', { type: errores.length || pend ? 'info' : 'success' });
       load();
     } catch { /* api ya avisa */ } finally { b.classList.remove('is-loading'); }
   });
@@ -524,15 +755,37 @@
       <div class="row"><label class="field"><span class="field-label">Sigla</span><input name="codigo" class="input uni-code-input" required maxlength="20" value="${esc(a?.codigo || '')}" placeholder="GABD…"></label>
         <label class="field grow"><span class="field-label">Nombre</span><input name="nombre" class="input" required maxlength="120" value="${esc(a?.nombre || '')}" placeholder="Gestión y Administración de Bases de Datos…"></label></div>
       <label class="field"><span class="field-label">Carpeta (dentro de la raíz)</span>
-        <input name="carpeta" class="input" list="uniCarpetas" maxlength="1000" value="${esc(a?.carpeta || '')}" placeholder="${V.raiz ? 'Tercero/Bases de datos…' : 'Primero elige la raíz en Ajustes'}">
+        <span class="row uni-carpeta-row"><input name="carpeta" class="input grow" list="uniCarpetas" maxlength="1000" value="${esc(a?.carpeta || '')}" placeholder="${V.raiz ? 'Tercero/Bases de datos… o la ruta completa' : 'Primero elige la raíz en Ajustes'}" aria-describedby="uniCarpetaEstado">
+          ${V.raiz_ok ? `<button type="button" class="btn btn-sm" data-examinar>${icon('folder-search', 'icon-sm')}Examinar…</button>` : ''}</span>
         <datalist id="uniCarpetas">${carpetas.map((c) => `<option value="${esc(c.ruta)}">${c.temas} temas</option>`).join('')}</datalist>
-        <span class="field-hint">Relativa a ${esc(V.raiz || 'la carpeta raíz')}. Solo se lee.</span></label>
+        <span class="field-hint uni-carpeta-estado" id="uniCarpetaEstado" aria-live="polite">Relativa a ${esc(V.raiz || 'la carpeta raíz')} (o pega la ruta completa). Solo se lee.</span></label>
       <div class="row"><label class="field grow"><span class="field-label">Profesor</span><input name="profesor" class="input" maxlength="200" value="${esc(a?.profesor || '')}"></label>
         <label class="field grow"><span class="field-label">Aula</span><input name="aula" class="input" maxlength="120" value="${esc(a?.aula || '')}"></label></div>
       <div class="row"><label class="field grow"><span class="field-label">Alias para @menciones</span><input name="alias" class="input" maxlength="300" value="${esc((a?.alias || []).join(', '))}" placeholder="bd, bases…"></label>
         <label class="field"><span class="field-label">Cuatrimestre</span><input name="semestre" class="input" maxlength="40" value="${esc(a?.semestre || '')}" placeholder="2026-27 · 1.º…"></label></div>
       <fieldset class="field"><legend class="field-label">Color</legend><div class="uni-colors">${Array.from({ length: 10 }, (_, i) => `<label class="uni-color" style="--c:var(--cat-${i})"><input type="radio" name="color" value="cat-${i}" ${(a?.color || `cat-${V.asignaturas.length % 10}`) === `cat-${i}` ? 'checked' : ''}><span class="sr-only">Color ${i + 1}</span></label>`).join('')}</div></fieldset>
-      <label class="field"><span class="field-label">Enlaces (uno por línea: «Moodle https://…»)</span><textarea name="enlaces" class="textarea" rows="2" maxlength="5000">${esc((a?.enlaces || []).map((l) => `${l.titulo} ${l.url}`).join('\n'))}</textarea></label>`, a ? 'Guardar' : 'Crear');
+      <label class="field"><span class="field-label">Enlaces (uno por línea: «Moodle https://…»)</span><textarea name="enlaces" class="textarea" rows="2" maxlength="5000">${esc((a?.enlaces || []).map((l) => `${l.titulo} ${l.url}`).join('\n'))}</textarea></label>`, a ? 'Guardar' : 'Crear', {
+      onOpen: (dlg) => {
+        const input = dlg.querySelector('[name=carpeta]'), out = dlg.querySelector('#uniCarpetaEstado');
+        const check = async () => {
+          const v = input.value.trim();
+          input.setCustomValidity('');
+          if (!v) { out.dataset.estado = ''; out.textContent = 'Sin carpeta: los temas se añaden a mano.'; return; }
+          let r;
+          try { r = await api(`/api/uni/carpeta-estado?ruta=${encodeURIComponent(v)}`, { quiet: true }); } catch { return; }
+          if (input.value.trim() !== v) return;
+          out.dataset.estado = r.estado;
+          out.innerHTML = r.estado === 'vinculada' ? `${icon('folder-check', 'icon-sm')}Existe${r.temas !== null ? ` · ${r.temas} temas posibles` : ''}${r.ruta !== v ? ` · se guardará como «${esc(r.ruta)}»` : ''}`
+            : r.estado === 'no-disponible' ? `${icon('triangle-alert', 'icon-sm')}${esc(r.mensaje)}`
+              : `${icon('folder-x', 'icon-sm')}${esc(r.mensaje || 'No existe dentro de la raíz')}`;
+          if (r.estado === 'invalida') input.setCustomValidity(r.mensaje || 'Carpeta no válida');
+        };
+        input.addEventListener('input', () => { clearTimeout(check.t); check.t = setTimeout(check, 300); });
+        dlg.querySelector('[data-examinar]')?.addEventListener('click', () => UniTemas.openExplorar({ carpeta: true, inicio: input.value.trim() || '',
+          onPick: (r) => { input.value = r; check(); input.focus(); } }));
+        if (input.value.trim()) check();
+      },
+    });
     if (!res) return;
     const enlaces = res.enlaces.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
       const m = l.match(/^(.*?)\s*(https?:\/\/\S+)$/i);
@@ -540,15 +793,19 @@
     }).filter(Boolean);
     const body = { codigo: res.codigo.trim(), nombre: res.nombre.trim(), carpeta: res.carpeta.trim(), profesor: res.profesor, aula: res.aula,
       alias: res.alias.split(',').map((x) => x.trim()).filter(Boolean), semestre: res.semestre, color: res.color, enlaces };
+    let id = a?.id, revisar = false;
     try {
       if (a) await api(`/api/uni/asignaturas/${a.id}`, { method: 'PATCH', body });
-      else {
-        const r = await api('/api/uni/asignaturas', { method: 'POST', body });
-        if (body.carpeta) await api(`/api/uni/asignaturas/${r.id}/sync`, { method: 'POST', quiet: true }).catch(() => {});
+      else id = (await api('/api/uni/asignaturas', { method: 'POST', body })).id;
+      // carpeta nueva o cambiada: se ponen al día los archivos y se proponen sus temas para confirmarlos
+      if (body.carpeta && body.carpeta !== (a?.carpeta || '')) {
+        const s = await api(`/api/uni/asignaturas/${id}/sync`, { method: 'POST', quiet: true }).catch(() => null);
+        revisar = !!s?.por_confirmar;
       }
     } catch { return; }
     await Ctx.load(true);
-    load();
+    await load();
+    if (revisar) UniTemas.openPropuesta(asig(id));
   }
   $('uniAdd').addEventListener('click', () => openAsigDialog());
 
@@ -579,7 +836,7 @@
     }
     await Ctx.load(true);
     await load();
-    if (n) { toast(`${n} asignaturas creadas`); openPropuesta(); }
+    if (n) { toast(`${n} asignaturas creadas: confirma sus temas con «Revisar y confirmar» en cada una`); openPropuesta(); }
   }
 
   /* Propuesta: llevar a Universidad lo que ya hay (se confirma en bloque) */
@@ -643,11 +900,24 @@
     });
   }
 
+  /* ---------- Estado de la carpeta de una asignatura ---------- */
+  function carpetaBadge(a) {
+    if (!a.carpeta) return '';
+    const E = {
+      vinculada: ['folder-check', 'Carpeta vinculada', ''],
+      rota: ['folder-x', 'Carpeta no encontrada', ' is-broken'],
+      'no-disponible': ['folder', 'Disco no disponible', ' is-off'],
+    }[a.carpeta_estado] || ['folder', '', ''];
+    return `<span class="uni-folder${E[2]}" title="${esc(a.carpeta)}${a.carpeta_estado === 'no-disponible' ? ' (la raíz no está montada ahora)' : ''}">${icon(E[0], 'icon-sm')}${E[1]}</span>`;
+  }
+
   /* ---------- Diálogo de formulario genérico: resuelve con los campos o null ---------- */
-  function formDialog(title, body, okLabel, { danger, onOpen } = {}) {
+  // size: clase de ds.css ('modal-sm' por defecto, '' = mediano, 'modal-lg'); collect(form): resultado propio
+  // (false = no cerrar, p. ej. tras reportValidity)
+  function formDialog(title, body, okLabel, { danger, onOpen, size = 'modal-sm', collect } = {}) {
     return new Promise((resolve) => {
       const dlg = document.createElement('dialog');
-      dlg.className = 'modal modal-sm uni-dialog';
+      dlg.className = `modal ${size} uni-dialog`;
       const id = 'ud' + Math.random().toString(36).slice(2, 7);
       dlg.setAttribute('aria-labelledby', id);
       dlg.innerHTML = `<div class="modal-header"><h2 id="${id}">${esc(title)}</h2>
@@ -663,6 +933,13 @@
       f.addEventListener('submit', (e) => {
         e.preventDefault();
         if (!f.reportValidity()) return;
+        if (collect) {
+          const own = collect(f);
+          if (own === false) return;
+          result = own;
+          closeModal(dlg);
+          return;
+        }
         const out = {};
         [...f.elements].forEach((el) => {
           if (!el.name) return;
@@ -683,10 +960,18 @@
   }
 
   /* ---------- Arranque ---------- */
-  const urlTab = new URLSearchParams(location.search).get('pestana');
-  if (['entregas', 'horario', 'tareas'].includes(urlTab)) setTab(urlTab);
-  else Prefs.ready?.then(() => { const t = Prefs.get(TAB_KEY, 'temas'); if (t !== tab && ['temas', 'entregas', 'horario', 'tareas'].includes(t)) setTab(t); }).catch(() => {});
-  document.addEventListener('prefs:changed', () => { if (tab === 'temas') render(); });
+  // Lo que comparten uni-temas.js, uni-ejercicios.js y pdf-visor.js (se cargan después y lo usan al vuelo)
+  window.Uni = {
+    get V() { return V; }, get asigFilter() { return asigFilter; }, get q() { return q; }, get A() { return A; },
+    load, asig, activas, color, formDialog, openAsig,
+  };
+
+  {
+    const p = new URLSearchParams(location.search).get('pestana');
+    if (p && tabs().some(([k]) => k === p)) tab = p;
+    else Prefs.ready?.then(() => { const t = storedTab(); if (t !== tab) setTab(t); }).catch(() => {});
+  }
+  document.addEventListener('prefs:changed', () => { if (temasTab()) render(); });
   Ctx.load().catch(() => {});
   load();
 })();

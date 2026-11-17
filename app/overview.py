@@ -16,7 +16,7 @@ from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter
 
-from app import backup
+from app import backup, datos_compartidos
 from app.calendar import TZ, entries, event_entries
 from app.database import get_db
 from app.indexer import notes_guard_status
@@ -260,6 +260,9 @@ def api_status():
                 "action": None,
             }
         )
+    datos = datos_compartidos.status_item()
+    if datos:  # P-12: carpeta compartida con Windows, cierre sucio recuperado o copias en la misma unidad
+        items.append(datos)
     bad = [i for i in items if i["state"] in ("offline", "error", "sin-copias", "antigua", "aviso")]
     return {
         "items": items,

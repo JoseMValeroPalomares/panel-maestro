@@ -1,0 +1,18 @@
+{% extends "_layout.html" %}
+{% block title_icon %}{{ icon('compass') }}{% endblock %}
+{% block content %}
+{#- Página que no existe (core/errors.py la pinta para navegaciones del navegador; la API sigue devolviendo JSON) -#}
+<div class="not-found">
+  <div class="empty state" data-state-kind="no-results" style="--ill-accent: var(--accent)">
+    <svg class="ill" aria-hidden="true"><use href="{{ asset('/static/ilustraciones.svg') }}#ill-sin-resultados"></use></svg>
+    <h2>{{ mensaje or 'Esta página no existe' }}</h2>
+    <p>La dirección <code>{{ ruta }}</code> no lleva a ninguna parte del panel. Puede que el enlace sea antiguo o que esté mal escrito.</p>
+    <div class="row not-found-actions">
+      <a class="btn btn-primary" href="/hoy">{{ icon('sun') }}Ir a Hoy</a>
+      <a class="btn" href="/buscar">{{ icon('search') }}Buscar</a>
+      <button type="button" class="btn btn-ghost" data-back>{{ icon('arrow-left') }}Volver</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ asset('/static/js/no-encontrado.js') }}"></script>{% endblock %}

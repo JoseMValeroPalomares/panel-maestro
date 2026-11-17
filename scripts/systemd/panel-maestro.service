@@ -24,6 +24,9 @@ WorkingDirectory=@PANEL_DIR@
 ExecStart=@PANEL_DIR@/start.sh
 Restart=on-failure
 RestartSec=5
+# P-12: las guardas de la carpeta de datos (solo lectura, cierre sucio, otro panel) hacen que uvicorn salga con 3. Volver
+# a intentarlo cada 5 s no arregla nada: el motivo está en journalctl y en logs/arranque-denegado.json (docs/windows.md)
+RestartPreventExitStatus=3
 
 # Lo que crea el panel solo lo lee este usuario (S-6; main.py también lo pone)
 UMask=0077

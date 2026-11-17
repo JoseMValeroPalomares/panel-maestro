@@ -25,7 +25,7 @@ from fastapi.staticfiles import StaticFiles
 from core import config
 from core.templating import render
 
-from . import compra, core, generador, ingredientes, perfil, plan, platos, rapido
+from . import cocina, compra, core, generador, ingredientes, perfil, plan, platos, rapido
 from .bulk import router as bulk_router
 from .database import init_db
 from .planner import router as planner_router
@@ -48,6 +48,7 @@ app = FastAPI(title="Comidas", lifespan=lifespan)
 app.include_router(rapido.router)  # /api/meals/rapido y /api/ingredients/rapido, antes que las rutas con {id}
 app.include_router(ingredientes.router)
 app.include_router(platos.router)
+app.include_router(cocina.router)  # modo cocina (P-10): /api/meals/{id}/cocina, /api/cocinados
 app.include_router(compra.router)
 app.include_router(plan.router)
 app.include_router(perfil.router)

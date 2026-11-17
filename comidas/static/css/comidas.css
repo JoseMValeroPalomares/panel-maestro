@@ -72,9 +72,26 @@
 .cp-name { font-size: var(--fs-13); font-weight: 600; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .cp-meta { font-size: var(--fs-12); color: var(--text-2); }
 .cell-foot { display: flex; align-items: center; gap: 0; margin-top: auto; padding: 2px 0 0 6px; }
+.cell-foot > .tiny { white-space: nowrap; }
 .cell-foot .btn-icon { color: var(--text-3); width: 28px; min-height: 28px; }
 .cell-foot .icon { color: var(--tile-comidas); }
 .cell-foot .btn-icon .icon { color: inherit; }
+/* P-8 · Chincheta a la vista (aria-pressed = fijada) */
+.pin-btn { color: var(--text-3); }
+.pin-btn[aria-pressed="true"] { color: var(--tile-comidas); background: color-mix(in srgb, var(--tile-comidas) 14%, transparent); }
+.pin-btn:hover { color: var(--tile-comidas); }
+/* P-7 · Quitar un plato de una comida con varios: a la vista al pasar o enfocar; siempre en táctil */
+.cell-platos.is-multi > li { position: relative; }
+.cell-platos.is-multi .cell-plato { padding-right: 26px; }
+.cell-plato-del { position: absolute; top: 2px; right: 0; width: 24px !important; min-height: 24px !important; color: var(--text-3); opacity: 0; }
+.cell-platos.is-multi > li:hover .cell-plato-del, .cell-plato-del:focus-visible { opacity: 1; }
+.cell-plato-del:hover { color: var(--danger-text); }
+@media (pointer: coarse) {
+  .cell-plato-del { opacity: 1; min-width: 24px !important; }
+  .cell-plato-del::after { content: ""; position: absolute; inset: -10px -10px -10px -6px; }
+  .cell-foot .btn-icon { position: relative; }
+  .cell-foot .btn-icon::after { content: ""; position: absolute; inset: -8px 0; }
+}
 
 /* Panel del día */
 .day-panel { position: sticky; top: 0; }
@@ -93,6 +110,9 @@
 .dp-comida { border-top: 1px solid var(--separator); padding-top: var(--sp-2); }
 .dp-comida-head { display: flex; align-items: center; gap: var(--sp-2); min-height: 32px; color: var(--text-2); }
 .dp-comida-head h3 { font-size: var(--fs-15); color: var(--text); }
+.dp-title { display: flex; align-items: baseline; gap: var(--sp-2); min-width: 0; }
+.dp-title > .tabular { white-space: nowrap; }
+@media (max-width: 767px) { .dp-title { flex-direction: column; gap: 0; } .dp-title > .tabular { font-size: var(--fs-12); } }
 .dp-platos { list-style: none; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
 .dp-plato { display: flex; align-items: center; gap: var(--sp-2); min-height: var(--touch); }
 .dp-plato .btn-icon { color: var(--text-3); }
@@ -141,6 +161,22 @@
 .macro-pills span { font-size: var(--fs-12); padding: 1px 6px; border-radius: 5px; background: var(--fill); color: var(--text-2); }
 .meals-grid .skeleton-card { height: 98px; }
 
+/* Fuera del generador (comidas.js:genToggleHtml): botón en la esquina de cada plato; marcado, la tarjeta se atenúa y
+   lleva su etiqueta en lugar de los macros */
+.meal-item { position: relative; display: grid; }
+.meal-item .meal-card-franja { padding-right: 30px; }  /* el botón va en la esquina, a la altura de esta línea */
+.gen-btn { position: absolute; top: var(--sp-2); right: var(--sp-2); color: var(--text-3); }
+.gen-btn:hover { color: var(--text); }
+.meal-item.is-off .meal-card { background: var(--bg); box-shadow: 0 0 0 1px var(--separator-strong); }
+.meal-item.is-off .meal-card-thumb { opacity: 0.5; filter: grayscale(0.6); }
+.meal-item.is-off .meal-card-name { color: var(--text-2); }
+.meal-item.is-off .gen-btn { color: var(--danger); }
+.gen-off-badge { display: inline-flex; align-items: center; gap: 4px; align-self: flex-start; margin-top: 2px;
+  font-size: var(--fs-12); font-weight: 600; padding: 1px 8px 1px 6px; border-radius: 999px; white-space: nowrap;
+  color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
+.gen-off-text { display: inline-flex; align-items: center; gap: 3px; color: var(--danger); font-weight: 600; }
+.gen-off-badge .icon, .gen-off-text .icon { width: 12px; height: 12px; }
+
 /* Detalle y formulario de plato */
 .macro-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--sp-2); margin: var(--sp-3) 0; }
 .macro-tile { display: flex; flex-direction: column; align-items: center; padding: var(--sp-3) var(--sp-1); border-radius: var(--r-md); background: var(--bg-elev-2); text-align: center; }
@@ -171,9 +207,12 @@
 .ing-row { display: grid; grid-template-columns: minmax(0, 1fr) 90px 150px 64px auto; gap: var(--sp-2); align-items: center; }
 .ing-row .ing-qty { text-align: right; }
 .ing-kcal { text-align: right; }
-.step-rows { padding-left: 1.4em; display: flex; flex-direction: column; gap: var(--sp-2); }
-.step-row { display: flex; align-items: center; gap: var(--sp-2); }
-.step-row::marker { color: var(--text-3); font-variant-numeric: tabular-nums; }
+.steps-editor { min-height: 140px; resize: vertical; line-height: 1.5; }
+.steps-preview { padding-left: 1.6em; display: flex; flex-direction: column; gap: var(--sp-1); font-size: var(--fs-13); color: var(--text-2); }
+.steps-preview:empty { display: none; }
+.steps-preview li::marker { color: var(--text-3); font-variant-numeric: tabular-nums; }
+.step-time { display: inline-flex; align-items: center; gap: 3px; margin-left: var(--sp-2); padding: 0 6px; border-radius: var(--r-pill);
+  background: var(--accent-soft); color: var(--accent-text); font-size: var(--fs-12); font-weight: 600; white-space: nowrap; }
 .macro-preview { margin-top: var(--sp-2); }
 .assign-list { max-height: min(56vh, 520px); overflow-y: auto; }
 .nutri-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--sp-3); }
@@ -188,6 +227,22 @@
 /* La compra es una lista: toda la pestaña (barra incluida) a un ancho de lectura y centrada */
 #tab-compra { max-width: 760px; margin-inline: auto; width: 100%; }
 .shop-lists { display: flex; flex-direction: column; gap: var(--sp-6); }
+/* P-9 · Esenciales: columna al lado de la lista (debajo en pantallas estrechas) */
+.shop-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 340px); gap: var(--sp-6); align-items: start; }
+.esenciales { position: sticky; top: var(--sp-4); }
+.esenciales .panel-header { flex-wrap: wrap; row-gap: var(--sp-1); }
+.es-chips { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.es-chip .chip-count { font-size: var(--fs-12); }
+.es-chip.is-bought > span:first-of-type { text-decoration: line-through; }
+.es-edit { list-style: none; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
+.es-edit li { display: flex; align-items: center; gap: var(--sp-2); min-height: 40px; }
+.es-name { min-width: 0; overflow-wrap: anywhere; font-weight: 500; }
+.es-add { display: grid; grid-template-columns: minmax(0, 1fr) 76px auto; gap: var(--sp-2); }
+@media (max-width: 900px) {
+  .shop-layout { grid-template-columns: minmax(0, 1fr); }
+  .esenciales { position: static; }
+}
+@media (pointer: coarse) { .es-add .input { font-size: 16px; min-height: var(--touch); } }
 .shop-h { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-15); margin-bottom: var(--sp-2); }
 .shop-row.is-done .row-title { color: var(--text-3); text-decoration: line-through; }
 
@@ -258,9 +313,9 @@
   .ing-row > button { grid-area: del; }
   .ing-row .input, .ing-row .select { font-size: 16px; min-height: var(--touch); }
   .ing-row .ing-qty { text-align: left; }
-  .step-row .input { font-size: 16px; min-height: var(--touch); }
+  .steps-editor { font-size: 16px; }
   .macro-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .grams-input .input { width: 64px; }
+  .grams-input .input { width: 76px; }  /* «1000» entero a 375 px */
   .day-chip { min-height: 60px; }
 }
 
@@ -357,3 +412,56 @@
 .ing-cell { font: inherit; color: inherit; background: none; border: 0; padding: 2px 6px; margin: -2px -6px; border-radius: var(--r-xs); cursor: text; min-height: 0; }
 .ing-cell:hover { background: var(--fill); }
 @media (pointer: coarse) { .ing-cell { min-height: 32px; } }
+
+/* ---------- P-10 · Modo cocina ---------- */
+.cp-done { display: inline-flex; vertical-align: -2px; margin-left: 4px; color: var(--tile-comidas); }
+.tag-done { display: inline-flex; align-items: center; gap: 3px; margin-left: var(--sp-2); color: color-mix(in srgb, var(--tile-comidas) 50%, var(--text)); }
+dialog.modal.cook {
+  width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; inset: 0; border-radius: 0;
+  background: var(--bg); box-shadow: none;
+}
+dialog.modal.cook[open] { animation: fade-in var(--dur) var(--ease-out); }
+dialog.modal.cook:fullscreen { width: 100vw; height: 100vh; }
+.cook-head { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; padding: calc(var(--sp-3) + env(safe-area-inset-top)) var(--sp-5) var(--sp-3); }
+.cook-titles { flex: 1; min-width: 0; }
+.cook-titles h2 { font-size: var(--fs-20); line-height: 1.2; overflow-wrap: anywhere; }
+.cook-sub { font-size: var(--fs-13); color: var(--text-2); }
+.cook-warn { color: var(--warning-text, var(--text-2)); }
+.cook-timers { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.cook-timers:empty { display: none; }
+.cook-pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 2px 2px 12px; border-radius: var(--r-pill);
+  background: var(--accent-soft); color: var(--accent-text); font-weight: 700; font-size: var(--fs-17); }
+.cook-pill-label { font-size: var(--fs-12); font-weight: 500; opacity: 0.85; }
+.cook-pill .btn-icon { color: inherit; }
+.cook-pill.is-done { background: var(--tile-comidas); color: var(--tile-fg); animation: cook-blink 1s steps(2, start) infinite; }
+@keyframes cook-blink { 50% { opacity: 0.7; } }
+.cook-progress { height: 4px; background: var(--fill); }
+.cook-progress > span { display: block; height: 100%; width: 100%; background: var(--tile-comidas); transform: scaleX(0); transform-origin: left center; transition: transform var(--dur) var(--ease-out); }
+.cook-stage { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y;
+  display: flex; flex-direction: column; gap: var(--sp-5); justify-content: center;
+  width: min(880px, 100%); margin: 0 auto; padding: var(--sp-6) var(--sp-5); outline: none; }
+.cook-step { font-size: clamp(1.5rem, 1rem + 2.6vw, 2.6rem); line-height: 1.3; font-weight: 600; color: var(--text); text-wrap: pretty; }
+.cook-ings { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.cook-ings li { display: inline-flex; align-items: baseline; gap: var(--sp-2); padding: var(--sp-2) var(--sp-4); border-radius: var(--r-md);
+  background: var(--bg-elev); box-shadow: 0 0 0 0.5px var(--separator); font-size: var(--fs-17); }
+.cook-ings b { color: var(--text); }
+.cook-ings-all { flex-direction: column; flex-wrap: nowrap; }
+.cook-ings-all li { display: block; padding: 0; }
+.cook-ings-all label { gap: var(--sp-3); min-height: 52px; padding: var(--sp-2) var(--sp-4); cursor: pointer; }
+.cook-ings-all input:checked ~ span { color: var(--text-3); text-decoration: line-through; }
+.cook-timer-btns { display: flex; flex-wrap: wrap; gap: var(--sp-3); }
+.cook-done { display: flex; flex-direction: column; align-items: center; gap: var(--sp-3); text-align: center; }
+.cook-done > .icon { width: 56px; height: 56px; color: var(--tile-comidas); }
+.cook-foot { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-3) var(--sp-5) calc(var(--sp-4) + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--separator); }
+.cook-count { flex: 1; text-align: center; color: var(--text-2); font-weight: 600; }
+.cook-nav { min-width: 140px; min-height: 56px; font-size: var(--fs-17); }
+@media (max-width: 767px) {
+  dialog.modal.cook { margin: 0; top: 0; bottom: 0; max-height: none; height: var(--vvh, 100dvh); border-radius: 0; }
+  .cook-head { padding-inline: var(--sp-3); }
+  .cook-stage { padding: var(--sp-5) var(--sp-4); justify-content: flex-start; }
+  .cook-foot { padding-inline: var(--sp-3); }
+  .cook-nav { min-width: 0; flex: 0 0 auto; padding-inline: var(--sp-4); }
+  .cook-pill { font-size: var(--fs-15); }
+}
+@media (prefers-reduced-motion: reduce) { .cook-pill.is-done { animation: none; } .cook-progress > span { transition: none; } }

@@ -17,10 +17,13 @@ from app.boards import api_router as boards_api_router
 from app.boards import router as boards_router
 from app.bulk import router as bulk_router
 from app.calendar import router as calendar_router
+from app.calendario_ics import public_router as ics_public_router
+from app.calendario_ics import router as ics_router
 from app.capture import router as capture_router
 from app.contador import router as contador_router
 from app.contextos import router as contextos_router
 from app.database import get_db, init_db
+from app.datos_compartidos import checkpoint_en_reposo
 from app.dotfiles import router as dotfiles_router
 from app.extension import router as extension_router
 from app.finance import router as finance_router
@@ -28,6 +31,7 @@ from app.graph import router as graph_router
 from app.ia_flashcards import router as ia_flashcards_router
 from app.ia_notas import router as ia_notas_router
 from app.indexer import sync_notes_to_db
+from app.item_extras import router as item_extras_router
 from app.items import router as items_router
 from app.links import router as links_router
 from app.note_tasks import sync_all_note_items
@@ -39,6 +43,7 @@ from app.plantillas import router as plantillas_router
 from app.prefs import router as prefs_router
 from app.proyecto import router as proyecto_router
 from app.proyectos import router as proyectos_router
+from app.red_api import router as red_router
 from app.reminders import router as reminders_router
 from app.rendimiento import router as rendimiento_router
 from app.rendimiento_ia import router as rendimiento_ia_router
@@ -49,6 +54,9 @@ from app.search import router as search_router
 from app.study import router as study_router
 from app.trash import purge_if_due as purge_trash_if_due
 from app.trash import router as trash_router
+from app.uni_archivos import router as uni_archivos_router
+from app.uni_ejercicios import router as uni_ejercicios_router
+from app.uni_organizar import router as uni_organizar_router
 from app.universidad import open_router as abrir_router
 from app.universidad import router as universidad_router
 from app.uploads import router as uploads_router
@@ -115,6 +123,16 @@ async def lifespan(app: FastAPI):
             coalesce=True,
             max_instances=1,
         )
+        # P-12: el WAL pasa al .db cada 2 min si tiene algo; un apagado brusco (Windows mata el proceso) deja así los
+        # datos en reposo (app/datos_compartidos.py)
+        scheduler.add_job(
+            checkpoint_en_reposo,
+            IntervalTrigger(minutes=2),
+            id="checkpoint_en_reposo",
+            replace_existing=True,
+            coalesce=True,
+            max_instances=1,
+        )
         scheduler.start()
     yield
     log.info("Apagando Segundo Cerebro...")
@@ -126,9 +144,11 @@ app = FastAPI(title="Digital Brain API", lifespan=lifespan)
 
 STATIC_DIR = str(config.PROJECT_ROOT / "static")
 UPLOADS_DIR = str(config.UPLOADS_DIR)
-os.makedirs(UPLOADS_DIR, exist_ok=True)
+# Si no se puede (partición en solo lectura o sin montar), las guardas de arranque lo dicen con un mensaje claro (P-12)
+with contextlib.suppress(OSError):
+    os.makedirs(UPLOADS_DIR, exist_ok=True)
 # Las imagenes subidas se montan aparte para que su carpeta sea configurable.
-app.mount("/static/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
+app.mount("/static/uploads", StaticFiles(directory=UPLOADS_DIR, check_dir=False), name="uploads")
 if os.path.isdir(STATIC_DIR):
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
@@ -146,6 +166,7 @@ for module_router in (
     bulk_router,
     contador_router,
     atrasadas_router,  # /api/items/atrasadas, antes que las rutas /api/items/{item_id}
+    item_extras_router,  # /api/items/{id}/comentarios|adjuntos|extras
     items_router,
     search_router,
     boards_router,
@@ -156,6 +177,8 @@ for module_router in (
     review_router,
     prefs_router,
     links_router,
+    ics_router,
+    ics_public_router,  # /cal/<token>.ics: pública en core/auth, comprueba su token
     calendar_router,
     trash_router,
     reminders_router,
@@ -173,7 +196,11 @@ for module_router in (
     proyecto_router,
     contextos_router,
     universidad_router,
+    uni_archivos_router,
+    uni_ejercicios_router,
+    uni_organizar_router,
     abrir_router,
     proyectos_router,
+    red_router,
 ):
     app.include_router(module_router)

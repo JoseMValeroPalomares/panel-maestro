@@ -193,6 +193,65 @@
     });
     openModal(dlg, { focus: 'select[name=start]', onClose: () => dlg.remove() });
   }
+
+  /* ---------- Enlace .ics de solo lectura (P-11): suscribirse desde GNOME Calendar, Thunderbird, el móvil… ---------- */
+  function openIcsLink() {
+    const dlg = document.createElement('dialog');
+    dlg.className = 'modal modal-sm';
+    dlg.innerHTML = `<div class="modal-header"><h2>Enlace para otro calendario</h2><button type="button" class="btn btn-ghost btn-icon modal-close" data-close aria-label="Cerrar">${icon('x')}</button></div>
+      <div class="modal-body stack" id="icsBody" aria-live="polite"><p class="small muted">Cargando…</p></div>
+      <div class="modal-footer" id="icsFoot"><span class="spacer"></span><button type="button" class="btn" data-close>Cerrar</button></div>`;
+    document.body.appendChild(dlg);
+    wireAllDialogs();
+    const body = dlg.querySelector('#icsBody');
+    const foot = dlg.querySelector('#icsFoot');
+    const fecha = (t) => t ? new Date(t * 1000).toLocaleString('es-ES', { dateStyle: 'medium', timeStyle: 'short' }) : '';
+    const intro = '<p class="small muted">Una dirección de solo lectura con tus eventos (y, si quieres, las tareas con fecha) para suscribirte desde cualquier aplicación de calendario. Quien la tenga puede verlos: no la compartas. Las tareas de notas cifradas o sensibles nunca salen.</p>';
+    const buttons = (activo) => {
+      foot.innerHTML = `${activo ? `<button type="button" class="btn btn-ghost" data-ics="revocar">${icon('unlink')} Revocar</button>` : ''}<span class="spacer"></span>
+        <button type="button" class="btn" data-close>Cerrar</button>
+        <button type="button" class="btn ${activo ? '' : 'btn-primary'}" data-ics="crear">${icon(activo ? 'refresh-cw' : 'link')} ${activo ? 'Crear otro' : 'Crear el enlace'}</button>`;
+    };
+    function showState(st) {
+      body.innerHTML = intro + (st.activo
+        ? `<p>Hay un enlace activo, creado el ${escapeHtml(fecha(st.creado))}${st.ultimo_uso ? ` · último uso: ${escapeHtml(fecha(st.ultimo_uso))}` : ' · todavía sin usar'}.</p>
+           <p class="small muted">Por seguridad no se guarda la dirección: si la has perdido, crea otra (la anterior deja de funcionar).</p>`
+        : '<p>No hay ningún enlace activo.</p>');
+      buttons(st.activo);
+    }
+    function showUrl(url) {
+      body.innerHTML = `${intro}
+        <label class="field"><span class="field-label">Dirección (cópiala ahora: no se vuelve a enseñar)</span>
+          <span class="row"><input class="input grow" id="icsUrl" readonly value="${escapeHtml(url)}" spellcheck="false" translate="no" autocomplete="off">
+          <button type="button" class="btn btn-primary" data-ics="copiar">${icon('clipboard-copy')} Copiar</button></span></label>
+        <label class="row small"><input type="checkbox" class="checkbox" id="icsTareas"> Incluir las tareas con fecha sin hacer</label>`;
+      const input = body.querySelector('#icsUrl');
+      body.querySelector('#icsTareas').addEventListener('change', (e) => { input.value = url + (e.target.checked ? '?tareas=1' : ''); });
+      input.addEventListener('focus', () => input.select());
+      buttons(true);
+      input.focus();
+    }
+    dlg.addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-ics]');
+      if (!b) return;
+      try {
+        if (b.dataset.ics === 'copiar') {
+          const ok = await copyText(body.querySelector('#icsUrl').value);
+          toast(ok ? 'Dirección copiada' : 'No se pudo copiar: selecciónala y cópiala a mano', { type: ok ? 'success' : 'info' });
+        } else if (b.dataset.ics === 'crear') {
+          if (foot.querySelector('[data-ics=revocar]') && !await uiConfirm('¿Crear otro enlace?', 'El actual dejará de funcionar: tendrás que cambiarlo en las aplicaciones que ya lo usan.', { confirmLabel: 'Crear otro' })) return;
+          showUrl((await api('/api/calendar/ics-enlace', { method: 'POST' })).url);
+        } else if (b.dataset.ics === 'revocar') {
+          if (!await uiConfirm('¿Revocar el enlace?', 'La dirección dejará de funcionar en todas las aplicaciones suscritas.', { confirmLabel: 'Revocar', danger: true })) return;
+          await api('/api/calendar/ics-enlace', { method: 'DELETE' });
+          toast('Enlace revocado', { type: 'success' });
+          showState({ activo: false });
+        }
+      } catch (err) { toast(err.message || 'No se pudo', { type: 'error' }); }
+    });
+    openModal(dlg, { onClose: () => dlg.remove() });
+    api('/api/calendar/ics-enlace').then(showState).catch((err) => { body.innerHTML = `<p>${escapeHtml(err.message || 'No se pudo cargar')}</p>`; });
+  }
   $('calHoursBtn').addEventListener('click', openHours);
   const paintRoutinesBtn = () => $('calRoutinesBtn').setAttribute('aria-pressed', String(Calendar.showRoutines));
   $('calRoutinesBtn').addEventListener('click', () => { Calendar.setShowRoutines(!Calendar.showRoutines); paintRoutinesBtn(); });
@@ -206,6 +265,7 @@
     { separator: true },
     { label: 'Sincronizar ahora (iCloud y ESP32)', icon: 'refresh-cw', onClick: syncNow },
     { label: 'Exportar (.ics)', icon: 'download', onClick: () => { location.href = '/api/calendar/export.ics'; } },
+    { label: 'Enlace para otro calendario…', icon: 'link', onClick: openIcsLink },
     { label: 'Horario visible…', icon: 'clock', onClick: openHours },
     { label: 'Avisos y recordatorios…', icon: 'bell', onClick: () => window.Reminders?.openSettings() },
   ]));

@@ -19,7 +19,8 @@ if [[ ${1:-} == --lock ]]; then
     "$PY" -m venv "$tmp/venv"
     # -c: lo que ya está en venv/ se queda en su versión; lo nuevo de requirements.txt entra en la última compatible
     "$tmp/venv/bin/python" -m pip install --quiet --disable-pip-version-check -r requirements.txt -c "$tmp/actual.txt"
-    { sed -n '1,3p' requirements.lock; "$tmp/venv/bin/python" -m pip freeze; } > "$tmp/lock"
+    { sed -n '1,3p' requirements.lock; "$tmp/venv/bin/python" -m pip freeze; } \
+        | sed -E 's/^(uvloop==[^ ]+)$/\1 ; sys_platform != "win32"/' > "$tmp/lock"  # P-12: uvloop no existe en Windows
     diff -u requirements.lock "$tmp/lock" && echo "Sin cambios." || cp "$tmp/lock" requirements.lock
 fi
 

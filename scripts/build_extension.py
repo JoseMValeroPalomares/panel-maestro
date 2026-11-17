@@ -38,6 +38,7 @@ ICONS = [
     "eye",
     "eye-off",
     "plug",
+    "radar",
     "send",
     "globe",
     "clock",

@@ -27,6 +27,27 @@ void sendFullState() {
   look::broadcastState();
 }
 
+void sendHeartbeat() {
+  SysInfo s;
+  sysInfo(s);
+  JsonDocument doc;
+  doc["type"] = "heartbeat";
+  doc["ip"] = s.ip;
+  doc["mac"] = s.mac;
+  doc["host"] = s.host;
+  doc["fw"] = s.fw;
+  doc["uptime"] = s.uptimeSec;
+  doc["heap"] = s.freeHeapKB * 1024UL;
+  doc["heap_min"] = s.minHeapKB * 1024UL;
+  doc["rssi"] = s.rssi;
+  doc["clients"] = s.clients;
+  doc["sd"] = s.sd;
+  doc["reset"] = s.resetReason;
+  char buf[320];
+  const size_t len = serializeJson(doc, buf, sizeof buf);
+  if (len < sizeof buf) netBroadcast(buf, len);
+}
+
 static bool is(const char* a, const char* b) { return strcmp(a, b) == 0; }
 
 void handleText(const char* json, size_t len) {
@@ -88,6 +109,8 @@ void handleText(const char* json, size_t len) {
     netBroadcast(json, len);
     return;
   }
+  if (is(type, "heartbeat")) return;  // el eco de otro cliente (o de una versión futura): no es un error
+  if (is(type, "heartbeat_get")) { sendHeartbeat(); return; }
   logf("ws: tipo de mensaje desconocido «%s»", type);
 }
 

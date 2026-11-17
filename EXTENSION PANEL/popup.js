@@ -38,7 +38,7 @@ function selectTab(name, focus = false) {
   }
   $('result').hidden = true;
   browser.storage.local.set({ lastTab: name });
-  const first = name === 'inbox' ? $('content') : name === 'cal' ? $('calText') : ($('vaultUrl').value ? $('vaultCategory') : $('vaultUrl'));
+  const first = name === 'inbox' ? $('content') : name === 'cal' ? $('calText') : ($('vaultUrl').value ? $('saveVault') : $('vaultUrl'));
   if (!focus) first.focus();
   if (name === 'cal') loadAgenda();
 }
@@ -132,14 +132,73 @@ async function detectVault() {
   $('detectedReason').textContent = d.certain ? d.reason : `${d.reason}. Puedes cambiarlo.`;
 }
 
+/* ---------- Baúl: categoría AUTOMÁTICA (la deduce el Panel: GET /api/ext/categoria); «Cambiar» la elige a mano ---------- */
+let catTouched = false;         // si la has elegido tú, la detección no la pisa
+let catToken = 0;
+function showCategory(cat, reason, certain, kind = 'normal') {
+  $('catBadge').textContent = cat || 'Sin categoría';
+  $('catReason').textContent = reason;
+  $('catDetected').dataset.certain = String(certain);
+  $('catDetected').dataset.kind = kind;
+}
+function setCatPicker(open) {
+  $('catPicker').hidden = !open;
+  $('catChange').setAttribute('aria-expanded', String(open));
+  $('catChange').textContent = open ? 'Ocultar' : 'Cambiar';
+}
+function catByHand() {
+  catTouched = true;
+  const v = $('vaultCategory').value.trim();
+  showCategory(v || 'General', v ? 'Elegida por ti' : 'Sin categoría: irá a General', true, v ? 'mine' : 'normal');
+}
+async function detectCategory() {
+  const token = ++catToken;
+  const url = $('vaultUrl').value.trim();
+  if (catTouched) return;
+  if (!Panel.isWebUrl(url)) { showCategory('', 'Pon un enlace y la busco', true); return; }
+  showCategory('Buscando…', '', true);
+  const owner = url === page.url ? await ytOwner() : { handle: '', name: '' };
+  const q = new URLSearchParams({ url, title: url === page.url ? page.title || '' : '', channel: owner.handle, channel_name: owner.name });
+  let r;
+  try { r = await Panel.request('/api/ext/categoria?' + q); } catch {
+    if (token !== catToken || catTouched) return;
+    const { lastVaultCat = '' } = await browser.storage.local.get('lastVaultCat');
+    $('vaultCategory').value = lastVaultCat;
+    showCategory(lastVaultCat || 'General', 'Sin conexión: la última que usaste. Puedes cambiarla.', false);
+    return;
+  }
+  if (token !== catToken || catTouched) return;
+  if (r.categories) { fillDatalist('vaultCats', r.categories); chipSets.vault.extra = r.categories; }
+  $('vaultCategory').value = r.category || '';
+  renderChips('vault');
+  if (r.category) {
+    showCategory(r.category, r.certain ? r.reason : `${r.reason}. Puedes cambiarla.`, !!r.certain, r.certain ? 'channel' : 'normal');
+  } else {
+    showCategory('', 'Sin pistas: elígela (si no, irá a General)', false);
+    setCatPicker(true);  // sin propuesta, el selector se abre solo
+  }
+}
+$('catChange').addEventListener('click', () => {
+  const open = $('catPicker').hidden;
+  setCatPicker(open);
+  if (open) $('vaultCategory').focus();
+});
+$('vaultCategory').addEventListener('input', catByHand);
+
+/* ---------- YouTube: canal del vídeo de la pestaña (enlace y nombre); lo usan el aviso del canal y la categoría ---------- */
+let ownerPromise = null;
+function ytOwner() {
+  if (!/^https?:\/\/(www\.)?youtube\.com\/watch\?/i.test(page.url)) return Promise.resolve({ handle: '', name: '' });
+  ownerPromise ||= browser.tabs.executeScript({ code: `/*panel-owner*/(() => { const a = document.querySelector('ytd-watch-metadata ytd-video-owner-renderer a[href*="/@"], ytd-watch-metadata ytd-video-owner-renderer a[href*="/channel/"], #owner a[href*="/@"], #owner a[href*="/channel/"]'); const n = document.querySelector('ytd-watch-metadata #channel-name a, #owner #channel-name a, #owner ytd-channel-name a'); return { handle: a ? decodeURIComponent(a.getAttribute('href')).split('?')[0] : '', name: n ? n.textContent.trim() : '' }; })()` })
+    .then(([r]) => (r && typeof r === 'object' ? { handle: String(r.handle || ''), name: String(r.name || '') } : { handle: '', name: '' }))
+    .catch(() => ({ handle: '', name: '' }));
+  return ownerPromise;
+}
+
 /* ---------- YouTube: ¿el canal de este vídeo está en el Baúl? ---------- */
 let ytChannel = '';
 async function checkYoutube() {
-  if (!/^https?:\/\/(www\.)?youtube\.com\/watch\?/i.test(page.url)) return;
-  let handle = '';
-  try {
-    [handle] = await browser.tabs.executeScript({ code: `(() => { const a = document.querySelector('ytd-watch-metadata ytd-video-owner-renderer a[href*="/@"], ytd-watch-metadata ytd-video-owner-renderer a[href*="/channel/"], #owner a[href*="/@"], #owner a[href*="/channel/"]'); return a ? decodeURIComponent(a.getAttribute('href')).split('?')[0] : ''; })()` });
-  } catch { return; }
+  const { handle } = await ytOwner();
   if (!handle) return;
   ytChannel = handle;
   try {
@@ -187,12 +246,12 @@ $('priority').addEventListener('keydown', (e) => {
 /* ---------- Categorías en un clic: las últimas usadas y luego las del Panel ---------- */
 const CHIPS_MAX = 6;
 const chipSets = { inbox: { input: 'inboxCategory', box: 'inboxChips', key: 'recentInboxCats', extra: [] },
-                   vault: { input: 'vaultCategory', box: 'vaultChips', key: 'recentVaultCats', extra: [] } };
+                   vault: { input: 'vaultCategory', box: 'vaultChips', key: 'recentVaultCats', extra: [], max: 14 } };
 async function renderChips(kind) {
   const set = chipSets[kind];
   const recent = (await browser.storage.local.get(set.key))[set.key] || [];
   const seen = new Set();
-  const values = [...recent, ...set.extra].filter((v) => v && !seen.has(v.toLowerCase()) && seen.add(v.toLowerCase())).slice(0, CHIPS_MAX);
+  const values = [...recent, ...set.extra].filter((v) => v && !seen.has(v.toLowerCase()) && seen.add(v.toLowerCase())).slice(0, set.max || CHIPS_MAX);
   const box = $(set.box);
   box.replaceChildren(...values.map((v) => Object.assign(document.createElement('button'), { type: 'button', className: 'chip', textContent: v, title: v })));
   box.hidden = !values.length;
@@ -216,6 +275,7 @@ for (const kind of Object.keys(chipSets)) {
     if (!c) return;
     $(input).value = c.getAttribute('aria-pressed') === 'true' ? '' : c.textContent;
     syncChips(kind);
+    if (kind === 'vault') catByHand();
   });
 }
 
@@ -328,13 +388,13 @@ async function init() {
   const url = pending?.url || (web ? page.url : '');
   $('vaultUrl').value = url;
   updateKind();
-  $('vaultCategory').value = store.lastVaultCat || '';
   renderChips('inbox');
   renderChips('vault');
 
   // Se abre siempre en el Baúl (salvo que lo pida el menú contextual o haya texto seleccionado: eso es del Inbox)
   selectTab(pending?.tab || (selection ? 'inbox' : 'vault'));
   detectVault();
+  detectCategory();
   loadStatus();
   checkYoutube();
 }
@@ -344,7 +404,7 @@ function updateKind() {
   $('kind').textContent = Panel.isWebUrl(u) ? Panel.detectType(u).label : '';
   $('kind').hidden = !Panel.isWebUrl(u);
 }
-$('vaultUrl').addEventListener('input', () => { updateKind(); clearTimeout(detectTimer); detectTimer = setTimeout(detectVault, 400); });
+$('vaultUrl').addEventListener('input', () => { updateKind(); clearTimeout(detectTimer); detectTimer = setTimeout(() => { detectVault(); detectCategory(); }, 400); });
 let detectTimer = null;
 $('includeLink').addEventListener('change', (e) => browser.storage.local.set({ includeLink: e.target.checked }));
 

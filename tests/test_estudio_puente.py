@@ -100,6 +100,15 @@ def test_marco_y_acento_con_bytes_validos_y_rotos(capsys):
     frame, accent = est.build_image_frame_and_accent(_png((10, 200, 10)))
     assert frame and isinstance(accent, int)
     assert est.build_image_frame_and_accent(b"no es una imagen") == (None, None)
+    # El color dominante: el más frecuente; el blanco puro (fondos, marcos) no cuenta
+    assert accent == est.rgb_to_565(10, 200, 10)
+    from PIL import Image
+
+    mitad = Image.new("RGB", (100, 100), (255, 255, 255))
+    mitad.paste((200, 20, 20), (0, 0, 40, 100))
+    r, g, b = est.dominant_color(mitad)
+    assert r > 180 and g < 60 and b < 60
+    assert est.dominant_color(Image.new("RGB", (8, 8), (255, 255, 255))) == (255, 255, 255)  # si no hay otro
 
 
 def test_caratula_de_archivo_y_esquemas_no_admitidos(tmp_path):
@@ -147,9 +156,12 @@ def test_payload_pista_nueva_manda_caratula_y_acento(monkeypatch, tmp_path):
     async def go():
         p = await bridge._build_payload(ws)
         assert p["position_sec"] == 42 and p["duration_sec"] == 200 and p["title"] == "A"
-        assert "accent_color" in p and len(ws.binary) == 1
-        await bridge._build_payload(ws)
-        assert len(ws.binary) == 1  # misma pista: la carátula no se vuelve a mandar
+        assert not ws.binary  # la carátula va después del título (tests/test_estudio_caratula.py)
+        await bridge._send_cover_if_due(ws)
+        assert len(ws.binary) == 1
+        p = await bridge._build_payload(ws)
+        await bridge._send_cover_if_due(ws)
+        assert "accent_color" in p and len(ws.binary) == 1  # misma pista: la carátula no se vuelve a mandar
 
     asyncio.run(go())
 
@@ -173,4 +185,4 @@ def test_estado_sin_placa(client):
     assert {"state", "esp32_ws_url", "host"} <= set(body)
     if not est.ESP32_HOST:
         assert body["online"] is False
-    assert client.get("/estudio/config").json()["esp32_host"] == est.ESP32_HOST
+    assert client.get("/estudio/config").json()["esp32_host"] == est.esp32_host()

@@ -36,7 +36,27 @@ Al arrancar intenta el WiFi sin bloquear; la hora sale del RTC y se corrige por 
 (hora de Madrid con cambio de horario). Si los colores salen invertidos en tu pantalla, añade
 `-DTFT_INVERSION_ON=1` a `TFT_FLAGS`.
 
-En el `.env` del panel, `ESP32_HOST` debe apuntar a la IP de la placa (o a `panel-estudio.local`).
+En el `.env` del panel basta `ESP32_HOST=auto`: el panel busca la placa sola (por su nombre mDNS
+`panel-estudio.local`, la última IP, su MAC o la reserva `192.168.1.60`) y la sigue si cambia de dirección.
+Se ve y se comprueba en Ajustes → «Red y dispositivos» o con `python -m scripts.red --redetectar`.
+Conviene reservarle `192.168.1.60` en el DHCP del router. Guía: `docs/red.md`.
+
+### Qué debe verse por el puerto serie (115200 baudios)
+
+```
+--- Panel ESP32: arrancando ---
+SD montada (15193 MB)
+hora: tomada del RTC
+arranque: firmware 2026.11, MAC 24:0a:c4:12:34:56, motivo: encendido
+WiFi: 192.168.1.60 (-58 dBm), panel-estudio.local anunciado
+hora: sincronizada por NTP
+```
+
+- `motivo: vigilante` = la placa se reinició sola porque `loop()` estuvo 20 s colgado; `tension` = alimentación
+  floja (cable o cargador); `error` = fallo del programa (el volcado sale justo antes en el serie).
+- `memoria: quedan N KB…` solo aparece si baja de 40 KB (no debería: en reposo hay unos 150 KB libres).
+- `WiFi: sin conexión desde hace 30 s, reconectando` y, al volver, otra línea `WiFi: … anunciado`.
+- Abrir el puerto serie reinicia la placa (es normal en estas placas: la línea DTR hace de botón de reset).
 
 ## Mando
 
@@ -72,6 +92,23 @@ WebSocket en `ws://<placa>/ws`, mensajes JSON (`src/app/protocol.cpp`). El panel
 120×120). Una imagen de 160×120 se guarda como fondo. La web de Estudio edita el calendario por
 `uid` y las tareas por `id` (el índice se sigue aceptando). El ESP32 difunde a todos los clientes
 `cmd` (mando de música) y `open_note_request`.
+
+La placa es siempre el **servidor**: nunca llama al panel, así que no le afecta que el panel vaya por HTTPS,
+que escuche solo en `127.0.0.1` ni que cambie de IP, y no guarda ninguna dirección del panel. La web de Estudio
+tampoco le habla directamente: entra por el puente `wss://<panel>/estudio/ws` (`estudio/main.py`).
+
+**Latido** (`heartbeat`): cada 30 s, y en cuanto entra un cliente o cambia el WiFi, la placa difunde
+`{"type":"heartbeat","ip","mac","host","fw","uptime","heap","heap_min","rssi","clients","sd","reset"}`.
+El panel lo usa para anotar dónde está la placa y cómo está (`core/red.py`); `heartbeat_get` lo pide al momento.
+
+**Carátula**: va después del `nowplaying` que estrena su título, pero el firmware ya no depende del orden: una
+imagen que llega justo antes de su título (2,5 s) se conserva, y `"has_art": false` suelta la anterior.
+
+**mDNS**: `panel-estudio.local`, servicio `_http._tcp` con TXT `app=panel-estudio`, `fw=<versión>`, `ws=/ws`.
+`GET /` responde `Panel de estudio ESP32` (así comprueba el panel que una IP es la placa).
+
+**Vigilante**: si `loop()` deja de dar vueltas 20 s, la placa se reinicia; el motivo del último arranque va en el
+latido (`reset`) y en el serie.
 
 ### Calendario (Panel ↔ ESP32)
 

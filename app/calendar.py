@@ -20,7 +20,6 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import Response
 from pydantic import BaseModel, Field, field_validator
 
 from app import contextos, routines
@@ -52,10 +51,6 @@ def parse_when(v: str) -> tuple[date, str | None]:
 
 def new_uid() -> str:
     return f"{int(time.time())}-{secrets.token_hex(6)}@panel"
-
-
-def _clip(v: str | None) -> str | None:
-    return v[:16] if v else v
 
 
 class EventIn(BaseModel):
@@ -871,60 +866,7 @@ def api_routine_stats(item_id: int, weeks: int = 12):
     return info
 
 
-# ─────────────────────────────────────────────
-# Exportar (.ics) para cualquier calendario
-# ─────────────────────────────────────────────
-
-
-@router.get("/calendar/export.ics")
-def api_export_ics():
-    from icalendar import Calendar as ICalendar
-    from icalendar import Event as IEvent
-
-    cal = ICalendar()
-    cal.add("prodid", "-//Panel//Calendario//ES")
-    cal.add("version", "2.0")
-    cal.add("x-wr-calname", "Panel")
-    with get_db() as conn:
-        rows = conn.execute("SELECT * FROM events ORDER BY start").fetchall()
-    for r in rows:
-        ev = IEvent()
-        ev.add("uid", r["uid"])
-        ev.add("summary", r["title"])
-        if r["all_day"]:
-            ev.add("dtstart", date.fromisoformat(r["start"]))
-            ev.add(
-                "dtend",
-                date.fromisoformat(r["end"]) if r["end"] else date.fromisoformat(r["start"]) + timedelta(days=1),
-            )
-        else:
-            ev.add("dtstart", datetime.fromisoformat(r["start"]).replace(tzinfo=TZ))
-            ev.add("dtend", datetime.fromisoformat(r["end"] or r["start"]).replace(tzinfo=TZ))
-        if r["notes"]:
-            ev.add("description", r["notes"])
-        if r["location"]:
-            ev.add("location", r["location"])
-        ev.add("categories", [r["kind"].upper()])
-        if r["repeat"]:  # una clase: regla semanal (o cada N días) hasta el fin del cuatrimestre
-            rule = routines.parse(r["repeat"])
-            rr = {"freq": "daily"}
-            if rule["freq"] == "weekly":
-                rr = {
-                    "freq": "weekly",
-                    "byday": [["MO", "TU", "WE", "TH", "FR", "SA", "SU"][d] for d in rule.get("days", [])],
-                }
-            elif rule["freq"] == "interval":
-                rr = {"freq": "daily", "interval": int(rule.get("every", 1))}
-            if r["repeat_until"]:
-                rr["until"] = datetime.fromisoformat(r["repeat_until"] + "T23:59").replace(tzinfo=TZ)
-            ev.add("rrule", rr)
-        ev.add("dtstamp", datetime.now(TZ))
-        cal.add_component(ev)
-    return Response(
-        cal.to_ical(),
-        media_type="text/calendar; charset=utf-8",
-        headers={"Content-Disposition": 'attachment; filename="panel.ics"'},
-    )
+# Exportar (.ics): app/calendario_ics.py (descarga y suscripción por URL con token)
 
 
 # ─────────────────────────────────────────────

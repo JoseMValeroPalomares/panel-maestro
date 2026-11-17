@@ -146,6 +146,8 @@ def _counts() -> tuple[int, int]:
 
 
 def is_available() -> bool:
+    if config.IS_WINDOWS:  # P-12: en Windows solo hay web (docs/windows.md §4)
+        return False
     return (config.DOTFILES_DIR / ".git").exists() and _git(
         "rev-parse", "--verify", "-q", "HEAD", check=False
     ).returncode == 0

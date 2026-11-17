@@ -2,8 +2,9 @@
    reminders.js — avisos del Panel como notificaciones del navegador (window.Reminders)
    Cada minuto, mientras haya una pestaña del Panel abierta (y el permiso concedido),
    pide /api/reminders y muestra los que ya tocan. Una sola pestaña avisa (cerrojo en
-   localStorage) y cada aviso sale una vez (claves vistas). La configuración por tipo
-   está en Prefs ('reminders'); en el portátil también avisa notify-send (Waybar).
+   localStorage) y cada aviso sale una vez: antes de enseñarlo se reclama en el panel
+   (POST /api/reminders/vistos), así que si ya lo enseñó el portátil (notify-send desde la
+   Waybar) o el móvil, aquí no se repite. La configuración por tipo está en Prefs ('reminders').
    ========================================================================== */
 (function () {
   'use strict';
@@ -30,6 +31,7 @@
   }
 
   async function show(r) {
+    window.Sonido?.play('aviso');
     const opts = { body: r.body, tag: r.key, icon: '/static/icons/icon-192.png', badge: '/static/icons/icon-192.png', data: { url: r.url } };
     try {
       const reg = await navigator.serviceWorker?.getRegistration();
@@ -46,14 +48,20 @@
     let data;
     try { data = await api('/api/reminders?horizon=2', { quiet: true }); } catch { return; }
     if (!data.settings?.navegador?.on) return;
-    const now = data.now, s = seen();
-    for (const r of data.reminders) {
-      if (r.fire_at <= now && !s[r.key]) { markSeen(r.key); show(r); }
+    const now = data.now, s = seen(), shown = new Set(data.shown || []);
+    const due = data.reminders.filter((r) => r.fire_at <= now && !s[r.key] && !shown.has(r.key));
+    if (!due.length) return;
+    let claimed;
+    try { claimed = new Set((await api('/api/reminders/vistos', { method: 'POST', body: { keys: due.map((r) => r.key) }, quiet: true })).claimed); } catch { return; }
+    for (const r of due) {
+      markSeen(r.key);
+      if (claimed.has(r.key)) show(r);
     }
   }
 
   /* ---------- Ajustes ---------- */
-  const TYPES = [['evento', 'Eventos', 'calendar'], ['tarea', 'Tareas con hora', 'square-check'], ['rutina', 'Rutinas con hora', 'repeat'], ['flashcards', 'Repaso de flashcards', 'book-open']];
+  const TYPES = [['evento', 'Eventos', 'calendar'], ['tarea', 'Tareas con hora', 'square-check'], ['rutina', 'Rutinas con hora', 'repeat'], ['flashcards', 'Repaso de flashcards', 'book-open'], ['resumen', 'Resumen de la mañana', 'sun']];
+  const AT_HOUR = { flashcards: '20:00', resumen: '08:30' };  // los que avisan a una hora fija
   async function openSettings() {
     let conf;
     try { conf = (await api('/api/reminders/settings', { quiet: true })).settings; } catch { return; }
@@ -64,7 +72,7 @@
     dlg.innerHTML = `<div class="modal-header"><h2>Avisos</h2><button type="button" class="btn btn-ghost btn-icon modal-close" data-close aria-label="Cerrar">${icon('x')}</button></div>
       <form class="modal-body stack" id="remForm">
         ${TYPES.map(([k, l, ic]) => `<div class="rem-row"><label class="switch-row grow"><input type="checkbox" class="switch" name="${k}" ${conf[k].on ? 'checked' : ''}>${icon(ic, 'icon-sm')}<span>${l}</span></label>
-          ${k === 'flashcards' ? `<label><span class="sr-only">Hora del aviso de flashcards</span><input type="time" class="input input-sm" name="flashcards_hora" value="${conf.flashcards.hora || '20:00'}"></label>`
+          ${AT_HOUR[k] ? `<label><span class="sr-only">Hora de: ${l}</span><input type="time" class="input input-sm" name="${k}_hora" value="${conf[k].hora || AT_HOUR[k]}"></label>`
             : `<label><span class="sr-only">Antelación de ${l}</span><select class="select input-sm" name="${k}_min">${minOpts.map(([v, t]) => `<option value="${v}" ${Number(conf[k].min) === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>`}</div>`).join('')}
         <hr class="sep">
         <fieldset class="rem-late stack-sm"><legend class="field-label">Tareas atrasadas</legend>
@@ -77,7 +85,7 @@
         <label class="switch-row"><input type="checkbox" class="switch" name="navegador" ${conf.navegador.on ? 'checked' : ''}><span>En este navegador ${perm === 'granted' ? '(permitido)' : perm === 'denied' ? '(bloqueado en el navegador)' : perm === 'unsupported' ? '(no disponible)' : ''}</span></label>
         ${perm === 'default' ? `<button type="button" class="btn btn-tinted btn-sm" data-perm>${icon('bell-ring', 'icon-sm')}Permitir notificaciones</button>` : ''}
         <label class="switch-row"><input type="checkbox" class="switch" name="escritorio" ${conf.escritorio.on ? 'checked' : ''}><span>En el escritorio del portátil (notify-send)</span></label>
-        <p class="tiny muted">El navegador avisa mientras haya una pestaña del Panel abierta. Con el navegador cerrado avisa el portátil (módulo de la Waybar). Cada evento puede tener su propia antelación en su editor.</p>
+        <p class="tiny muted">El navegador avisa mientras haya una pestaña del Panel abierta. Con el navegador cerrado avisa el portátil (módulo de la Waybar). Cada aviso sale en un solo sitio: el primero que lo enseña. El resumen de la mañana es una línea con lo de hoy («3 tareas, 2 clases · 1 atrasada»). Cada evento puede tener su propia antelación en su editor.</p>
       </form>
       <div class="modal-footer"><button type="button" class="btn" data-close>Cancelar</button><button type="submit" form="remForm" class="btn btn-primary">Guardar</button></div>`;
     document.body.appendChild(dlg);
@@ -93,6 +101,7 @@
       const value = {
         navegador: { on: f.navegador.checked }, escritorio: { on: f.escritorio.checked },
         flashcards: { on: f.flashcards.checked, hora: f.flashcards_hora.value || '20:00' },
+        resumen: { on: f.resumen.checked, hora: f.resumen_hora.value || '08:30' },
         atrasadas: { on: f.atrasadas.checked, hora: f.atrasadas_hora.value || '09:00', dias: readDays(f.querySelector('.rem-late')) },
         ...Object.fromEntries(['evento', 'tarea', 'rutina'].map((k) => [k, { on: f[k].checked, min: Number(f[`${k}_min`].value) }])),
       };

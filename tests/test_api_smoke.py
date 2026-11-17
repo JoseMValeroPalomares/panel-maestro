@@ -94,6 +94,33 @@ def test_recursos(client, monkeypatch):
     assert client.delete(f"/api/resources/{rid}").status_code == 200
 
 
+def test_recursos_orden_de_categorias(client, monkeypatch):
+    """El orden propio del Baúl (preferencia baul-categorias) manda en /api/resources/categories (extensión, Compartir);
+    las que no estén en él van detrás, alfabéticas."""
+    import app.vault as m
+
+    monkeypatch.setattr(
+        m, "fetch_metadata", lambda url: {"title": "T", "description": "D", "image": "", "resource_type": "web"}
+    )
+    for i, cat in enumerate(["Zeta", "alfa", "Beta", "Gamma"]):
+        assert (
+            client.post("/api/resources", json={"url": f"https://example.org/orden{i}", "category": cat}).status_code
+            == 200
+        )
+    cats = lambda: [
+        c
+        for c in client.get("/api/resources/categories").json()["categories"]
+        if c in {"Zeta", "alfa", "Beta", "Gamma"}
+    ]  # noqa: E731
+    assert cats() == ["alfa", "Beta", "Gamma", "Zeta"]
+    assert (
+        client.put("/api/prefs/baul-categorias", json={"value": ["Gamma", "Ya-no-existe", "Zeta"]}).status_code == 200
+    )
+    assert cats() == ["Gamma", "Zeta", "alfa", "Beta"]
+    assert client.put("/api/prefs/baul-categorias", json={"value": "basura"}).status_code == 200  # no rompe: alfabético
+    assert cats() == ["alfa", "Beta", "Gamma", "Zeta"]
+
+
 def test_inbox(client):
     """Alias antiguo POST /api/inbox (extensión 2.x) + API única /api/items."""
     pid = client.post("/api/inbox", json={"content": "Idea padre", "item_type": "nota"}).json()["id"]

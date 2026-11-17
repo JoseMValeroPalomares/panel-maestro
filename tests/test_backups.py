@@ -145,6 +145,7 @@ def _trees() -> dict[str, str]:
         "trash": config.TRASH_DIR,
         "dotfiles_base": config.DATA_DIR / "dotfiles_base",
         "uploads": config.UPLOADS_DIR,
+        "adjuntos": config.DATA_DIR / "adjuntos",
     }
     out = {}
     for name, root in roots.items():
@@ -188,6 +189,10 @@ def test_ida_y_vuelta_completa(client, limpio):
     client.post("/api/notes/rt-borrada", json={"title": "RT borrada", "category": "Copias", "content": "x"})
     assert client.delete("/api/notes/rt-borrada").json()["undo_token"]
     client.post("/api/inbox", json={"content": "Tarea de la copia"})
+    tid = client.get("/api/items").json()["items"][0]["id"]
+    assert (
+        client.post(f"/api/items/{tid}/adjuntos", files={"archivo": ("plano.pdf", b"%PDF-1.4 rt")}).status_code == 200
+    )
     client.post("/comidas/api/ingredients", json={"nombre": "Ingrediente RT", "kcal_100g": 5})
     (config.UPLOADS_DIR / "rt").mkdir(parents=True, exist_ok=True)
     (config.UPLOADS_DIR / "rt" / "foto.webp").write_bytes(b"\x00imagen\xff")
@@ -206,7 +211,14 @@ def test_ida_y_vuelta_completa(client, limpio):
     assert "data/llm_modelos.json" in manifest["files"] and "dotfiles_base/stow/zsh/.zshrc" in manifest["files"]
 
     # Se pierde todo
-    for root in (config.NOTES_DIR, config.DATA_DIR / "versions", config.TRASH_DIR, base, config.UPLOADS_DIR):
+    for root in (
+        config.NOTES_DIR,
+        config.DATA_DIR / "versions",
+        config.TRASH_DIR,
+        base,
+        config.UPLOADS_DIR,
+        config.DATA_DIR / "adjuntos",
+    ):
         shutil.rmtree(root, ignore_errors=True)
     config.NOTES_DIR.mkdir(parents=True)
     config.LLM_MODELS_FILE.unlink()

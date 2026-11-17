@@ -64,6 +64,7 @@ IGNORAR = {
     "$recycle.bin",
     "system volume information",
     "logs",
+    "cmakelists.txt",  # «documento» .txt de cada práctica de C++: ruido
 }
 PRACTICA_RE = re.compile(r"(pr[aá]ctica|^pr[\s_\-]?\d|entrega|^lab|laboratorio|proyecto)", re.I)
 TEORIA_RE = re.compile(
@@ -307,6 +308,8 @@ def _asig_out(r) -> dict:
         "orden": r["orden"],
         "archivada": bool(r["archivada"]),
         "sync_at": r["sync_at"],
+        "por_confirmar": r["por_confirmar"] if "por_confirmar" in r.keys() else 0,
+        "descartados": len(_jl(r["ignorar"])) if "ignorar" in r.keys() else 0,
     }
 
 
@@ -330,8 +333,10 @@ def _check_unique(conn, codigo: str, alias: list[str], skip_id: int | None = Non
 
 
 def create_asig(data: AsignaturaIn) -> int:
+    from app.uni_archivos import normalizar_carpeta
+
     alias = [a.strip() for a in data.alias if a.strip()]
-    carpeta = clean_rel(data.carpeta) if data.carpeta else None
+    carpeta = normalizar_carpeta(data.carpeta)
     with get_db() as conn:
         _check_unique(conn, data.codigo, alias)
         n = conn.execute("SELECT COUNT(*), COALESCE(MAX(orden), 0) FROM asignaturas").fetchone()
@@ -356,6 +361,9 @@ def create_asig(data: AsignaturaIn) -> int:
 
 
 def update_asig(asig_id: int, data: AsignaturaPatch) -> None:
+    from app.uni_archivos import normalizar_carpeta
+
+    carpeta = normalizar_carpeta(data.carpeta) if data.carpeta is not None else None
     with get_db() as conn:
         row = get_asig(conn, asig_id)
         if data.codigo is not None or data.alias is not None:
@@ -377,7 +385,7 @@ def update_asig(asig_id: int, data: AsignaturaPatch) -> None:
                 (json.dumps([a.strip() for a in data.alias if a.strip()], ensure_ascii=False), asig_id),
             )
         if data.carpeta is not None:
-            conn.execute("UPDATE asignaturas SET carpeta=? WHERE id=?", (clean_rel(data.carpeta) or None, asig_id))
+            conn.execute("UPDATE asignaturas SET carpeta=? WHERE id=?", (carpeta, asig_id))
         if data.enlaces is not None:
             conn.execute(
                 "UPDATE asignaturas SET enlaces=? WHERE id=?",
@@ -427,19 +435,26 @@ def delete_asig(asig_id: int) -> str:
                 "SELECT COUNT(*) FROM events WHERE asignatura_id=?",
                 "SELECT COUNT(*) FROM notes WHERE asignatura_id=?",
                 "SELECT COUNT(*) FROM temas WHERE asignatura_id=? AND (note_id IS NOT NULL OR estado != 'sin-ver' OR tipo='manual')",
+                "SELECT COUNT(*) FROM uni_ejercicios WHERE asignatura_id=?",
             )
         )
         if usos:
             raise HTTPException(
-                status_code=409, detail="Tiene tareas, eventos, notas o temas trabajados: archívala en vez de borrarla"
+                status_code=409,
+                detail="Tiene tareas, eventos, notas, ejercicios o temas trabajados: archívala en vez de borrarla",
             )
         a = undo.select(conn, "asignaturas", "id=?", (asig_id,))
         token = undo.save_rows(
             conn,
             "rows.asignatura",
-            [("asignaturas", a), ("temas", undo.select(conn, "temas", "asignatura_id=?", (asig_id,)))],
+            [
+                ("asignaturas", a),
+                ("temas", undo.select(conn, "temas", "asignatura_id=?", (asig_id,))),
+                ("uni_archivos", undo.select(conn, "uni_archivos", "asignatura_id=?", (asig_id,))),
+            ],
             title=a[0]["nombre"],
         )
+        conn.execute("DELETE FROM uni_archivos WHERE asignatura_id=?", (asig_id,))
         conn.execute("DELETE FROM temas WHERE asignatura_id=?", (asig_id,))
         conn.execute("DELETE FROM asignaturas WHERE id=?", (asig_id,))
     return token
@@ -493,6 +508,7 @@ def _tema_out(r, notas: dict | None = None) -> dict:
         "orden": r["orden"],
         "titulo_manual": bool(r["titulo_manual"]),
         "falta": r["falta_desde"] is not None,
+        "fusionado_en": r["fusionado_en"] if "fusionado_en" in r.keys() else None,
     }
 
 
@@ -534,40 +550,29 @@ def update_tema(tema_id: int, data: TemaPatch) -> None:
 
 
 def sync_asig(asig_id: int) -> dict:
-    """Sincronizar con carpeta: añade, marca lo que falta y nunca borra ni escribe en la carpeta."""
+    """Sincronizar con carpeta: marca lo que falta, pone al día los archivos de cada tema y cuenta los temas
+    nuevos, que no se crean solos: se confirman en la propuesta (app/uni_archivos.py). Nunca borra ni escribe
+    en la carpeta."""
+    from app.uni_archivos import candidatos, carpeta_de, sugerir_titulo, sync_archivos
+
     root = root_ready()
     with get_db() as conn:
         asig = get_asig(conn, asig_id)
-    if not asig["carpeta"]:
-        raise HTTPException(status_code=409, detail="Elige antes la carpeta de la asignatura")
-    carpeta = safe_path(root, asig["carpeta"])
-    if not carpeta.is_dir():
-        raise HTTPException(
-            status_code=409, detail=f"No encuentro «{asig['carpeta']}» dentro de la raíz: no se ha tocado nada"
-        )
+    carpeta = carpeta_de(root, asig)
     try:
         vistos = escanear(carpeta)
     except OSError as e:
         raise HTTPException(status_code=409, detail=f"No se puede leer la carpeta ({e.strerror}): no se ha tocado nada")
     now = time.time()
-    res = {"nuevos": 0, "vuelven": 0, "faltan": 0, "iguales": 0}
+    res = {"por_confirmar": 0, "vuelven": 0, "faltan": 0, "iguales": 0}
     with get_db() as conn:
         actuales = {
             r["ruta"]: r
             for r in conn.execute("SELECT * FROM temas WHERE asignatura_id=? AND ruta IS NOT NULL", (asig_id,))
         }
-        orden = conn.execute("SELECT COALESCE(MAX(orden), 0) FROM temas WHERE asignatura_id=?", (asig_id,)).fetchone()[
-            0
-        ]
         for t in vistos:
             r = actuales.pop(t["ruta"], None)
             if r is None:
-                orden += 1
-                conn.execute(
-                    "INSERT INTO temas (asignatura_id, titulo, nombre_carpeta, ruta, tipo, grupo, orden) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (asig_id, t["titulo"], t["nombre"], t["ruta"], t["tipo"], t["grupo"], orden),
-                )
-                res["nuevos"] += 1
                 continue
             if r["falta_desde"] is not None:
                 res["vuelven"] += 1
@@ -576,13 +581,16 @@ def sync_asig(asig_id: int) -> dict:
             # lo puesto a mano (título, grupo, estado, orden, nota) no se toca
             conn.execute(
                 "UPDATE temas SET falta_desde=NULL, nombre_carpeta=?, titulo=CASE WHEN titulo_manual THEN titulo ELSE ? END WHERE id=?",
-                (t["nombre"], t["titulo"], r["id"]),
+                (t["nombre"], sugerir_titulo(t["nombre"], t["tipo"] == "archivo"), r["id"]),
             )
         for r in actuales.values():  # ya no están en la carpeta: se marcan, no se borran
             if r["tipo"] != "manual" and r["falta_desde"] is None:
                 conn.execute("UPDATE temas SET falta_desde=? WHERE id=?", (now, r["id"]))
                 res["faltan"] += 1
-        conn.execute("UPDATE asignaturas SET sync_at=? WHERE id=?", (now, asig_id))
+        nuevos, _ = candidatos(conn, asig, carpeta)
+        res["por_confirmar"] = len(nuevos)
+        conn.execute("UPDATE asignaturas SET sync_at=?, por_confirmar=? WHERE id=?", (now, len(nuevos), asig_id))
+    res["archivos"] = sync_archivos(asig_id)
     log.info("Sincronía de temas de %s: %s", asig["codigo"], res)
     return res
 
@@ -777,7 +785,37 @@ def vista() -> dict:
         notas = {
             r["id"]: r["title"] for r in conn.execute("SELECT id, title FROM notes WHERE asignatura_id IS NOT NULL")
         }
-        temas = [_tema_out(r, notas) for r in conn.execute("SELECT * FROM temas ORDER BY orden, id")]
+        temas = [
+            _tema_out(r, notas)
+            for r in conn.execute("SELECT * FROM temas WHERE fusionado_en IS NULL ORDER BY orden, id")
+        ]
+        fusionados: dict = {}
+        for r in conn.execute(
+            "SELECT id, titulo, fusionado_en FROM temas WHERE fusionado_en IS NOT NULL ORDER BY orden"
+        ):
+            fusionados.setdefault(r["fusionado_en"], []).append({"id": r["id"], "titulo": r["titulo"]})
+        archivos = {
+            r["tema_id"]: r
+            for r in conn.execute(
+                "SELECT tema_id, SUM(falta_desde IS NULL) AS n, SUM(falta_desde IS NULL AND ext='pdf') AS pdfs, "
+                "SUM(falta_desde IS NOT NULL) AS faltan, SUM(pagina IS NOT NULL) AS leidos "
+                "FROM uni_archivos WHERE tema_id IS NOT NULL AND oculto=0 GROUP BY tema_id"
+            )
+        }
+        ejercicios = {
+            r["tema_id"]: r
+            for r in conn.execute(
+                "SELECT et.tema_id, COUNT(*) AS n, SUM(e.estado='hecho') AS hechos FROM uni_ejercicio_temas et "
+                "JOIN uni_ejercicios e ON e.id=et.ejercicio_id GROUP BY et.tema_id"
+            )
+        }
+        ej_asig = {
+            r["asignatura_id"]: r
+            for r in conn.execute(
+                "SELECT asignatura_id, COUNT(*) AS n, SUM(estado='hecho') AS hechos FROM uni_ejercicios "
+                "GROUP BY asignatura_id"
+            )
+        }
         entregas = _entregas(conn, conts)
         abiertas = dict(
             conn.execute(
@@ -796,13 +834,27 @@ def vista() -> dict:
         )
     for t in temas:
         t["tareas"] = tareas_tema.get(t["id"], 0)
+        ar, ej = archivos.get(t["id"]), ejercicios.get(t["id"])
+        t["archivos"] = ar["n"] if ar else 0
+        t["pdfs"] = ar["pdfs"] if ar else 0
+        t["archivos_faltan"] = ar["faltan"] if ar else 0
+        t["ejercicios"] = ej["n"] if ej else 0
+        t["ejercicios_hechos"] = ej["hechos"] if ej else 0
+        t["fusionados"] = fusionados.get(t["id"], [])
     for a in asigs:
         mias = [e for e in entregas if e["asignatura_id"] == a["id"]]
         a["proxima"] = next((e for e in mias if not e["hecho"] and e["fecha"] and e["fecha"] >= hoy), None)
         a["tareas_abiertas"] = abiertas.get(a["id"], 0)
         a["notas"] = notas_clase.get(a["id"], 0)
         a["media"] = media(mias)
+        ej = ej_asig.get(a["id"])
+        a["ejercicios"] = ej["n"] if ej else 0
+        a["ejercicios_hechos"] = ej["hechos"] if ej else 0
     root = uni_root()
+    from app.uni_archivos import estado_carpeta
+
+    for a in asigs:
+        a["carpeta_estado"] = estado_carpeta(root, a["carpeta"])
     # Ruta absoluta en este equipo (para «Copiar ruta», que copia en el mismo clic): sin tocar el disco
     por_id = {a["id"]: a for a in asigs}
     for a in asigs:
@@ -1202,14 +1254,29 @@ def api_update_tema(tema_id: int, data: TemaPatch):
 
 @router.delete("/temas/{tema_id}")
 def api_delete_tema(tema_id: int):
-    """Solo los añadidos a mano o los que ya no están en la carpeta (sin borrar nunca un archivo)."""
+    """Solo los añadidos a mano o los que ya no están en la carpeta (sin borrar nunca un archivo). Los temas que
+    estaban fusionados con él vuelven a verse con sus archivos; los archivos movidos a mano vuelven a su tema."""
+    from app.uni_archivos import reasignar
+
     with get_db() as conn:
         t = get_tema(conn, tema_id)
         if t["tipo"] != "manual" and t["falta_desde"] is None:
             raise HTTPException(status_code=409, detail="Ese tema sigue en la carpeta: volvería al sincronizar")
+        conn.execute("UPDATE temas SET fusionado_en=NULL WHERE fusionado_en=?", (tema_id,))
+        conn.execute("UPDATE uni_archivos SET tema_manual=0 WHERE tema_id=? AND tema_manual=1", (tema_id,))
+        reasignar(conn, t["asignatura_id"])  # lo que queda en él son sus archivos (ya no están en la carpeta)
         token = undo.save_rows(
-            conn, "rows.tema", [("temas", undo.select(conn, "temas", "id=?", (tema_id,)))], title=t["titulo"]
+            conn,
+            "rows.tema",
+            [
+                ("temas", undo.select(conn, "temas", "id=?", (tema_id,))),
+                ("uni_archivos", undo.select(conn, "uni_archivos", "tema_id=?", (tema_id,))),
+                ("uni_ejercicio_temas", undo.select(conn, "uni_ejercicio_temas", "tema_id=?", (tema_id,))),
+            ],
+            title=t["titulo"],
         )
+        conn.execute("DELETE FROM uni_ejercicio_temas WHERE tema_id=?", (tema_id,))
+        conn.execute("DELETE FROM uni_archivos WHERE tema_id=?", (tema_id,))
         conn.execute("DELETE FROM temas WHERE id=?", (tema_id,))
     return {"status": "success", "undo_token": token, "undo_db": "brain"}
 

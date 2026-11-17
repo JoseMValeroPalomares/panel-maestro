@@ -20,7 +20,7 @@ def test_pagina_sin_sesion_redirige_a_login(anon):
 def test_recursos_publicos(anon):
     assert anon.get("/login").status_code == 200
     assert anon.get("/static/css/login.css").status_code == 200
-    assert anon.get("/healthz").json() == {"status": "ok"}
+    assert anon.get("/healthz").json() == {"status": "ok", "app": "panel-maestro"}
 
 
 def test_uploads_no_son_publicos(anon):
@@ -135,7 +135,7 @@ def test_healthz_con_una_bd_inaccesible_da_503(anon, monkeypatch, tmp_path):
 
     monkeypatch.setattr(config, "COMIDAS_DB", tmp_path / "no-existe" / "comidas.db")
     r = anon.get("/healthz")
-    assert r.status_code == 503 and r.json() == {"status": "error"}  # no dice cuál ni por qué
+    assert r.status_code == 503 and r.json() == {"status": "error", "app": "panel-maestro"}  # no dice cuál ni por qué
     monkeypatch.undo()
     assert anon.get("/healthz").status_code == 200
 

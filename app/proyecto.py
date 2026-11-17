@@ -45,6 +45,8 @@ def _ref(name: str) -> str | None:
 
 
 def is_available() -> bool:
+    if config.IS_WINDOWS:  # P-12: publicar es cosa del equipo de desarrollo (Linux)
+        return False
     root = config.PROJECT_DIR
     return (root / ".git").exists() and (root / SCRIPT).is_file() and (root / IGNORE_FILE).is_file()
 

@@ -323,6 +323,7 @@ def test_cambios_hechos_en_el_propio_repo_tambien_cuentan(dot, client):
     assert git(dot.remote, "show", "main:install.sh") == "#!/bin/sh\n"
 
 
+@pytest.mark.permisos_unix
 def test_conserva_el_permiso_de_ejecucion(dot, client):
     script = dot.conf / "a.conf"
     script.write_text(ORIGINAL + "seis\n")

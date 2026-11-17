@@ -39,7 +39,7 @@ from core import config as _config
 from core.files import atomic_write
 from core.logging_config import get_logger
 
-from .esp32_link import LINK
+from .esp32_link import LINK, _resolver
 
 log = get_logger("icloud")
 
@@ -307,7 +307,7 @@ class IcloudSyncBridge:
         if LINK.state == "offline" and not LINK.can_try():
             return None  # en pausa tras varios fallos: ni se intenta ni se ensucia el log
         try:
-            async with self.session.ws_connect(self.esp32_ws_url, heartbeat=10, timeout=10) as ws:
+            async with self.session.ws_connect(_resolver(self.esp32_ws_url), heartbeat=10, timeout=10) as ws:
                 await ws.send_str(json.dumps({"type": "calendar_get"}))
                 # El ESP32 difunde a todos los clientes (pomodoro, pantalla, carátula...):
                 # se ignora lo que no sea la lista hasta que llegue o venza el plazo.
@@ -342,7 +342,7 @@ class IcloudSyncBridge:
             ],
         }
         try:
-            async with self.session.ws_connect(self.esp32_ws_url, heartbeat=10, timeout=10) as ws:
+            async with self.session.ws_connect(_resolver(self.esp32_ws_url), heartbeat=10, timeout=10) as ws:
                 await ws.send_str(json.dumps(payload))
                 await asyncio.sleep(0.3)
         except Exception as e:

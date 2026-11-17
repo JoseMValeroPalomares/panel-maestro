@@ -18,8 +18,22 @@ plano; para capturar desde cualquier sitio del escritorio está `Super+K` (ver d
    - **Para probar**: `about:debugging` → «Este Firefox» → «Cargar complemento temporal…» → `manifest.json`
      (se quita al cerrar Firefox).
    - Firefox Developer Edition / Nightly: `xpinstall.signatures.required = false` en `about:config` y abrir el `.xpi`.
-4. Se abre la página de opciones: escribe la dirección del Panel (la misma que en el navegador, con el puerto) y el
-   token, pulsa **Probar conexión** y **Guardar**.
+4. Se abre la página de opciones: pulsa **Detectar** (o escribe la dirección del Panel, la misma que en el
+   navegador), pon el token, **Probar conexión** y **Guardar**.
+
+**La dirección no se escribe a mano ni se queda vieja (2.11)**. Se guarda en el almacenamiento de la extensión, no en
+el código, y:
+
+- **Detectar** prueba, por orden, las direcciones que el propio Panel dijo en su último latido (la primera es la
+  recomendada: el nombre `https://…ts.net` de la tailnet, que no cambia aunque cambien las IP), este equipo
+  (`127.0.0.1:8000`) y la reserva DHCP del servidor (`192.168.1.50:8000`). Vale la que contesta a `/healthz` con
+  `app: panel-maestro`. Firefox pide permiso para esas direcciones en un solo aviso.
+- Tras conectar, la extensión manda un **latido** (`POST /api/red/latido`, también al arrancar y cada 30 min): el Panel
+  la enseña en Ajustes → «Red y dispositivos» (versión, por dónde entra, última vez) y avisa si entra por una
+  dirección que ya no es suya. Si el Panel recomienda otra dirección (https), las opciones la ofrecen con un clic.
+- Si la dirección guardada deja de contestar, la extensión **cambia sola** a otra de las del último latido, pero solo
+  a una `https` o de este mismo equipo y con permiso ya dado. A una IP `http` de la red local no cambia sin que la
+  confirmes con «Detectar»: en otra wifi esa IP podría ser de otro aparato y se llevaría el token.
 
 **Permisos (desde la 2.9)**: la extensión ya no tiene acceso fijo a ninguna web. Al pulsar **Guardar** (o **Probar
 conexión**) en las opciones, Firefox pide permiso solo para la dirección del Panel; YouTube solo se pide si activas sus
@@ -41,7 +55,8 @@ Al actualizar desde la versión 1.x se conserva la dirección guardada; solo hay
 | Enviar al Inbox | Botón de la barra o `Alt+Mayús+I`. Con texto seleccionado, ya viene escrito |
 | Dónde va (2.8) | En el Inbox y en el Baúl: **Puntual**, **Universidad** (o una asignatura) o **Proyectos** (o un proyecto). Se recuerda la última elección y la lista se guarda para usarla sin conexión. En el texto también valen las menciones del Panel: `@gabd`, `#panel-maestro v0.3`; si una no existe, avisa y no guarda nada |
 | Guardar en el Baúl | Es la **primera pestaña** y la que se abre siempre (2.7; con texto seleccionado se abre el Inbox). También `Alt+Mayús+B` |
-| Clasificación automática del Baúl (2.7) | El selector «Normal / Más tarde / Visto» está plegado: una insignia dice qué ha detectado y por qué, y «Cambiar» lo despliega. **Canal** (`/@usuario`, `/channel/`, `/c/`, `/user/`) → se guarda como canal de YouTube. **Vídeo que ya está en el Baúl**, o con el % reproducido por encima del umbral de Opciones (50 % por defecto) → «Visto» (si ya estaba, lo marca sin duplicarlo). **Vídeo nuevo** → «Ver más tarde». Si no está seguro (sin conexión, una página de YouTube que no es vídeo ni canal) usa «Ver más tarde», con «?» en la insignia. Las webs que no son de YouTube no se clasifican. La categoría de partida es la última usada |
+| Clasificación automática del Baúl (2.7) | El selector «Normal / Más tarde / Visto» está plegado: una insignia dice qué ha detectado y por qué, y «Cambiar» lo despliega. **Canal** (`/@usuario`, `/channel/`, `/c/`, `/user/`) → se guarda como canal de YouTube. **Vídeo que ya está en el Baúl**, o con el % reproducido por encima del umbral de Opciones (50 % por defecto) → «Visto» (si ya estaba, lo marca sin duplicarlo). **Vídeo nuevo** → «Ver más tarde». Si no está seguro (sin conexión, una página de YouTube que no es vídeo ni canal) usa «Ver más tarde», con «?» en la insignia. Las webs que no son de YouTube no se clasifican |
+| Categoría automática del Baúl (2.10) | La propone el Panel y se ve igual que la clasificación: insignia con la categoría y el motivo, y «Cambiar» para abrir el campo y los chips (las últimas usadas y las del Baúl, en su orden). Por orden: **el enlace ya está** en el Baúl → su categoría; **vídeo de un canal guardado** (o con otros vídeos de ese canal) → la suya; **otras páginas de la misma web** → la más repetida; **palabras del título** (el nombre de una categoría, las subcategorías de tus notas o dos palabras de lo que ya tiene) → propuesta con «?». Sin pistas, el selector se abre solo y, si no eliges, va a «General». Lo que eliges a mano no lo pisa la detección. Sin conexión, la última usada |
 | Duplicados (2.7) | Un vídeo se identifica por su **ID**: `watch?v=…&list=…`, `youtu.be/…`, `shorts/…`, `live/…` y `embed/…` son el mismo, y se guarda siempre como `https://www.youtube.com/watch?v=ID` |
 | Envío rápido (sin popup) | Clic derecho sobre texto seleccionado o un enlace → «Enviar … al Inbox ya»: llega como tarea y un aviso del sistema lo confirma (o avisa de que quedó en la cola) |
 | Desde la página | Clic derecho: «Enviar … al Inbox…» (abre el popup), «Enviar esta página al Inbox», «Guardar el enlace / esta página en el Baúl» |
@@ -73,7 +88,8 @@ o token no válido. Se actualiza cada minuto y la cola se reintenta a la vez.
 
 API del Panel que usa: `GET /api/ext/status`, `GET/POST /api/items` (desde la 2.2; las anteriores usan `POST /api/inbox`, que sigue aceptándose), `PATCH /api/items/{id}`,
 `POST /api/capture` (prefijos y eventos, con `dry_run` para la vista previa), `GET /api/calendar/agenda`,
-`PATCH /api/calendar/events/{id}`, `POST /api/routines/{id}/check`, `POST /api/resources`, `GET /api/resources/categories`,
+`PATCH /api/calendar/events/{id}`, `POST /api/routines/{id}/check`, `POST /api/resources`, `GET /api/resources/categories`, `GET /api/ext/categoria` (2.10),
 `POST /api/ext/sesion` (2.9: el token por una cookie de sesión; solo vale el token de la extensión, no el del escritorio).
+`GET /healthz` (público; 2.11: reconocer el Panel al detectar) y `POST /api/red/latido` (2.11).
 Todo con el mismo token (`Authorization: Bearer`). Tests: `tests/e2e/test_extension.py` (popup, opciones y fondo contra el
 servidor de pruebas, con la API `browser.*` simulada).

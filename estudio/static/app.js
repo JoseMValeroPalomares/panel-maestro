@@ -2,8 +2,10 @@
 // Panel de Estudio - pagina web unica
 // NOTA: esta app vive montada bajo "/estudio" dentro del proceso
 // fusionado con el Cerebro Digital, por eso "/config" se pide con el
-// prefijo completo. El resto de comunicacion (WebSocket) va directo
-// al ESP32, no pasa por este prefijo.
+// prefijo completo. El WebSocket tampoco va directo al ESP32: entra por
+// el puente /estudio/ws del panel (estudio/main.py), que reenvia a la placa.
+// Asi funciona bajo HTTPS (un ws:// directo seria contenido mixto) y desde
+// fuera de casa, y la web no necesita saber la IP de la placa.
 // =====================================================================
 
 let ws = null;
@@ -13,7 +15,7 @@ let esp32WsUrl = null;
 const state = {
   pomodoro: { workMin: 25, breakMin: 5, phase: "work", runState: "stopped", remainingSec: 25 * 60, lastSync: 0 },
   tasks: {
-    categories: [],
+    categories: null,  // null = aún no ha llegado nada de la placa (no es lo mismo que «no hay»)
     itemsByCategory: {},
     openCategories: new Set(),
     editingItem: null,
@@ -240,7 +242,7 @@ function showToast(message, isError = false) {
 }
 
 // ---------------------------------------------------------------------
-// Conexion WebSocket (directa al ESP32, no pasa por "/estudio")
+// Conexion WebSocket (por el puente /estudio/ws del panel)
 // ---------------------------------------------------------------------
 // Pocos intentos con espera creciente; después se para y queda «Sin conexión» con el
 // botón «Reintentar» (el servidor hace lo mismo con sus puentes: estudio/esp32_link.py).
@@ -261,7 +263,7 @@ async function initConnection({ manual = false } = {}) {
   }
   if (status.host === "") { setConnStatus(false); return; }  // sin placa configurada no hay nada que reintentar
   if (!status.online) { scheduleRetry(); return; }
-  esp32WsUrl = status.esp32_ws_url;
+  esp32WsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}${status.ws_path || "/estudio/ws"}`;
   connect();
 }
 
@@ -416,6 +418,10 @@ function renderCategories() {
   const container = document.getElementById("categoriesContainer");
   container.innerHTML = "";
 
+  if (state.tasks.categories === null) {
+    container.innerHTML = stateView({ kind: "offline", title: "Esperando al ESP32", text: "Las categorías y tareas viven en la placa: aparecerán en cuanto se conecte.", compact: true });
+    return;
+  }
   if (state.tasks.categories.length === 0) {
     container.innerHTML = emptyState({ iconName: "list-checks", title: "Sin categorías", text: "Crea una arriba para organizar las tareas que ves en el ESP32.", compact: true });
     return;

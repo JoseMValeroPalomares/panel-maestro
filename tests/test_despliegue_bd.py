@@ -4,6 +4,7 @@ scripts/desplegar.sh cuando una versión nueva no arranca."""
 import json
 import sqlite3
 from contextlib import closing
+from pathlib import Path
 
 import pytest
 
@@ -79,3 +80,42 @@ def test_no_pisa_una_copia_que_ya_existe(tmp_path):
 def test_uso(capsys):
     assert d.main([]) == 2 and d.main(["otra", "x"]) == 2
     assert "copiar DESTINO" in capsys.readouterr().err
+
+
+# ── scripts/desplegar.sh --comprobar: solo mira ─────────────────────────
+def test_comprobar_solo_mira_y_dice_lo_que_falta(tmp_path):
+    """Contra una raíz de pega: nunca prepara, para ni crea nada; marca con ✗ lo que impide desplegar."""
+    import subprocess
+
+    raiz = tmp_path / "raiz"
+    raiz.mkdir()
+    datos = tmp_path / "datos"
+    datos.mkdir()
+    (datos / "brain.db").write_bytes(b"")
+    (datos / ".env").write_text("", encoding="utf-8")
+    (raiz / "panel.env").write_text(
+        f"PANEL_ENV_FILE={datos}/.env\nPANEL_BRAIN_DB={datos}/brain.db\n"
+        f"PANEL_COMIDAS_DB={datos}/no-esta.db\nPANEL_BACKUPS_DIR={datos}/backups\n",
+        encoding="utf-8",
+    )
+    script = Path(__file__).resolve().parent.parent / "scripts" / "desplegar.sh"
+    antes = sorted(p.name for p in tmp_path.rglob("*"))
+    r = subprocess.run(
+        ["bash", str(script), "--raiz", str(raiz), "--comprobar", "no-existe-esta-version"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    salida = r.stdout + r.stderr
+    assert r.returncode == 1, salida
+    assert "No existe la versión «no-existe-esta-version»" in salida
+    assert "No encuentro las BDs" in salida and "✓" in salida and f"Secretos: {datos}/.env" in salida
+    assert sorted(p.name for p in tmp_path.rglob("*")) == antes  # ni carpetas, ni cerrojo, ni copia previa
+
+    r = subprocess.run(
+        ["bash", str(script), "--raiz", str(tmp_path / "vacia"), "--comprobar"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert r.returncode == 1 and "no existe todavía" in r.stderr and not (tmp_path / "vacia").exists()

@@ -80,10 +80,18 @@
     <input class="input" id="vaultUrl" type="url" maxlength="2048" placeholder="https://…">
   </div>
   <div class="field">
-    <label class="label" for="vaultCategory">Categoría</label>
-    <input class="input" id="vaultCategory" list="vaultCats" maxlength="120" placeholder="General" autocomplete="off">
-    <datalist id="vaultCats"></datalist>
-    <div class="chips" id="vaultChips" role="group" aria-label="Categorías recientes" hidden></div>
+    <span class="label" id="catLabel">Categoría <span class="hint-inline">(automática)</span></span>
+    <div class="detected" id="catDetected" data-kind="normal" role="status" aria-live="polite">
+      <span class="badge-detected" id="catBadge">Buscando…</span>
+      <span class="detected-reason" id="catReason"></span>
+      <button type="button" class="link" id="catChange" aria-expanded="false" aria-controls="catPicker">Cambiar</button>
+    </div>
+    <div class="cat-picker" id="catPicker" hidden>
+      <label class="sr-only" for="vaultCategory">Categoría</label>
+      <input class="input" id="vaultCategory" list="vaultCats" maxlength="120" placeholder="General" autocomplete="off">
+      <datalist id="vaultCats"></datalist>
+      <div class="chips" id="vaultChips" role="group" aria-label="Categorías del Baúl" hidden></div>
+    </div>
   </div>
   <div class="field">
     <span class="label" id="stateLabel">Clasificación <span class="hint-inline">(automática)</span></span>

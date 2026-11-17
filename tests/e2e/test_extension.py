@@ -43,7 +43,7 @@ MOCK = """(() => {
       async remove(k) { const s = read(); [].concat(k).forEach((x) => delete s[x]); write(s); },
     } },
     tabs: { query: async () => [init.tab], executeScript: async (o) => [String((o && o.code) || '').includes('panel-progress') ? init.progress : init.selection], create: async (o) => __calls.push(['tab', o.url]) },
-    runtime: { getURL: (p) => 'http://ext.test/' + p, sendMessage: async (m) => __calls.push(['msg', m.type]), openOptionsPage: async () => __calls.push(['options']),
+    runtime: { getManifest: () => ({ version: '2.11.0' }), getURL: (p) => 'http://ext.test/' + p, sendMessage: async (m) => __calls.push(['msg', m.type]), openOptionsPage: async () => __calls.push(['options']),
                onMessage: ev(), onStartup: ev(), onInstalled: ev('installed') },
     permissions: {
       contains: async ({ origins }) => origins.every(has),
@@ -169,6 +169,7 @@ def test_popup_envia_la_seleccion_al_inbox(nocors, server, api):
         assert page.get_attribute("#inboxChips .chip >> nth=0", "aria-pressed") == "true"
         # en el Inbox del Panel la tarjeta muestra la prioridad y la categoría
         page.goto(server + "/inbox")
+        page.locator(".type-chips input[value='idea']").check(force=True)  # el Inbox abre en «Por procesar» (tareas)
         card = page.locator(f".il-item[data-id='{item['id']}']")
         card.locator(".tag.prio[data-prio=alta]").wait_for()
         assert "Lecturas" in card.locator(".il-meta").text_content()
@@ -200,7 +201,7 @@ def test_popup_baul_clasifica_solo_un_video_nuevo_como_ver_mas_tarde(nocors, ser
             "#detectedReason"
         )
         assert not page.is_visible("#vaultState")  # el selector está plegado: no hace falta tocarlo
-        page.fill("#vaultCategory", "Ver")
+        elegir_categoria(page, "Ver")
         if SHOTS:
             page.screenshot(path=f"{SHOTS}/ext-popup-baul.png", full_page=True)
         page.click("#saveVault")
@@ -269,6 +270,15 @@ def test_popup_baul_canal_y_umbral_de_visto(nocors, server, api):
             ctx.close()
 
 
+def elegir_categoria(page, cat):
+    """La categoría se elige a mano con «Cambiar» (si el selector no se abrió solo por falta de pistas)."""
+    page.wait_for_function("document.getElementById('catBadge').textContent !== 'Buscando…'")
+    if not page.is_visible("#vaultCategory"):
+        page.click("#catChange")
+    page.fill("#vaultCategory", cat)
+    assert page.text_content("#catBadge") == cat and page.text_content("#catReason") == "Elegida por ti"
+
+
 def test_popup_baul_web_sin_clasificar_y_cambio_manual(nocors, server, api):
     ctx, page, errors = open_ext(
         nocors, "popup.html", {"baseUrl": server, "token": "t", "lastVaultCat": "Lecturas"}, start=None
@@ -276,7 +286,7 @@ def test_popup_baul_web_sin_clasificar_y_cambio_manual(nocors, server, api):
     try:
         page.wait_for_function("document.getElementById('detectedBadge').textContent !== ''")
         assert page.text_content("#detectedBadge") == "Enlace web"
-        assert page.input_value("#vaultCategory") == "Lecturas"  # la última categoría usada sigue de partida
+        elegir_categoria(page, "Lecturas")
         page.click("#detectedChange")  # un clic para cambiarlo
         page.click("#vaultState [data-state=seen]")
         assert (
@@ -289,6 +299,50 @@ def test_popup_baul_web_sin_clasificar_y_cambio_manual(nocors, server, api):
             r for r in api.get("/api/resources").json()["resources"] if r["url"] == "https://ejemplo.org/articulo"
         )
         assert res["watched"] == 1 and res["category"] == "Lecturas"
+    finally:
+        ctx.close()
+
+
+def test_popup_baul_categoria_automatica_y_a_mano(nocors, server, api):
+    """La categoría la deduce el Panel (aquí, por otras páginas de la misma web) y se ve como la clasificación;
+    «Cambiar» abre los chips para elegir otra, y lo elegido a mano no lo pisa la detección."""
+    for n in ("uno", "dos"):
+        api.post("/api/resources", json={"url": f"https://catauto.invalid/{n}", "category": "E2E Auto"})
+    api.post("/api/resources", json={"url": "https://otra-cat.invalid/", "category": "E2E Otra"})
+    tab = {"url": "https://catauto.invalid/tres", "title": "Tres"}
+    ctx, page, errors = open_ext(nocors, "popup.html", {"baseUrl": server, "token": "t"}, start=None, tab=tab)
+    try:
+        page.wait_for_function("document.getElementById('catBadge').textContent === 'E2E Auto'")
+        assert "catauto.invalid" in page.text_content("#catReason")
+        assert page.get_attribute("#catDetected", "data-certain") == "true"
+        assert not page.is_visible("#catPicker")  # acertó: el selector sigue plegado
+        if SHOTS:
+            page.screenshot(path=f"{SHOTS}/ext-popup-categoria.png", full_page=True)
+        page.click("#catChange")
+        if SHOTS:
+            page.screenshot(path=f"{SHOTS}/ext-popup-categoria-cambiar.png", full_page=True)
+        page.click("#vaultChips .chip:text-is('E2E Otra')")
+        assert page.text_content("#catBadge") == "E2E Otra" and page.text_content("#catReason") == "Elegida por ti"
+        page.fill("#vaultUrl", "https://catauto.invalid/cuatro")  # otra URL: la detección no pisa lo elegido
+        page.wait_for_timeout(700)
+        assert page.text_content("#catBadge") == "E2E Otra"
+        page.click("#saveVault")
+        page.wait_for_selector("#result[data-type=ok]")
+        res = next(r for r in api.get("/api/resources").json()["resources"] if r["url"].endswith("/cuatro"))
+        assert res["category"] == "E2E Otra"
+        assert not errors, errors
+    finally:
+        ctx.close()
+    # sin pistas: el selector se abre solo y, si no eliges, va a General
+    tab = {"url": "https://sin-pistas-cat.invalid/x", "title": "Zzqx"}
+    ctx, page, errors = open_ext(nocors, "popup.html", {"baseUrl": server, "token": "t"}, start=None, tab=tab)
+    try:
+        page.wait_for_function("document.getElementById('catBadge').textContent === 'Sin categoría'")
+        assert page.is_visible("#vaultCategory") and page.get_attribute("#catChange", "aria-expanded") == "true"
+        page.click("#saveVault")
+        page.wait_for_selector("#result[data-type=ok]")
+        res = next(r for r in api.get("/api/resources").json()["resources"] if "sin-pistas-cat" in r["url"])
+        assert res["category"] == "General"
     finally:
         ctx.close()
 
@@ -663,6 +717,73 @@ def test_evento_sin_conexion_va_a_la_cola(nocors, server, api):
         assert store_of(page)["queue"] == []
         ents = api.get(f"/api/calendar/entries?start={_dia(0)}&end={_dia(7)}").json()["entries"]
         assert any(e["title"] == "Cena con amigos" for e in ents)
+        assert not errors, errors
+    finally:
+        ctx.close()
+
+
+# ---------- 2.11: dirección detectada, latido y cambio automático ----------
+def test_detectar_encuentra_el_panel_y_manda_el_latido(nocors, server, api):
+    """Con una dirección antigua guardada, «Detectar» prueba las que conoce y se queda con la que contesta."""
+    store = {"baseUrl": "http://192.168.1.50:8000", "token": "t", "panelUrls": [server]}
+    ctx, page, errors = open_ext(nocors, "options.html", store, width=900, height=1000, perms=[])
+    try:
+        assert page.input_value("#baseUrl") == "http://192.168.1.50:8000"
+        page.click("#detect")
+        page.wait_for_selector("#result[data-type=ok]")
+        assert f"Panel encontrado en {server}" in page.text_content("#result")
+        assert page.input_value("#baseUrl") == server
+        perm = next(c for c in page.evaluate("__calls") if c[0] == "perm")
+        assert "http://127.0.0.1/*" in perm and "http://192.168.1.50/*" in perm  # un solo aviso con las candidatas
+        page.click("#save")
+        page.wait_for_function("__calls.some((c) => c[0] === 'msg' && c[1] === 'refresh')")
+        assert store_of(page)["baseUrl"] == server
+        page.wait_for_function("(JSON.parse(localStorage.getItem('__ext_store')).panelUrls || []).length > 0")
+        ext = api.get("/api/red").json()["extension"]
+        assert ext["conocida"] and ext["version"] == "2.11.0" and ext["url"] == server
+        if SHOTS:
+            page.screenshot(path=f"{SHOTS}/ext-opciones-detectar.png", full_page=True)
+        assert not errors, errors
+    finally:
+        ctx.close()
+
+
+def test_detectar_sin_panel_lo_dice(nocors, server):
+    ctx, page, errors = open_ext(nocors, "options.html", {}, width=900, height=900)
+    try:
+        page.route("**/healthz", lambda r: r.abort())
+        page.click("#detect")
+        page.wait_for_selector("#result[data-type=error]")
+        assert "no contesta en" in page.text_content("#result") and "192.168.1.50:8000" in page.text_content("#result")
+        assert page.input_value("#baseUrl") == ""
+        assert not errors, errors
+    finally:
+        ctx.close()
+
+
+def test_el_panel_recomienda_su_direccion_https(nocors, server):
+    """Si el latido dice que la dirección buena es otra (https de la tailnet), se ofrece con un clic."""
+    ctx, page, errors = open_ext(nocors, "options.html", {"baseUrl": server, "token": "t"}, width=900, height=1000)
+    try:
+        cuerpo = json.dumps({"status": "success", "principal": "https://equipo.tail.ts.net", "urls": [server]})
+        page.route("**/api/red/latido", lambda r: r.fulfill(body=cuerpo, content_type="application/json"))
+        page.click("#test")
+        page.wait_for_selector("#suggest:not([hidden])")
+        assert "https://equipo.tail.ts.net" in page.text_content("#suggestText")
+        assert store_of(page)["panelUrls"] == ["https://equipo.tail.ts.net", server]
+        assert not errors, errors
+    finally:
+        ctx.close()
+
+
+def test_si_la_direccion_deja_de_contestar_cambia_sola_solo_a_una_segura(nocors, server):
+    """El fondo pasa a otra dirección del último latido si es de este equipo o https; una IP http de la red, no."""
+    store = {"baseUrl": "http://127.0.0.1:9", "token": "t", "panelUrls": ["http://192.168.1.77:8000", server]}
+    ctx, page, errors = open_ext(nocors, "__bg.html", store, start=None)
+    try:
+        page.wait_for_function(f"JSON.parse(localStorage.getItem('__ext_store')).baseUrl === '{server}'")
+        s = store_of(page)
+        assert s["movedFrom"] == "http://127.0.0.1:9"
         assert not errors, errors
     finally:
         ctx.close()

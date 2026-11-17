@@ -130,14 +130,6 @@ def _sumar_macros_receta(ing_rows):
     return total, gramos_totales
 
 
-def _nutrition_factor(es_racion_unica, gramos_recomendados, gramos_totales):
-    if es_racion_unica:
-        return 1.0
-    if gramos_totales and gramos_totales > 0:
-        return (gramos_recomendados or 0) / gramos_totales
-    return 0.0
-
-
 def _rango_racion(gramos_base) -> tuple[float, float]:
     """Rango sano en el que el generador puede escalar la ración de catálogo."""
     gramos_min = (
@@ -176,6 +168,7 @@ def _plato_del_catalogo(m, ing_rows) -> dict:
         "gramos_max": gramos_max,
         "groups": _classify_meal_groups(ing_rows),
         "favorito": bool(m["favorito"]) if "favorito" in m.keys() else False,
+        "fuera_generador": bool(m["fuera_generador"]) if "fuera_generador" in m.keys() else False,
     }
 
 
@@ -387,8 +380,13 @@ def _score_candidate(meal, target, week_state, franja, dia, main_slots_remaining
 
 
 def _candidatos(catalogo, franja, week_state, excluir=None) -> list:
-    """Platos del catálogo de esa franja; si hay alguno sin usar esta semana, solo esos."""
-    candidates = [m for m in catalogo.values() if m["franja"] == _catalogo_de(franja) and m["id"] != excluir]
+    """Platos del catálogo de esa franja; si hay alguno sin usar esta semana, solo esos. Los marcados «fuera del
+    generador» nunca (a mano sí se pueden poner)."""
+    candidates = [
+        m
+        for m in catalogo.values()
+        if m["franja"] == _catalogo_de(franja) and m["id"] != excluir and not m.get("fuera_generador")
+    ]
     usados = week_state["used_main"] if franja in PRINCIPALES else week_state["used_side"]
     filtered = [m for m in candidates if m["id"] not in usados]
     return filtered or candidates

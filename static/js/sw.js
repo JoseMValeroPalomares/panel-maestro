@@ -61,6 +61,8 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
   // Nunca cachear el login, las búsquedas ni descargas
   if (url.pathname.startsWith('/login') || url.pathname.startsWith('/api/search') || url.pathname.includes('/export') || url.pathname.includes('/download')) return;
+  // Ni los archivos de la universidad (PDFs que se leen por rangos: un 206 no se puede guardar y no deben quedarse aquí)
+  if (url.pathname.endsWith('/contenido') || request.headers.has('range')) return;
 
   if (request.mode === 'navigate') {
     event.respondWith(networkFirst(request, DATA_CACHE).catch(async () =>

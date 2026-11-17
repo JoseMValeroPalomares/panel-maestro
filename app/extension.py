@@ -6,11 +6,13 @@ from urllib.parse import unquote
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
+from app import categoria_baul
 from app.database import get_db
 from app.items import ItemIn, _clean_body, counts, create
 from app.notes_core import PRIORITIES, normalize_item_type
 from app.ordering import next_resource_order
-from app.vault import do_scrape_and_save, find_video
+from app.scraper import youtube_video_id
+from app.vault import do_scrape_and_save, find_video, sort_categories
 
 router = APIRouter()
 
@@ -180,3 +182,21 @@ def youtube_canal(channel: str):
             if m:
                 ids.add(m.group(1))
     return {"tracked": True, "watched": sorted(ids)}
+
+
+@router.get("/api/ext/categoria")
+def categoria_sugerida(url: str = "", title: str = "", channel: str = "", channel_name: str = ""):
+    """Categoría que propone la extensión para un enlace nuevo del Baúl (app/categoria_baul.py) y la lista de
+    categorías en el orden del Baúl, para elegirla a mano si no acierta."""
+    url, title, channel, channel_name = url[:2048], title[:500], channel[:300], channel_name[:300]
+    with get_db() as conn:
+        vid = youtube_video_id(url) if url else None
+        video = find_video(conn, vid) if vid else None
+        canal = _canal_en_baul(conn, _canal_clave(channel)) if channel.strip() else None
+        canal_cat = (canal["category"] or "General") if canal else None
+        if not canal and not video and _CANAL_URL.search(url):  # el propio enlace es un canal ya guardado
+            propio = _canal_en_baul(conn, _canal_clave(url))
+            video = propio
+        r = categoria_baul.sugerir(conn, url, title, canal_cat, channel_name, video)
+        cats = conn.execute("SELECT DISTINCT category FROM resources").fetchall()
+    return {**r, "categories": sort_categories(c["category"] or "General" for c in cats)}

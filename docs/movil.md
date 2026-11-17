@@ -45,6 +45,14 @@ Alternativa con la app **Atajos** (viene con iOS), que sí aparece en Compartir:
 Desde entonces, Compartir → «Al panel» abre `/compartir` en Safari con la captura rellena, igual que en Android
 (se abre en Safari, no en la app de la pantalla de inicio: allí la sesión es otra y puede pedirte entrar).
 
+## Sin conexión
+
+Si capturas una tarea, idea o rutina y el panel no contesta (sin cobertura, fuera de casa sin Tailscale, el portátil
+apagado), no se pierde: se guarda en el propio móvil («Sin conexión: se guardará al volver») y se manda sola, en orden,
+en cuanto el panel vuelve a responder (al abrir cualquier página, al volver a la app o cada minuto). Lo que el panel
+rechaza por estar mal escrito no se guarda en la cola: se avisa en el momento. Los eventos (`e:`) que se escriben sin
+conexión se guardan sin la confirmación de la fecha; si no se entiende, quedan en el Inbox marcados «Revisar fecha».
+
 ## Si algo no va
 
 | Síntoma | Causa probable |

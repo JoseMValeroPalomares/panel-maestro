@@ -11,7 +11,15 @@
   const fmt = (s, o) => new Date(s + 'T00:00').toLocaleDateString('es-ES', o);
 
   async function load() {
-    const w = await api(`/api/review/week?start=${iso(start)}`, { quiet: true });
+    let w;
+    try { w = await api(`/api/review/week?start=${iso(start)}`, { quiet: true }); } catch {
+      $('revRange').textContent = '';
+      showState($('revStats'), loadFailed('No se pudo cargar la semana', true), load);
+      $('revTime').innerHTML = '';
+      for (const id of ['revList', 'revRut']) $(id).closest('section').hidden = true;  // vacías junto al error confunden
+      return;
+    }
+    for (const id of ['revList', 'revRut']) $(id).closest('section').hidden = false;
     $('revRange').textContent = `Semana del ${fmt(w.from, { day: 'numeric', month: 'long' })} al ${fmt(w.to, { day: 'numeric', month: 'long' })}`;
     const days = Object.entries(w.por_dia);
     const max = Math.max(1, ...days.map(([, v]) => v.hechas));
@@ -56,7 +64,14 @@
 
   let before = null;
   async function loadLog(more = false) {
-    const r = await api(`/api/review/log?limit=40${more && before ? `&before=${before}` : ''}`, { quiet: true });
+    let r;
+    try { r = await api(`/api/review/log?limit=40${more && before ? `&before=${before}` : ''}`, { quiet: true }); } catch {
+      if (more) { toast('No se pudo cargar más', { type: 'error' }); return; }
+      $('revMore').hidden = true;
+      $('revLog').innerHTML = '<li></li>';
+      showState($('revLog').firstElementChild, loadFailed('No se pudo cargar el registro', true), () => loadLog());
+      return;
+    }
     if (!more) $('revLog').innerHTML = '';
     $('revLog').insertAdjacentHTML('beforeend', r.entries.map((e) => `<li class="hoy-row"><span class="hoy-time tiny tabular">${new Date(e.at * 1000).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
       <span class="tag">${ACTION[e.action] || esc(e.action)}</span><span class="hoy-title">${esc(e.text || '')}</span></li>`).join('') || (more ? '' : '<li class="small muted">Sin cambios todavía.</li>'));

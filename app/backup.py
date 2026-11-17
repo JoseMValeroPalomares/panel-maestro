@@ -57,8 +57,11 @@ STATUS_FILE = BACKUPS_DIR / "status.json"
 # instancia de pruebas ya no copia el del panel real)
 ESTUDIO_STATE = config.CALENDAR_STATE.with_name("calendar_sync_state.json")
 
-KINDS = {"diaria": 7, "semanal": 4, "manual": 10, "pre-restauracion": 5}
-NAME_RE = re.compile(r"^backup_(?:(diaria|semanal|manual|pre-restauracion)_)?(\d{8}_\d{6})(?:_\d+)?\.zip$")
+# cambio-sistema (P-12): al arrancar con datos que abrió por última vez el otro sistema (Windows/Linux)
+KINDS = {"diaria": 7, "semanal": 4, "manual": 10, "pre-restauracion": 5, "cambio-sistema": 5}
+NAME_RE = re.compile(
+    r"^backup_(?:(diaria|semanal|manual|pre-restauracion|cambio-sistema)_)?(\d{8}_\d{6})(?:_\d+)?\.zip$"
+)
 PARTS = ("notas", "historial", "cerebro", "comidas", "imagenes", "ajustes")
 FORMAT_VERSION = 3
 # Carpetas copiadas enteras: (prefijo en el zip, carpeta en disco, parte que las restaura)
@@ -67,6 +70,7 @@ TREES = (
     ("uploads/", lambda: Path(config.UPLOADS_DIR), "imagenes"),
     ("trash/", lambda: Path(config.TRASH_DIR), "cerebro"),
     ("dotfiles_base/", lambda: Path(config.DATA_DIR) / "dotfiles_base", "ajustes"),
+    ("adjuntos/", lambda: Path(config.DATA_DIR) / "adjuntos", "cerebro"),
 )
 LLM_ARC = "data/llm_modelos.json"
 
@@ -524,6 +528,7 @@ def restore_backup(name: str, parts: list[str] | None = None) -> dict:
                             "uploads/": "imagenes",
                             "trash/": "papelera",
                             "dotfiles_base/": "dotfiles_base",
+                            "adjuntos/": "adjuntos",
                         }[prefix]
                         done[key] = added
                 if "imagenes" in parts:

@@ -12,7 +12,7 @@ el contador solo y ofrece «Contar ese tiempo») o al instante cuando el clic o 
 - **Notificaciones:** al empezar algo (desde donde sea: panel, móvil, rofi) y al pasar la duración prevista; una vez por
   sesión (estado en `~/.local/state/panel-maestro/contador.json`).
 - **Clases:** `marcha`, `pausa`, `pasado`, `vacio` (texto vacío: la Waybar lo oculta) y `sin-conexion`.
-- En el rofi de la agenda (Super+Alt+K) cada tarea o rutina tiene además **Empezar contador** (Alt+E).
+- En el centro de mando (Super+Alt+K) el contador va arriba del modo Hoy, y cada tarea o rutina tiene **Empezar contador** (Alt+E).
 
 ## Cambios en `~/.config/waybar` (aplicados el 2026-11-15)
 

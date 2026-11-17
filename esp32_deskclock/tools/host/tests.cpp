@@ -402,6 +402,93 @@ static void testProtocolRobust() {
   host::sdOk = true;
 }
 
+static uint8_t* coverFrame(uint16_t side) {
+  const size_t len = 4u + (size_t)side * side * 2;
+  uint8_t* f = (uint8_t*)calloc(1, len);
+  f[0] = (uint8_t)(side >> 8); f[1] = (uint8_t)side; f[2] = (uint8_t)(side >> 8); f[3] = (uint8_t)side;
+  return f;
+}
+static bool hasCover() {
+  uint16_t w, h; uint32_t v;
+  return music::coverPixels(w, h, v) != nullptr;
+}
+
+// La carátula no depende del orden en que lleguen título e imagen
+static void testCoverOrder() {
+  freshSd("caratula");
+  host::ms = 100000;
+  // Orden nuevo (panel actual): título y, después, su carátula
+  send(R"({"type":"nowplaying","status":"playing","title":"A","artist":"x","has_art":true})");
+  protocol::handleBinary(coverFrame(120), 4 + 120 * 120 * 2);
+  CHECK(hasCover());
+  host::ms += 1000;
+  send(R"({"type":"nowplaying","status":"playing","title":"A","artist":"x","has_art":true})");
+  CHECK(hasCover());
+  // Canción nueva: la carátula de A (ya asentada) se tira
+  host::ms += 1000;
+  send(R"({"type":"nowplaying","status":"playing","title":"B","artist":"x","has_art":true})");
+  CHECK(!hasCover());
+  // Orden antiguo: la carátula de C llega ANTES que su título y no se borra
+  host::ms += 1000;
+  protocol::handleBinary(coverFrame(120), 4 + 120 * 120 * 2);
+  host::ms += 50;
+  send(R"({"type":"nowplaying","status":"playing","title":"C","artist":"x"})");
+  CHECK(hasCover());
+  // …pero una que llegó hace rato no pasa por la de la siguiente
+  host::ms += 1000;
+  protocol::handleBinary(coverFrame(120), 4 + 120 * 120 * 2);
+  host::ms += 5000;
+  send(R"({"type":"nowplaying","status":"playing","title":"D","artist":"x"})");
+  CHECK(!hasCover());
+  // El panel dice que esta no tiene imagen: se suelta aunque acabe de llegar
+  protocol::handleBinary(coverFrame(120), 4 + 120 * 120 * 2);
+  send(R"({"type":"nowplaying","status":"playing","title":"E","artist":"x","has_art":false})");
+  CHECK(!hasCover());
+  // Parado: no toca la carátula ni rompe nada
+  protocol::handleBinary(coverFrame(120), 4 + 120 * 120 * 2);
+  send(R"({"type":"nowplaying","status":"stopped"})");
+  CHECK(hasCover());
+}
+
+// Latido: lo que el panel necesita para saber dónde está la placa y cómo está
+static void testHeartbeat() {
+  freshSd("latido");
+  host::sys = SysInfo{};
+  host::sys.wifi = true;
+  host::sys.rssi = -61;
+  strcpy(host::sys.ip, "192.168.1.34");
+  strcpy(host::sys.host, "panel-estudio");
+  strcpy(host::sys.mac, "24:0a:c4:12:34:56");
+  strcpy(host::sys.fw, "2026.11");
+  strcpy(host::sys.resetReason, "encendido");
+  host::sys.clients = 3;
+  host::sys.sd = true;
+  host::sys.freeHeapKB = 150;
+  host::sys.minHeapKB = 96;
+  host::sys.uptimeSec = 4321;
+  host::sent.clear();
+  protocol::sendHeartbeat();
+  CHECK(host::sent.size() == 1);
+  const std::string& j = host::sent.back();
+  CHECK(j.find(R"("type":"heartbeat")") != std::string::npos);
+  CHECK(j.find(R"("ip":"192.168.1.34")") != std::string::npos);
+  CHECK(j.find(R"("mac":"24:0a:c4:12:34:56")") != std::string::npos);
+  CHECK(j.find(R"("host":"panel-estudio")") != std::string::npos);
+  CHECK(j.find(R"("fw":"2026.11")") != std::string::npos);
+  CHECK(j.find(R"("uptime":4321)") != std::string::npos);
+  CHECK(j.find(R"("heap":153600)") != std::string::npos);
+  CHECK(j.find(R"("heap_min":98304)") != std::string::npos);
+  CHECK(j.find(R"("rssi":-61)") != std::string::npos);
+  CHECK(j.find(R"("clients":3)") != std::string::npos);
+  CHECK(j.find(R"("reset":"encendido")") != std::string::npos);
+  // Se puede pedir, y el eco de otro cliente no es un error ni se reenvía
+  host::sent.clear();
+  send(R"({"type":"heartbeat_get"})");
+  CHECK(host::sent.size() == 1);
+  send(R"({"type":"heartbeat","ip":"1.2.3.4"})");
+  CHECK(host::sent.size() == 1);
+}
+
 int main() {
   setenv("HOST_QUIET", "1", 1);
   testText();
@@ -415,6 +502,8 @@ int main() {
   testReviewToggle();
   testPartialRedraw();
   testProtocolRobust();
+  testCoverOrder();
+  testHeartbeat();
   printf("%d comprobaciones, %d fallos\n", checks, failures);
   return failures ? 1 : 0;
 }

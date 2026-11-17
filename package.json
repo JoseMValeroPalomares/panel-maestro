@@ -4,7 +4,8 @@
   "description": "Herramientas de build del front: librerías vendorizadas, iconos Lucide y fuente Inter en static/",
   "scripts": {
     "vendor": "node scripts/vendor.mjs",
-    "build": "node scripts/vendor.mjs"
+    "build": "node scripts/vendor.mjs",
+    "test": "node --test \"tests/js/*.test.mjs\""
   },
   "devDependencies": {
     "@fontsource-variable/inter": "5.1.0",
@@ -12,9 +13,10 @@
     "dompurify": "3.4.18",
     "eslint": "9.39.5",
     "globals": "16.5.0",
-    "katex": "0.16.47",
+    "katex": "0.19.1",
     "lucide-static": "0.460.0",
     "marked": "9.1.6",
+    "pdfjs-dist": "6.4.299",
     "vis-network": "9.1.13"
   }
 }

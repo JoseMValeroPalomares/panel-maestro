@@ -15,7 +15,7 @@
   <button type="button" class="btn btn-sm" id="btnRetry">{{ icon('refresh-cw', 'icon-sm') }}Reintentar</button>
   {% else %}
   <div class="grow"><strong>Sin panel ESP32</strong>
-    <p class="small muted">Este panel de mesa es opcional y aquí no hay ninguno configurado. Si tienes uno, pon su dirección en <code>ESP32_HOST</code> dentro de <code>.env</code> y reinicia.</p></div>
+    <p class="small muted">Este panel de mesa es opcional y aquí no hay ninguno configurado. Si tienes uno, pon <code>ESP32_HOST=auto</code> en <code>.env</code> y reinicia: el panel lo encuentra solo en la red.</p></div>
   <button type="button" id="btnRetry" hidden></button>
   {% endif %}
 </div>
@@ -83,7 +83,7 @@
     <section class="panel" aria-labelledby="notesTitle">
       <div class="panel-header"><h2 id="notesTitle">Notas en el reloj</h2></div>
       <div class="panel-body stack">
-        <label class="row review-toggle"><input type="checkbox" id="reviewAutoToggle" class="switch" checked disabled aria-describedby="reviewAutoHelp"><span>Mostrar una nota de repaso cada 15 minutos</span></label>
+        <label class="row review-toggle"><input type="checkbox" role="switch" id="reviewAutoToggle" class="switch" checked disabled aria-describedby="reviewAutoHelp"><span>Mostrar una nota de repaso cada 15 minutos</span></label>
         <p id="reviewAutoHelp" class="small muted">Si lo desactivas, la nota no salta sola: la tecla 9 del mando la muestra. La tecla 0 abre la pantalla Notas para leer cualquiera y abrirla en el PC.</p>
       </div>
     </section>

@@ -15,7 +15,10 @@
   .intro { color: var(--text-2); margin: 0; }
   .card { background: var(--field); border: 1px solid var(--control); border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 14px; }
   .with-btn { display: flex; gap: 6px; }
-  .with-btn .input { flex: 1; }
+  .with-btn .input { flex: 1; min-width: 0; }
+  #suggest { align-items: center; flex-wrap: wrap; margin-top: 8px; }
+  #suggest span { flex: 1 1 14em; }
+  .msg[data-type="info"] { background: color-mix(in srgb, var(--accent) 12%, transparent); }
   .actions { display: flex; gap: 8px; justify-content: flex-end; }
   h2 { font-size: 15px; margin: 0; }
   .login-set { border: 0; border-top: 1px solid var(--control); margin: 4px 0 0; padding: 16px 0 0; min-width: 0; }
@@ -48,8 +51,15 @@
     <h2 id="connTitle">Conexión</h2>
     <div class="field">
       <label class="label" for="baseUrl">Dirección del Panel</label>
-      <input class="input" id="baseUrl" type="url" placeholder="http://192.168.1.50:8000" autocomplete="url" required aria-describedby="baseUrlHint">
-      <p class="hint" id="baseUrlHint">La misma que escribes en el navegador para abrir el Panel (con el puerto).</p>
+      <div class="with-btn">
+        <input class="input" id="baseUrl" type="url" placeholder="https://tu-equipo.tu-tailnet.ts.net" autocomplete="url" required aria-describedby="baseUrlHint">
+        <button type="button" class="btn" id="detect"><svg class="icon"><use href="icons.svg#i-radar"/></svg>Detectar</button>
+      </div>
+      <p class="hint" id="baseUrlHint">La misma que escribes en el navegador para abrir el Panel. «Detectar» la busca sola: prueba las direcciones que el Panel dijo la última vez, este equipo y la reserva <code>192.168.1.50</code>.</p>
+      <div class="msg" id="suggest" data-type="info" role="status" aria-live="polite" hidden>
+        <svg class="icon"><use href="icons.svg#i-circle-alert"/></svg><span id="suggestText"></span>
+        <button type="button" class="btn" id="useSuggested">Usar esa dirección</button>
+      </div>
     </div>
     <div class="field">
       <label class="label" for="token">Token de API</label>

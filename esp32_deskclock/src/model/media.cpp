@@ -24,6 +24,11 @@ static uint16_t accentColor = pal::blue;
 static uint8_t* cover = nullptr;
 static uint16_t coverW = 0, coverH = 0;
 static uint32_t coverVersion = 0;
+// Una carátula que llega DESPUÉS del último «nowplaying» puede ser de la canción que viene (el panel antiguo la
+// mandaba antes que el título): no se tira al cambiar el título si acaba de llegar.
+static bool coverAhead = false;
+static uint32_t coverAtMs = 0;
+static constexpr uint32_t COVER_AHEAD_MS = 2500;
 static constexpr uint32_t STALE_MS = 10000;  // sin noticias del panel en 10 s = no hay música
 
 void update(JsonObjectConst m) {
@@ -34,7 +39,11 @@ void update(JsonObjectConst m) {
   updatedMs = nowMs();
   if (!isPlaying && !isPaused) return;
   const char* t = m["title"] | "";
-  if (strcmp(t, titleBuf) != 0 && cover) {  // canción nueva: la carátula vieja ya no vale
+  const bool newTitle = strcmp(t, titleBuf) != 0;
+  const bool noArt = m["has_art"].is<bool>() && !m["has_art"].as<bool>();  // el panel dice que esta no tiene imagen
+  const bool ahead = coverAhead && nowMs() - coverAtMs < COVER_AHEAD_MS;
+  coverAhead = false;
+  if (cover && (noArt || (newTitle && !ahead))) {  // canción nueva: la carátula vieja ya no vale
     free(cover);
     cover = nullptr;
     coverVersion++;
@@ -54,6 +63,8 @@ void setCover(uint8_t* frame, size_t len) {
   coverW = w;
   coverH = h;
   coverVersion++;
+  coverAhead = true;
+  coverAtMs = nowMs();
 }
 
 bool active() { return hasData && (isPlaying || isPaused) && nowMs() - updatedMs < STALE_MS; }

@@ -215,15 +215,31 @@ function cellHtml(dia, franja, slot) {
     return `<div class="meal-cell is-empty"><button type="button" class="cell-add" data-act="add" data-dia="${dia}" data-franja="${franja}" aria-label="Añadir plato: ${FRANJA_LABEL[franja]} del ${dia}">${icon('plus', 'icon-sm')}<span>Añadir</span></button>
       <button type="button" class="btn btn-ghost btn-icon btn-sm cell-off-btn" data-act="franja-off" data-dia="${dia}" data-franja="${franja}" aria-label="Quitar ${escapeHtml(FRANJA_LABEL[franja] || franja)} el ${dia}" title="Quitar esta comida este día">${icon('calendar-off', 'icon-sm')}</button></div>`;
   }
+  const varios = platos.length > 1;
   return `<div class="meal-cell${slot.is_fixed ? ' is-fixed' : ''}" data-plan="${slot.plan_id}">
-    <ul class="cell-platos">${platos.map(p => `<li><button type="button" class="cell-plato" data-act="recipe" data-meal="${p.meal_id}">
-      <span class="cp-name">${p.rol ? `<span class="rol-tag">${ROL_CORTO[p.rol]}</span>` : ''}${escapeHtml(p.nombre)}</span><span class="cp-meta tabular">${p.gramos} g · ${num(p.macros.kcal)} kcal</span></button></li>`).join('')}</ul>
+    <ul class="cell-platos${varios ? ' is-multi' : ''}">${platos.map(p => `<li><button type="button" class="cell-plato" data-act="recipe" ${platoCtx(p)}>
+      <span class="cp-name">${p.rol ? `<span class="rol-tag">${ROL_CORTO[p.rol]}</span>` : ''}${escapeHtml(p.nombre)}</span><span class="cp-meta tabular">${p.gramos} g · ${num(p.macros.kcal)} kcal${p.cocinado ? `<span class="cp-done" title="Cocinado">${icon('chef-hat', 'icon-sm')}<span class="sr-only">, cocinado</span></span>` : ''}</span></button>
+      ${varios ? removeBtn(p, 'cell-plato-del') : ''}</li>`).join('')}</ul>
     <div class="cell-foot">
-      <span class="tiny subtle tabular">${platos.length > 1 ? num(slot.total.kcal) + ' kcal' : ''}${slot.is_fixed ? ` ${icon('pin', 'icon-sm')}` : ''}</span>
+      <span class="tiny subtle tabular">${varios ? num(slot.total.kcal) + ' kcal' : ''}</span>
       <span class="grow"></span>
+      ${pinBtn(slot, FRANJA_LABEL[franja] || franja, dia)}
       <button type="button" class="btn btn-ghost btn-icon btn-sm" data-act="add" data-dia="${dia}" data-franja="${franja}" aria-label="Añadir otro plato">${icon('plus', 'icon-sm')}</button>
       <button type="button" class="btn btn-ghost btn-icon btn-sm" data-act="cell-menu" data-dia="${dia}" data-franja="${franja}" aria-label="Opciones de la comida" aria-haspopup="menu">${icon('ellipsis', 'icon-sm')}</button>
     </div></div>`;
+}
+// P-10 · El plato del plan abre su receta con la ración planificada (modo cocina con esas cantidades)
+const platoCtx = (p) => `data-meal="${p.meal_id}" data-plan="${p.plan_id}" data-item="${p.item_id ?? ''}" data-gramos="${p.gramos}"`;
+const ctxDe = (el) => (el.dataset.plan ? { plan_id: parseInt(el.dataset.plan, 10), item_id: el.dataset.item ? parseInt(el.dataset.item, 10) : null, gramos: parseFloat(el.dataset.gramos) || null } : null);
+// P-8 · Chincheta a la vista: fija la comida (el generador no la toca) sin abrir el menú
+function pinBtn(slot, label, dia) {
+  const on = !!slot.is_fixed;
+  return `<button type="button" class="btn btn-ghost btn-icon btn-sm pin-btn" data-act="pin" data-plan="${slot.plan_id}" aria-pressed="${on}"
+    aria-label="Fijar ${escapeHtml(label.toLowerCase())} del ${escapeHtml(dia)}" title="${on ? 'Fijada: el generador no la toca. Pulsa para soltarla' : 'Fijar: el generador no la tocará'}">${icon('pin', 'icon-sm')}</button>`;
+}
+// P-7 · Quitar un plato suelto de una comida con varios
+function removeBtn(p, cls = '') {
+  return `<button type="button" class="btn btn-ghost btn-icon btn-sm ${cls}" data-act="remove-plato" data-kind="${p.kind}" data-plan="${p.plan_id}" data-item="${p.item_id ?? ''}" aria-label="Quitar ${escapeHtml(p.nombre)}" title="Quitar este plato">${icon('x', 'icon-sm')}</button>`;
 }
 
 document.addEventListener('click', (e) => {
@@ -231,8 +247,9 @@ document.addEventListener('click', (e) => {
   if (!el || !el.closest('#tab-plan, #dayPanel')) return;
   const { act, dia, franja } = el.dataset;
   if (act === 'add') openAssign(dia, franja);
-  if (act === 'recipe') openRecipe(parseInt(el.dataset.meal, 10));
+  if (act === 'recipe') openRecipe(parseInt(el.dataset.meal, 10), ctxDe(el));
   if (act === 'cell-menu') openCellMenu(el, dia, franja);
+  if (act === 'pin') togglePin(parseInt(el.dataset.plan, 10));
   if (act === 'remove-plato') removePlato(el.dataset.kind, parseInt(el.dataset.plan, 10), el.dataset.item ? parseInt(el.dataset.item, 10) : null);
   if (act === 'suggest-add') addSuggestion(parseInt(el.dataset.meal, 10), parseFloat(el.dataset.gramos), el.dataset.franja);
   if (act === 'doble') platoDoble(dia, franja);
@@ -309,7 +326,13 @@ function openCellMenu(anchor, dia, franja) {
   ].filter(Boolean));
 }
 
-async function togglePin(planId) { await api(`${API}/weekly-plan/${planId}/toggle-fixed`, { method: 'PATCH' }); loadPlan(); }
+async function togglePin(planId) {
+  const desde = document.activeElement?.closest('[data-act="pin"]') ? (document.activeElement.closest('#dayPanel') ? '#dayPanel' : '#plannerGrid') : null;
+  const r = await api(`${API}/weekly-plan/${planId}/toggle-fixed`, { method: 'PATCH' });
+  toast(r.is_fixed ? 'Comida fijada: el generador no la tocará' : 'Comida soltada');
+  await loadPlan();
+  if (desde) document.querySelector(`${desde} [data-act="pin"][data-plan="${planId}"]`)?.focus({ preventScroll: true });
+}
 async function regenerateCell(planId) {
   try {
     const r = await api(`${API}/weekly-plan/${planId}/regenerate`, { method: 'POST', quiet: true });
@@ -323,18 +346,15 @@ async function clearCell(planId) {
   loadPlan();
 }
 async function removePlato(kind, planId, itemId) {
+  // P-7 · Quitar el principal: el primer adicional pasa a principal con sus gramos y su papel (lo hace el servidor)
+  const slot = Object.values(planState.dias).flatMap(d => Object.values(d.comidas)).find(s => s.plan_id === planId);
+  const plato = slot?.platos.find(p => (kind === 'extra' ? p.item_id === itemId : p.kind === 'principal'));
   if (kind === 'extra') await api(`${API}/weekly-plan/items/${itemId}`, { method: 'DELETE' });
-  else {
-    // Quitar el principal: si hay extras, el primero pasa a ser principal
-    const slot = Object.values(planState.dias[selectedDia].comidas).find(s => s.plan_id === planId);
-    const extras = slot.platos.filter(p => p.kind === 'extra');
-    await api(`${API}/weekly-plan/${planId}`, { method: 'DELETE' });
-    if (slot.is_fixed) await api(`${API}/weekly-plan/${planId}/toggle-fixed`, { method: 'PATCH', quiet: true }).catch(() => {});
-    for (const ex of extras) {
-      await api(`${API}/weekly-plan/slots`, { method: 'POST', body: { semana: semana(), dia: selectedDia, franja: slot.franja, meal_id: ex.meal_id, gramos: ex.personalizado ? ex.gramos : null } });
-    }
-  }
-  loadPlan();
+  else await api(`${API}/weekly-plan/${planId}/principal`, { method: 'DELETE' });
+  if (plato) toast(`Quitado: ${plato.nombre}`);
+  await loadPlan();
+  // El foco no se pierde con el repintado: vuelve a la comida
+  document.querySelector(`.meal-cell[data-plan="${planId}"] .cell-plato, #dayPanel [data-act="remove-plato"][data-plan="${planId}"]`)?.focus({ preventScroll: true });
 }
 async function setGramos(kind, planId, itemId, value) {
   const gramos = value === '' ? null : Math.max(1, Math.min(3000, parseFloat(value)));
@@ -389,23 +409,24 @@ function renderDayPanel() {
     const slot = dia.comidas[f.key];
     const platos = slot?.platos || [];
     return `<section class="dp-comida">
-      <header class="dp-comida-head">${icon(f.icon, 'icon-sm')}<h3>${f.label}</h3>
-        <span class="tabular small muted">${platos.length ? num(slot.total.kcal) + ' kcal' : ''}</span>
+      <header class="dp-comida-head">${icon(f.icon, 'icon-sm')}<div class="dp-title"><h3>${f.label}</h3>
+        ${platos.length ? `<span class="tabular small muted">${num(slot.total.kcal)} kcal</span>` : ''}</div>
         <span class="grow"></span>
         <button type="button" class="btn btn-ghost btn-sm dp-doble" data-act="doble" data-dia="${selectedDia}" data-franja="${f.key}" title="Añadir primero y segundo para lo que falta" aria-label="Primero y segundo en ${f.label}">${icon('copy-plus', 'icon-sm')}<span class="hide-mobile">1.º y 2.º</span></button>
+        ${platos.length ? pinBtn(slot, f.label, d.full.toLowerCase()) : ''}
         <button type="button" class="btn btn-ghost btn-icon btn-sm" data-act="templates" data-dia="${selectedDia}" data-franja="${f.key}" aria-label="Aplicar una plantilla a ${f.label}" title="Plantillas" aria-haspopup="menu">${icon('layout-template', 'icon-sm')}</button>
         <button type="button" class="btn btn-ghost btn-icon btn-sm" data-act="add" data-dia="${selectedDia}" data-franja="${f.key}" aria-label="Añadir plato a ${f.label}">${icon('plus', 'icon-sm')}</button>
         ${platos.length ? '' : `<button type="button" class="btn btn-ghost btn-icon btn-sm" data-act="franja-off" data-dia="${selectedDia}" data-franja="${f.key}" aria-label="Quitar ${f.label} este día" title="Quitar esta comida este día">${icon('calendar-off', 'icon-sm')}</button>`}
       </header>
       ${platos.length ? `<ul class="dp-platos">${platos.map(p => `<li class="dp-plato">
         ${thumbHtml({ image_url: p.image_url, franja: f.key }, 'thumb-sm')}
-        <div class="grow"><button type="button" class="dp-plato-name" data-act="recipe" data-meal="${p.meal_id}">${escapeHtml(p.nombre)}</button>
+        <div class="grow"><button type="button" class="dp-plato-name" data-act="recipe" ${platoCtx(p)}>${escapeHtml(p.nombre)}</button>${p.cocinado ? `<span class="tag tag-done">${icon('chef-hat', 'icon-sm')}Cocinado</span>` : ''}
           <span class="tiny muted tabular">${num(p.macros.kcal)} kcal · P ${num(p.macros.proteinas)} · H ${num(p.macros.carbohidratos)} · G ${num(p.macros.grasas)}</span>
           <label class="rol-field"><span class="sr-only">Papel de ${escapeHtml(p.nombre)}</span><select class="select input-sm rol-select" data-plan="${p.plan_id}" data-item="${p.item_id ?? ''}">
             <option value="">Sin papel</option>${ROLES.map(([k, l]) => `<option value="${k}" ${p.rol === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>
         <label class="grams-input"><span class="sr-only">Gramos de ${escapeHtml(p.nombre)}</span>
           <input type="number" class="input input-sm tabular" min="1" max="3000" step="5" value="${p.gramos}" data-kind="${p.kind}" data-plan="${p.plan_id}" data-item="${p.item_id ?? ''}" title="Ración estándar: ${p.gramos_estandar} g"><span>g</span></label>
-        <button type="button" class="btn btn-ghost btn-icon btn-sm" data-act="remove-plato" data-kind="${p.kind}" data-plan="${p.plan_id}" data-item="${p.item_id ?? ''}" aria-label="Quitar ${escapeHtml(p.nombre)}">${icon('x', 'icon-sm')}</button>
+        ${removeBtn(p)}
       </li>`).join('')}</ul>`
         : `<button type="button" class="dp-empty" data-act="add" data-dia="${selectedDia}" data-franja="${f.key}">${icon('plus', 'icon-sm')}Añadir plato</button>`}
     </section>`;
@@ -498,7 +519,7 @@ function renderAssignList() {
     .sort((a, b) => (b.favorito || 0) - (a.favorito || 0));
   $('assignList').innerHTML = items.length ? items.map(m => `<li class="assign-row"><button type="button" class="list-row" data-assign="${m.id}">
       ${thumbHtml(m, 'thumb-sm')}<span class="row-main"><span class="row-title">${escapeHtml(m.nombre)}</span>
-      <span class="row-sub tabular">${Math.round(m.gramos_recomendados)} g · ${num(m.kcal_total)} kcal · P ${num(m.macros_racion?.proteinas)} g</span></span>${icon('plus', 'icon-sm subtle')}</button>
+      <span class="row-sub tabular">${Math.round(m.gramos_recomendados)} g · ${num(m.kcal_total)} kcal · P ${num(m.macros_racion?.proteinas)} g${m.fuera_generador ? ` · <span class="gen-off-text">${icon('ban', 'icon-sm')}fuera del generador</span>` : ''}</span></span>${icon('plus', 'icon-sm subtle')}</button>
       <button type="button" class="btn btn-ghost btn-icon fav-btn${m.favorito ? ' is-fav' : ''}" data-fav="${m.id}" aria-pressed="${!!m.favorito}" aria-label="${m.favorito ? 'Quitar de favoritos' : 'Marcar como favorito'}: ${escapeHtml(m.nombre)}">${icon(m.favorito ? 'star' : 'star-off', 'icon-sm')}</button></li>`).join('')
     : `<li>${emptyState({ iconName: 'search', title: 'Sin platos', text: 'Prueba con otra franja o crea un plato nuevo.', compact: true })}</li>`;
   $('assignList').querySelectorAll('[data-fav]').forEach(b => b.addEventListener('click', () => toggleMealFavorite(Number(b.dataset.fav))));
@@ -543,19 +564,42 @@ function renderMeals() {
   }
   $('mealsGrid').innerHTML = items.map(m => {
     const r = m.macros_racion || {};
-    return `<button type="button" class="meal-card" data-meal="${m.id}">
+    const off = !!m.fuera_generador;
+    return `<div class="meal-item${off ? ' is-off' : ''}"><button type="button" class="meal-card" data-meal="${m.id}">
       ${thumbHtml(m, 'meal-card-thumb')}
       <span class="meal-card-body">
         <span class="meal-card-franja tiny">${FRANJA_LABEL[m.franja] || m.franja}${m.tiempo_preparacion_min ? ` · ${m.tiempo_preparacion_min} min` : ''}</span>
         <span class="meal-card-name">${escapeHtml(m.nombre)}</span>
         <span class="meal-card-macros tabular"><b>${num(m.kcal_total)}</b> kcal · ${Math.round(m.gramos_recomendados)} g</span>
-        <span class="macro-pills tabular"><span>P ${num(r.proteinas)}</span><span>H ${num(r.carbohidratos)}</span><span>G ${num(r.grasas)}</span></span>
-      </span></button>`;
+        ${off ? `<span class="gen-off-badge">${icon('ban', 'icon-sm')}Fuera del generador</span>`
+    : `<span class="macro-pills tabular"><span>P ${num(r.proteinas)}</span><span>H ${num(r.carbohidratos)}</span><span>G ${num(r.grasas)}</span></span>`}
+      </span></button>${genToggleHtml(m)}</div>`;
   }).join('');
   $('mealsGrid').querySelectorAll('[data-meal]').forEach(b => b.addEventListener('click', () => openRecipe(parseInt(b.dataset.meal, 10))));
+  $('mealsGrid').querySelectorAll('[data-gen]').forEach(b => b.addEventListener('click', () => toggleMealGenerator(Number(b.dataset.gen))));
 }
 
-async function openRecipe(mealId) {
+/* ---------- Fuera del generador: el generador semanal, «Sustituir», el plato doble y las sugerencias no lo eligen;
+   ponerlo a mano sigue funcionando (comidas/planner.py: PATCH /meals/{id}/generador) ---------- */
+function genToggleHtml(m) {
+  const off = !!m.fuera_generador;
+  const label = off ? `Volver a usar en el generador: ${m.nombre}` : `Sacar del generador: ${m.nombre}`;
+  return `<button type="button" class="btn btn-ghost btn-icon btn-sm gen-btn" data-gen="${m.id}" aria-pressed="${off}" aria-label="${escapeHtml(label)}" title="${off ? 'Fuera del generador: pulsa para volver a usarlo' : 'Pulsa para que el generador no lo elija'}">${icon(off ? 'ban' : 'wand-sparkles', 'icon-sm')}</button>`;
+}
+async function toggleMealGenerator(mealId) {
+  const m = allMeals.find(x => x.id === mealId);
+  if (!m) return;
+  const fuera = !m.fuera_generador;
+  await api(`${API}/meals/${mealId}/generador`, { method: 'PATCH', body: { fuera } });
+  m.fuera_generador = fuera ? 1 : 0;
+  renderMeals();
+  document.querySelector(`#mealsGrid [data-gen="${mealId}"]`)?.focus();
+  toast(fuera ? `«${m.nombre}» ya no lo elegirá el generador (a mano sí)` : `«${m.nombre}» vuelve al generador`, {
+    action: { label: 'Deshacer', onClick: () => toggleMealGenerator(mealId) },
+  });
+}
+
+async function openRecipe(mealId, ctx = null) {
   $('recipeBody').innerHTML = `<span class="skeleton skeleton-title"></span>${skeletonRows(5)}`;
   openModal('recipeModal');
   const m = await api(`${API}/meals/${mealId}`);
@@ -576,6 +620,8 @@ async function openRecipe(mealId) {
       <span class="row-trail tabular">${i.unidades ? `${num(i.unidades, 1)} ${escapeHtml(i.unidad_nombre || 'ud.')} · ` : ''}${num(i.gramos)} g</span></li>`).join('')}</ul>
     ${m.instrucciones.length ? `<h3 class="recipe-h">Pasos</h3><ol class="steps">${m.instrucciones.map(p => `<li><label class="row"><input type="checkbox" class="checkbox"><span>${escapeHtml(p)}</span></label></li>`).join('')}</ol>` : ''}`;
   $('recipeEditBtn').onclick = () => { closeModal('recipeModal'); openMealForm(mealId); };
+  $('recipeCookBtn').querySelector('span').textContent = ctx?.gramos ? `Cocinar ${num(ctx.gramos)} g` : 'Cocinar';
+  $('recipeCookBtn').onclick = () => { closeModal('recipeModal'); openCook(mealId, ctx); };
   $('recipeShopBtn').onclick = async () => {
     await api(`${API}/shopping-list/from-meal/${mealId}`, { method: 'POST' });
     toast('Ingredientes añadidos a la compra');
@@ -613,14 +659,40 @@ function addIngredientRow(data = {}) {
   unit.addEventListener('change', recalcMacros);
   li.querySelector('button').addEventListener('click', () => { li.remove(); recalcMacros(); });
 }
-function addStepRow(text = '') {
-  const li = document.createElement('li');
-  li.className = 'step-row';
-  li.innerHTML = `<label class="grow"><span class="sr-only">Paso</span><input type="text" class="input" maxlength="2000" placeholder="Describe el paso" value="${escapeHtml(text)}"></label>
-    <button type="button" class="btn btn-ghost btn-icon btn-sm" aria-label="Quitar paso">${icon('x', 'icon-sm')}</button>`;
-  li.querySelector('button').addEventListener('click', () => li.remove());
-  $('stepRows').appendChild(li);
+/* ---------- P-10 · Pasos: un paso por línea; pegar una receta entera la parte (por líneas o «1.», «2.»…) ---------- */
+const fmtDur = (seg) => seg >= 3600 ? `${Math.floor(seg / 3600)} h${seg % 3600 ? ` ${Math.round((seg % 3600) / 60)} min` : ''}`
+  : seg >= 60 ? `${Math.round(seg / 60 * 10) / 10} min`.replace('.', ',') : `${seg} s`;
+async function partirPasos(texto) {
+  if (!texto.trim()) return [];
+  try { return (await api(`${API}/meals/pasos/partir`, { method: 'POST', body: { texto }, quiet: true })).pasos; }
+  catch { return texto.split('\n').map(t => t.trim()).filter(Boolean).map(t => ({ texto: t, tiempos: [] })); }
 }
+let stepsTimer = 0, stepsSeq = 0;
+function renderStepsPreview(pasos) {
+  $('mealStepsCount').textContent = pasos.length ? `${pasos.length} paso${pasos.length === 1 ? '' : 's'}` : '';
+  $('mealStepsPrev').innerHTML = pasos.map(p => `<li><span>${escapeHtml(p.texto)}</span>${p.tiempos.map(t => `<span class="step-time tabular">${icon('timer', 'icon-sm')}${fmtDur(t)}</span>`).join('')}</li>`).join('');
+}
+function updateStepsPreview(now = false) {
+  clearTimeout(stepsTimer);
+  const run = async () => { const seq = ++stepsSeq; const pasos = await partirPasos($('mealSteps').value); if (seq === stepsSeq) renderStepsPreview(pasos); };
+  if (now) return run();
+  stepsTimer = setTimeout(run, 250);
+}
+$('mealSteps').addEventListener('input', () => updateStepsPreview());
+$('mealSteps').addEventListener('paste', () => {
+  // Tras pegar, el texto entero queda con un paso por línea (lo de antes no cambia si ya lo estaba)
+  setTimeout(async () => {
+    const ta = $('mealSteps');
+    const pasos = await partirPasos(ta.value);
+    const limpio = pasos.map(p => p.texto).join('\n');
+    if (limpio && limpio !== ta.value.trim()) {
+      ta.value = limpio;
+      ta.setSelectionRange(limpio.length, limpio.length);
+      toast(`Receta partida en ${pasos.length} paso${pasos.length === 1 ? '' : 's'}`, { type: 'info' });
+    }
+    renderStepsPreview(pasos);
+  }, 0);
+});
 function collectIngredients() {
   const out = [], unknown = [];
   $('ingredientRows').querySelectorAll('.ing-row').forEach(row => {
@@ -665,7 +737,7 @@ async function openMealForm(mealId = null) {
   if (!allIngredients.length) await loadIngredients();
   $('mealForm').reset();
   $('ingredientRows').innerHTML = '';
-  $('stepRows').innerHTML = '';
+  $('mealSteps').value = '';
   $('mealEditingId').value = mealId || '';
   $('mealDeleteBtn').hidden = !mealId;
   $('mealGramos').disabled = false;
@@ -682,15 +754,16 @@ async function openMealForm(mealId = null) {
     $('mealImage').value = m.image_url && !m.image_url.startsWith('/static/') ? m.image_url : '';
     $('mealImage').dataset.current = m.image_url || '';
     m.ingredientes.forEach(i => addIngredientRow(i));
-    m.instrucciones.forEach(p => addStepRow(p));
+    $('mealSteps').value = m.instrucciones.join('\n');
   } else {
     $('mealFormTitle').textContent = 'Nuevo plato';
     $('mealImage').dataset.current = '';
-    addIngredientRow(); addIngredientRow(); addStepRow();
+    addIngredientRow(); addIngredientRow();
   }
   delete $('mealImage').dataset.preview;
   paintMealPhoto();
   recalcMacros();
+  updateStepsPreview(true);
   openModal('mealFormModal', { focus: '#mealNombre' });
 }
 /* ---------- Foto del plato: vista previa, «Buscar foto» (candidatas de la web) y «Quitar» ---------- */
@@ -756,7 +829,7 @@ $('mealForm').addEventListener('submit', async (e) => {
     nombre: $('mealNombre').value.trim(), franja: $('mealFranja').value, tags: $('mealTags').value.trim(),
     tiempo_preparacion_min: parseInt($('mealTiempo').value, 10) || 0,
     gramos_recomendados: parseFloat($('mealGramos').value) || 0, es_racion_unica: $('mealUnica').checked,
-    instrucciones: [...$('stepRows').querySelectorAll('input')].map(i => i.value.trim()).filter(Boolean),
+    instrucciones: (await partirPasos($('mealSteps').value)).map(p => p.texto),
     image_url: imageInput || $('mealImage').dataset.current || '', image_source: 'manual',
     ingredientes: out.map(o => o.item),
   };
@@ -776,6 +849,178 @@ $('mealDeleteBtn').addEventListener('click', async () => {
   await loadMeals();
   loadPlan();
 });
+
+/* =====================================================================
+   P-10 · MODO COCINA: un paso por pantalla, ingredientes de ese paso para tu ración, temporizadores, pantalla encendida
+   ===================================================================== */
+const cook = { data: null, ctx: null, i: 0, timers: [], tick: 0, lock: null, seq: 0 };
+const mmss = (s) => { s = Math.max(0, Math.ceil(s)); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
+  return h ? `${h}:${String(m).padStart(2, '0')}:${String(x).padStart(2, '0')}` : `${m}:${String(x).padStart(2, '0')}`; };
+const cantidad = (i) => `${i.unidades ? `${num(i.unidades, 1)} ${escapeHtml(i.unidad || 'ud.')} · ` : ''}${num(i.gramos, i.gramos < 10 ? 1 : 0)} g`;
+
+async function openCook(mealId, ctx = null) {
+  let data;
+  try { data = await api(`${API}/meals/${mealId}/cocina${ctx?.gramos ? `?gramos=${ctx.gramos}` : ''}`); } catch { return; }
+  Object.assign(cook, { data, ctx, i: 0 });
+  $('cookTitle').textContent = data.nombre;
+  const dlg = $('cookModal');
+  openModal(dlg, { onClose: closeCookExtras, focus: '#cookNext' });
+  try { if (dlg.requestFullscreen && matchMedia('(max-width: 767px), (pointer: coarse)').matches) await dlg.requestFullscreen({ navigationUI: 'hide' }); } catch { /* sin pantalla completa: el diálogo ya la ocupa */ }
+  await keepAwake();
+  renderCook();
+}
+async function keepAwake() {
+  cook.lock = null;
+  if ('wakeLock' in navigator && window.isSecureContext) {
+    try { cook.lock = await navigator.wakeLock.request('screen'); } catch { cook.lock = null; }
+  }
+  paintCookSub();
+}
+function paintCookSub() {
+  const d = cook.data;
+  if (!d) return;
+  const awake = cook.lock && !cook.lock.released;
+  $('cookSub').innerHTML = `${num(d.gramos)} g${d.gramos !== d.gramos_estandar ? ' (tu ración)' : ''} · ${d.pasos.length} paso${d.pasos.length === 1 ? '' : 's'}
+    · <span class="${awake ? '' : 'cook-warn'}">${awake ? 'Pantalla siempre encendida' : (window.isSecureContext ? 'La pantalla puede apagarse' : 'La pantalla puede apagarse (necesita HTTPS)')}</span>`;
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && $('cookModal').open) keepAwake(); });
+function closeCookExtras() {
+  try { cook.lock?.release(); } catch {}
+  cook.lock = null;
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  cook.timers = []; clearInterval(cook.tick); cook.tick = 0;
+  $('cookTimers').innerHTML = ''; delete $('cookTimers').dataset.html;
+}
+// Esc con temporizadores en marcha pregunta igual que el botón de salir
+$('cookModal').addEventListener('cancel', (e) => {
+  if (cook.timers.some(t => !t.done)) { e.preventDefault(); $('cookClose').click(); }
+});
+$('cookClose').addEventListener('click', async () => {
+  if (cook.timers.some(t => !t.done)) {
+    const ok = await uiConfirm('¿Salir del modo cocina?', 'Hay temporizadores en marcha y se pararán.', { confirmLabel: 'Salir', danger: true });
+    if (!ok) return;
+  }
+  closeModal('cookModal');
+});
+
+function cookScreens() { return cook.data.pasos.length + 2; } // ingredientes · pasos · listo
+function renderCook() {
+  const d = cook.data, n = d.pasos.length, i = cook.i, total = cookScreens();
+  const stage = $('cookStage');
+  let html;
+  if (i === 0) {
+    html = `<h3 class="cook-step">Ten a mano</h3>
+      <ul class="cook-ings cook-ings-all">${d.ingredientes.map(x => `<li><label class="row"><input type="checkbox" class="checkbox"><span class="grow">${escapeHtml(x.nombre)}</span><b class="tabular">${cantidad(x)}</b></label></li>`).join('')}</ul>
+      ${n ? '' : '<p class="muted">Este plato aún no tiene pasos: escríbelos en «Editar» (uno por línea).</p>'}`;
+  } else if (i <= n) {
+    const p = d.pasos[i - 1];
+    const ings = p.ingredientes.map(k => d.ingredientes[k]).filter(Boolean);
+    html = `<p class="cook-step">${escapeHtml(p.texto)}</p>
+      ${ings.length ? `<ul class="cook-ings">${ings.map(x => `<li><span>${escapeHtml(x.nombre)}</span><b class="tabular">${cantidad(x)}</b></li>`).join('')}</ul>` : ''}
+      ${p.tiempos.length ? `<div class="cook-timer-btns">${p.tiempos.map(t => `<button type="button" class="btn btn-tinted btn-lg" data-cook-timer="${t}">${icon('timer')}<span>Temporizador ${fmtDur(t)}</span></button>`).join('')}</div>` : ''}`;
+  } else {
+    html = `<div class="cook-done">${icon('chef-hat')}<h3 class="cook-step">¡Listo!</h3>
+      <p class="muted">${escapeHtml(d.nombre)} · ${num(d.gramos)} g</p>
+      <button type="button" class="btn btn-primary btn-lg" id="cookMark">${icon('check')}<span>Marcar como cocinado</span></button></div>`;
+  }
+  stage.innerHTML = html;
+  stage.scrollTop = 0;
+  $('cookBar').style.transform = `scaleX(${i / (total - 1)})`;
+  $('cookCount').textContent = i === 0 ? 'Ingredientes' : i <= n ? `Paso ${i} de ${n}` : 'Fin';
+  $('cookPrev').disabled = i === 0;
+  $('cookNext').hidden = i === total - 1;
+  $('cookNext').querySelector('span').textContent = i === 0 ? (n ? 'Empezar' : 'Terminar') : i === n ? 'Terminar' : 'Siguiente';
+  stage.querySelectorAll('[data-cook-timer]').forEach(b => b.addEventListener('click', () => startCookTimer(parseInt(b.dataset.cookTimer, 10), `Paso ${i}`)));
+  $('cookMark')?.addEventListener('click', markCooked);
+}
+function cookGo(delta) {
+  const next = Math.max(0, Math.min(cookScreens() - 1, cook.i + delta));
+  if (next === cook.i) return;
+  cook.i = next;
+  renderCook();
+  ($('cookNext').hidden ? $('cookMark') : $('cookNext'))?.focus({ preventScroll: true });
+}
+$('cookPrev').addEventListener('click', () => cookGo(-1));
+$('cookNext').addEventListener('click', () => cookGo(1));
+$('cookModal').addEventListener('keydown', (e) => {
+  if (e.target.closest('input, textarea, select')) return;
+  if (e.key === 'ArrowRight' || e.key === 'PageDown') { e.preventDefault(); cookGo(1); }
+  if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); cookGo(-1); }
+});
+// Deslizar: horizontal y decidido (no estorba al desplazamiento vertical ni a los botones)
+(() => {
+  let x0 = null, y0 = 0;
+  const stage = $('cookStage');
+  stage.addEventListener('pointerdown', (e) => { if (e.pointerType !== 'mouse') { x0 = e.clientX; y0 = e.clientY; } });
+  stage.addEventListener('pointerup', (e) => {
+    if (x0 === null) return;
+    const dx = e.clientX - x0, dy = e.clientY - y0;
+    x0 = null;
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) cookGo(dx < 0 ? 1 : -1);
+  });
+  stage.addEventListener('pointercancel', () => { x0 = null; });
+})();
+
+/* Temporizadores: siguen al cambiar de paso; el tiempo sale de Date.now (no se atrasan si el móvil frena la pestaña) */
+function startCookTimer(seg, label) {
+  const id = ++cook.seq;
+  cook.timers.push({ id, label, total: seg, end: Date.now() + seg * 1000, done: false });
+  primeBeep();
+  paintTimers();
+  if (!cook.tick) cook.tick = setInterval(paintTimers, 500);
+}
+function paintTimers() {
+  const now = Date.now();
+  cook.timers.forEach(t => {
+    if (!t.done && now >= t.end) { t.done = true; timerDone(t); }
+  });
+  if (!cook.timers.some(t => !t.done) && cook.tick) { clearInterval(cook.tick); cook.tick = 0; }
+  const box = $('cookTimers');
+  const html = cook.timers.map(t => `<span class="cook-pill${t.done ? ' is-done' : ''}" data-t="${t.id}">
+      ${icon(t.done ? 'bell-ring' : 'timer', 'icon-sm')}<span class="tabular">${t.done ? '¡Ya!' : mmss((t.end - now) / 1000)}</span><span class="cook-pill-label">${escapeHtml(t.label)}</span>
+      <button type="button" class="btn btn-ghost btn-icon btn-sm" data-t-stop="${t.id}" aria-label="${t.done ? 'Quitar' : 'Parar'} temporizador de ${escapeHtml(t.label)}">${icon('x', 'icon-sm')}</button></span>`).join('');
+  // Solo se repinta si cambia algo (el foco no salta en cada medio segundo)
+  if (box.dataset.html !== html) {
+    const focusId = document.activeElement?.dataset?.tStop;
+    box.innerHTML = html; box.dataset.html = html;
+    if (focusId) box.querySelector(`[data-t-stop="${focusId}"]`)?.focus({ preventScroll: true });
+  }
+}
+$('cookTimers').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-t-stop]');
+  if (!b) return;
+  cook.timers = cook.timers.filter(t => t.id !== parseInt(b.dataset.tStop, 10));
+  paintTimers();
+  $('cookStage').focus({ preventScroll: true });
+});
+let beepCtx = null;
+function primeBeep() {
+  // El audio solo arranca tras un gesto: se prepara al pulsar «Temporizador»
+  try { beepCtx ??= new (window.AudioContext || window.webkitAudioContext)(); if (beepCtx.state === 'suspended') beepCtx.resume(); } catch { beepCtx = null; }
+}
+function timerDone(t) {
+  $('cookAlert').textContent = `${t.label}: tiempo cumplido (${fmtDur(t.total)})`;
+  toast(`${t.label}: ¡tiempo! (${fmtDur(t.total)})`, { type: 'info' });
+  try { navigator.vibrate?.([300, 150, 300, 150, 300]); } catch {}
+  if (!beepCtx) return;
+  try {
+    const t0 = beepCtx.currentTime;
+    [0, 0.35, 0.7].forEach(off => {
+      const o = beepCtx.createOscillator(), g = beepCtx.createGain();
+      o.frequency.value = 880; o.connect(g); g.connect(beepCtx.destination);
+      g.gain.setValueAtTime(0.0001, t0 + off); g.gain.exponentialRampToValueAtTime(0.3, t0 + off + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + off + 0.25);
+      o.start(t0 + off); o.stop(t0 + off + 0.26);
+    });
+  } catch {}
+}
+async function markCooked() {
+  const d = cook.data, ctx = cook.ctx;
+  const r = await api(`${API}/cocinados`, { method: 'POST', body: { meal_id: d.meal_id, plan_id: ctx?.plan_id || null, item_id: ctx?.item_id || null, gramos: d.gramos } });
+  closeModal('cookModal');
+  loadPlan();
+  toast(`${d.nombre}: cocinado`, { action: { label: 'Deshacer', onClick: async () => { await api(`${API}/cocinados/${r.id}`, { method: 'DELETE' }); loadPlan(); } } });
+}
 
 /* =====================================================================
    INGREDIENTES
@@ -829,10 +1074,19 @@ function renderIngredients() {
     openMenu(b, [
       { label: 'Editar', icon: 'pencil', onClick: () => openIngredientForm(ing.id) },
       { label: 'Añadir a la compra', icon: 'shopping-cart', onClick: () => openAddShopping(ing.nombre) },
+      { label: ing.esencial ? 'Quitar de esenciales' : 'Marcar como esencial', icon: ing.esencial ? 'x' : 'bookmark-plus', onClick: () => toggleEsencial(ing) },
       { separator: true },
       { label: 'Eliminar', icon: 'trash-2', danger: true, onClick: () => deleteIngredient(ing) },
     ]);
   }));
+}
+
+async function toggleEsencial(ing) {
+  if (ing.esencial) await api(`${API}/esenciales/${ing.id}`, { method: 'DELETE' });
+  else await api(`${API}/esenciales/${ing.id}`, { method: 'PUT', body: { gramos: ing.esencial_gramos || null } });
+  toast(ing.esencial ? `${ing.nombre} ya no es esencial` : `${ing.nombre} es esencial: lo verás junto a la lista de la compra`);
+  await loadIngredients();
+  loadEsenciales();
 }
 
 const ING_FIELDS = [['ingKcal', 'kcal_100g'], ['ingProt', 'proteinas_100g'], ['ingCarb', 'carbohidratos_100g'], ['ingFat', 'grasas_100g'],
@@ -848,6 +1102,8 @@ function openIngredientForm(id = null) {
     ING_FIELDS.forEach(([el, k]) => { $(el).value = ing[k] ?? ''; });
     $('ingGpu').value = ing.gramos_por_unidad ?? '';
     $('ingUnidad').value = ing.unidad_nombre ?? '';
+    $('ingEsencial').checked = !!ing.esencial;
+    $('ingEsGramos').value = ing.esencial_gramos ?? '';
   }
   updateAtwater();
   openModal('ingredientModal', { focus: '#ingNombre' });
@@ -870,9 +1126,18 @@ $('ingForm').addEventListener('submit', async (e) => {
   const payload = { nombre: $('ingNombre').value.trim(), categoria: $('ingCategoria').value,
     gramos_por_unidad: parseFloat($('ingGpu').value) || null, unidad_nombre: $('ingUnidad').value.trim() || null };
   ING_FIELDS.forEach(([el, k]) => { payload[k] = parseFloat($(el).value) || 0; });
+  let saved;
   try {
-    await api(id ? `${API}/ingredients/${id}` : `${API}/ingredients`, { method: id ? 'PATCH' : 'POST', body: payload });
+    saved = await api(id ? `${API}/ingredients/${id}` : `${API}/ingredients`, { method: id ? 'PATCH' : 'POST', body: payload });
   } catch { return; }
+  // P-9 · Esencial y cantidad habitual (solo si cambia)
+  const ingId = id ? parseInt(id, 10) : saved?.id;
+  const antes = id ? allIngredients.find(i => i.id === ingId) : null;
+  const es = $('ingEsencial').checked, esG = parseFloat($('ingEsGramos').value) > 0 ? parseFloat($('ingEsGramos').value) : null;
+  if (ingId && (es !== !!antes?.esencial || (es && esG !== (antes?.esencial_gramos ?? null)))) {
+    await api(`${API}/esenciales/${ingId}`, es ? { method: 'PUT', body: { gramos: esG } } : { method: 'DELETE' });
+    loadEsenciales();
+  }
   closeModal('ingredientModal');
   toast(id ? 'Ingrediente actualizado' : 'Ingrediente creado');
   await loadIngredients();
@@ -891,9 +1156,10 @@ async function deleteIngredient(ing) {
 /* =====================================================================
    LISTA DE LA COMPRA
    ===================================================================== */
-const SOURCE_LABEL = { manual: 'Manual', planificador: 'Plan', mixto: 'Plan y manual', catalogo: 'Catálogo' };
+const SOURCE_LABEL = { manual: 'Manual', planificador: 'Plan', mixto: 'Plan y manual', catalogo: 'Catálogo', esencial: 'Esencial' };
 async function loadShoppingList() {
   let data;
+  loadEsenciales();
   try { data = await api(`${API}/shopping-list`, { quiet: true }); } catch { return; }
   const pend = data.items.filter(i => !i.comprado), done = data.items.filter(i => i.comprado);
   $('shopCountLabel').textContent = data.items.length ? `${pend.length} por comprar · ${done.length} en el carro` : '';
@@ -935,8 +1201,111 @@ function openShopMenu(anchor) {
     { label: 'Exportar lista de la semana (.csv)', icon: 'download', onClick: () => { location.href = `${API}/shopping-list/export/${semana()}?formato=csv`; } },
     { separator: true },
     { label: 'Quitar lo que ya está en el carro', icon: 'check-check', onClick: async () => { await api(`${API}/shopping-list/done`, { method: 'DELETE' }); loadShoppingList(); } },
+    { label: 'Vaciar todo', icon: 'trash-2', danger: true, onClick: clearShoppingList },
   ]);
 }
+// P-6 · Vaciar la lista entera: confirmación y «Deshacer» (la instantánea va a la papelera)
+async function clearShoppingList() {
+  const total = document.querySelectorAll('#shopLists [data-shop-check]').length;
+  if (!total) { toast('La lista ya está vacía', { type: 'info' }); return; }
+  const ok = await uiConfirm('¿Vaciar la lista de la compra?', `Se quitarán los ${total} productos, también los que ya están en el carro. Podrás deshacerlo.`,
+    { confirmLabel: 'Vaciar todo', danger: true });
+  if (!ok) return;
+  const r = await api(`${API}/shopping-list`, { method: 'DELETE' });
+  undoToast(`Lista vaciada (${r.deleted} producto${r.deleted === 1 ? '' : 's'})`, r, loadShoppingList);
+  loadShoppingList();
+}
+/* ---------- P-9 · Esenciales ---------- */
+let esenciales = [];
+let esEditing = false;
+const esQtyLabel = (e) => e.gramos ? `${num(e.gramos)} g` : (e.gramos_por_unidad ? `1 ${escapeHtml(e.unidad_nombre || 'ud.')}` : '');
+async function loadEsenciales() {
+  try { esenciales = (await api(`${API}/esenciales`, { quiet: true })).esenciales; } catch { return; }
+  renderEsenciales();
+}
+function renderEsenciales() {
+  const list = $('esList');
+  const faltan = esenciales.filter(e => !e.en_lista);
+  $('esAll').hidden = esEditing || faltan.length < 2;
+  $('esAll').querySelector('span').textContent = `Añadir los que faltan (${faltan.length})`;
+  $('esEdit').setAttribute('aria-pressed', String(esEditing));
+  $('esEdit').querySelector('span').textContent = esEditing ? 'Hecho' : 'Editar';
+  $('esHint').textContent = esEditing ? 'Cambia la cantidad habitual o quita los que ya no compras siempre.'
+    : esenciales.length ? 'Un toque lo pone en la lista; los que ya están salen marcados.' : 'Lo que compras siempre (leche, pan, huevos…). Añádelos aquí o desde la ficha del ingrediente.';
+  if (!esenciales.length) { list.innerHTML = ''; return; }
+  if (esEditing) {
+    list.innerHTML = `<ul class="es-edit">${esenciales.map(e => `<li>
+      <span class="grow es-name">${escapeHtml(e.nombre)}</span>
+      <label class="grams-input"><span class="sr-only">Cantidad habitual de ${escapeHtml(e.nombre)}</span>
+        <input type="number" class="input input-sm tabular" min="1" max="1000000" step="1" inputmode="numeric" value="${e.gramos ?? ''}" placeholder="—" data-es-qty="${e.ingredient_id}"><span>g</span></label>
+      <button type="button" class="btn btn-ghost btn-icon btn-sm" data-es-del="${e.ingredient_id}" aria-label="Quitar ${escapeHtml(e.nombre)} de esenciales">${icon('x', 'icon-sm')}</button></li>`).join('')}</ul>`;
+    return;
+  }
+  list.innerHTML = `<div class="es-chips" role="group" aria-label="Esenciales">${esenciales.map(e => {
+    const q = esQtyLabel(e);
+    return `<button type="button" class="chip es-chip${e.comprado ? ' is-bought' : ''}" aria-pressed="${e.en_lista}" data-es="${e.ingredient_id}"
+      title="${e.en_lista ? (e.comprado ? 'En el carro' : 'Ya está en la lista') : 'Añadir a la lista'}">${icon(e.en_lista ? 'check' : 'plus', 'icon-sm')}<span>${escapeHtml(e.nombre)}</span>${q ? `<span class="chip-count">${q}</span>` : ''}</button>`;
+  }).join('')}</div>`;
+}
+$('esList').addEventListener('click', async (ev) => {
+  const chip = ev.target.closest('[data-es]');
+  const del = ev.target.closest('[data-es-del]');
+  if (del) {
+    const id = parseInt(del.dataset.esDel, 10);
+    const e = esenciales.find(x => x.ingredient_id === id);
+    await api(`${API}/esenciales/${id}`, { method: 'DELETE' });
+    toast(`${e?.nombre || 'Ingrediente'} ya no es esencial`);
+    await loadEsenciales();
+    ($('esList').querySelector('[data-es-del]') || $('esName')).focus({ preventScroll: true });
+    return;
+  }
+  if (!chip) return;
+  const id = parseInt(chip.dataset.es, 10);
+  const e = esenciales.find(x => x.ingredient_id === id);
+  if (!e) return;
+  if (!e.en_lista) {
+    await api(`${API}/esenciales/${id}/lista`, { method: 'POST' });
+    toast(`${e.nombre} a la lista`);
+  } else if (e.lista_source === 'esencial' && !e.comprado) {
+    // Deshacer un toque de más: solo si la línea la puso este botón y aún no está en el carro
+    await api(`${API}/shopping-list/${e.lista_id}`, { method: 'DELETE' });
+    toast(`${e.nombre} fuera de la lista`);
+  } else {
+    toast(e.comprado ? `${e.nombre} ya está en el carro` : `${e.nombre} ya está en la lista (viene del plan o lo añadiste a mano)`, { type: 'info' });
+    return;
+  }
+  await loadShoppingList();
+  $('esList').querySelector(`[data-es="${id}"]`)?.focus({ preventScroll: true });
+});
+$('esList').addEventListener('change', async (ev) => {
+  const inp = ev.target.closest('[data-es-qty]');
+  if (!inp) return;
+  const g = parseFloat(inp.value);
+  await api(`${API}/esenciales/${inp.dataset.esQty}`, { method: 'PUT', body: { gramos: g > 0 ? Math.min(g, 1000000) : null } });
+  const e = esenciales.find(x => x.ingredient_id === parseInt(inp.dataset.esQty, 10));
+  if (e) e.gramos = g > 0 ? g : null;
+});
+$('esEdit').addEventListener('click', () => { esEditing = !esEditing; renderEsenciales(); });
+$('esAll').addEventListener('click', async () => {
+  const faltan = esenciales.filter(e => !e.en_lista);
+  for (const e of faltan) await api(`${API}/esenciales/${e.ingredient_id}/lista`, { method: 'POST' });
+  toast(`${faltan.length} esenciales a la lista`);
+  loadShoppingList();
+});
+$('esForm').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  if (!allIngredients.length) await loadIngredients();
+  const ing = ingredientByName($('esName').value);
+  if (!ing) { toast('Elige un ingrediente del catálogo (o créalo en Ingredientes)', { type: 'info' }); $('esName').focus(); return; }
+  const g = parseFloat($('esQty').value);
+  await api(`${API}/esenciales/${ing.id}`, { method: 'PUT', body: { gramos: g > 0 ? g : null } });
+  ing.esencial = 1; ing.esencial_gramos = g > 0 ? g : null;
+  $('esForm').reset();
+  toast(`${ing.nombre} añadido a esenciales`);
+  await loadEsenciales();
+  $('esName').focus();
+});
+
 function openAddShopping(name = '') {
   $('shopForm').reset();
   $('shopName').value = name;
@@ -975,7 +1344,7 @@ document.querySelectorAll('[data-objetivo]').forEach(b => b.addEventListener('cl
 ['pEdad', 'pPeso', 'pAltura', 'pActividad', 'pAjuste', 'pProteina', 'pGrasa'].forEach(id => $(id).addEventListener('input', renderGoals));
 
 async function loadProfile() {
-  profile = await api(`${API}/profile`);
+  profile = await api(`${API}/profile`, { quiet: true });  // si falla, lo dice Objetivos (profileFailed)
   $('pEdad').value = profile.edad;
   $('pPeso').value = profile.peso_kg;
   $('pAltura').value = profile.altura_cm;
@@ -1224,8 +1593,21 @@ $('btnAddFranja').addEventListener('click', async () => {
   let tab = 'plan';
   try { tab = localStorage.getItem('comidas_tab') || 'plan'; } catch {}
   switchTab(['plan', 'platos', 'compra', 'ingredientes', 'objetivos'].includes(tab) ? tab : 'plan');
-  await Promise.all([loadPlan(), loadMeals(), loadIngredients(), loadProfile()]);
+  await Promise.all([loadPlan(), loadMeals(), loadIngredients(), loadProfile().catch(profileFailed)]);
 })();
+
+// Sin perfil, Objetivos se oculta entero: el formulario vacío pisaría los datos al guardar y el resumen saldría
+// calculado con ceros. En su lugar, el aviso con «Reintentar».
+function profileFailed() {
+  const layout = document.querySelector('#tab-objetivos .goals-layout');
+  layout.hidden = true;
+  let box = $('profileError');
+  if (!box) { layout.insertAdjacentHTML('beforebegin', '<div id="profileError" class="panel"></div>'); box = $('profileError'); }
+  showState(box, loadFailed('No se pudieron cargar tus datos'), () => loadProfile().then(() => {
+    box.remove();
+    layout.hidden = false;
+  }).catch(profileFailed));
+}
 
 
 /* =====================================================================

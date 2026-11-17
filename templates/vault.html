@@ -22,7 +22,10 @@
         <button type="button" class="type-chip" data-type="youtube" aria-pressed="false">{{ icon('youtube', 'icon-sm') }}Vídeos</button>
         <button type="button" class="type-chip" data-type="web" aria-pressed="false">{{ icon('globe', 'icon-sm') }}Web</button>
       </div>
-      <div id="catChips" class="chips chips-scroll" role="group" aria-label="Categoría"></div>
+      <div class="cat-bar">
+        <div id="catChips" class="chips chips-scroll" role="group" aria-label="Categoría"></div>
+        <button type="button" class="btn btn-ghost btn-sm" id="catOrderBtn" data-call="openCatOrder" title="Ordenar categorías" hidden>{{ icon('arrow-up-down', 'icon-sm') }}<span class="hide-mobile">Ordenar</span><span class="sr-only show-mobile">Ordenar categorías</span></button>
+      </div>
     </div>
   </div>
   <div id="vaultContent" class="vault-content" aria-live="polite">
@@ -63,6 +66,20 @@
   <div class="modal-footer">
     <button type="button" class="btn" data-close>Cancelar</button>
     <button type="submit" form="editForm" class="btn btn-primary">Guardar cambios</button>
+  </div>
+</dialog>
+
+<dialog class="modal modal-sm" id="catOrderModal" aria-labelledby="catOrderTitle" aria-describedby="catOrderHint">
+  <div class="modal-header"><h2 id="catOrderTitle">Ordenar categorías</h2>
+    <button type="button" class="btn btn-ghost btn-icon modal-close" data-close aria-label="Cerrar">{{ icon('x') }}</button></div>
+  <div class="modal-body stack">
+    <p class="field-hint" id="catOrderHint">Arrastra cada categoría a su sitio<span class="show-mobile"> (mantén pulsado)</span> o usa las flechas<span class="hide-mobile"> o Alt + ↑/↓</span>. El orden vale para todo el Baúl: filtros, Biblioteca, Para más tarde y Vistos.</p>
+    <ul id="catOrderList" class="list cat-order" aria-label="Categorías en orden"></ul>
+  </div>
+  <div class="modal-footer">
+    <button type="button" class="btn btn-ghost" id="catOrderReset">Orden alfabético</button>
+    <span class="grow"></span>
+    <button type="button" class="btn btn-primary" data-close>Listo</button>
   </div>
 </dialog>
 {% endblock %}

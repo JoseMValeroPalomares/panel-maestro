@@ -106,8 +106,71 @@ def sin_media_manana_down(conn: sqlite3.Connection) -> None:
     )
 
 
+# 4 ─ Esenciales (P-9): ingredientes que se compran siempre, con cantidad habitual opcional. Van en la fila del
+#     ingrediente (no en otra tabla) para que borrarlo y restaurarlo desde la papelera conserve la marca ─────────
+def esenciales_up(conn: sqlite3.Connection) -> None:
+    if not has_column(conn, "ingredients", "esencial"):
+        conn.execute("ALTER TABLE ingredients ADD COLUMN esencial INTEGER NOT NULL DEFAULT 0")
+    if not has_column(conn, "ingredients", "esencial_gramos"):
+        conn.execute("ALTER TABLE ingredients ADD COLUMN esencial_gramos REAL")
+    # Si se deshizo antes y se vuelve a aplicar, recupera lo que se guardó al deshacer
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='esenciales_backup'").fetchone():
+        conn.execute(
+            "UPDATE ingredients SET esencial=1, esencial_gramos=(SELECT gramos FROM esenciales_backup b "
+            "WHERE b.ingredient_id=ingredients.id) WHERE id IN (SELECT ingredient_id FROM esenciales_backup)"
+        )
+        conn.execute("DROP TABLE esenciales_backup")
+
+
+def esenciales_down(conn: sqlite3.Connection) -> None:
+    if not has_column(conn, "ingredients", "esencial"):
+        return
+    conn.execute("CREATE TABLE IF NOT EXISTS esenciales_backup (ingredient_id INTEGER PRIMARY KEY, gramos REAL)")
+    conn.execute(
+        "INSERT OR IGNORE INTO esenciales_backup (ingredient_id, gramos) "
+        "SELECT id, esencial_gramos FROM ingredients WHERE esencial=1"
+    )
+    conn.execute("ALTER TABLE ingredients DROP COLUMN esencial_gramos")
+    conn.execute("ALTER TABLE ingredients DROP COLUMN esencial")
+
+
+# 5 ─ Modo cocina (P-10): «marcar como cocinado» guarda qué plato, de qué comida del plan y con qué ración. Al deshacer
+#     se guardan las filas en cocinados_backup y vuelven al aplicarla otra vez ─────────────────────────────────────
+def cocinados_up(conn: sqlite3.Connection) -> None:
+    conn.execute("""CREATE TABLE IF NOT EXISTS cocinados (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, meal_id INTEGER NOT NULL, plan_id INTEGER, item_id INTEGER,
+        gramos REAL, fecha TEXT NOT NULL, created_at REAL DEFAULT (unixepoch()))""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_cocinados_plan ON cocinados(plan_id)")
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='cocinados_backup'").fetchone():
+        conn.execute("INSERT OR IGNORE INTO cocinados SELECT * FROM cocinados_backup")
+        conn.execute("DROP TABLE cocinados_backup")
+
+
+def cocinados_down(conn: sqlite3.Connection) -> None:
+    if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='cocinados'").fetchone():
+        return
+    conn.execute("DROP TABLE IF EXISTS cocinados_backup")
+    conn.execute("CREATE TABLE cocinados_backup AS SELECT * FROM cocinados")
+    conn.execute("DROP TABLE cocinados")
+
+
+# 6 ─ Platos fuera del generador: el generador semanal, regenerar, el plato doble y las sugerencias no los eligen;
+#     a mano se siguen poniendo. Una columna en meals (la papelera del plato la conserva) ──────────────────────────
+def fuera_generador_up(conn: sqlite3.Connection) -> None:
+    if not has_column(conn, "meals", "fuera_generador"):
+        conn.execute("ALTER TABLE meals ADD COLUMN fuera_generador INTEGER NOT NULL DEFAULT 0")
+
+
+def fuera_generador_down(conn: sqlite3.Connection) -> None:
+    if has_column(conn, "meals", "fuera_generador"):
+        conn.execute("ALTER TABLE meals DROP COLUMN fuera_generador")
+
+
 MIGRATIONS = [
     Migration(1, "franjas, papel de los platos, plantillas, favoritos, peso y compra semanal", ronda6_up, ronda6_down),
     Migration(2, "franjas: días en que se usa cada una", franja_dias_up, franja_dias_down),
     Migration(3, "sin la franja «media mañana»", sin_media_manana_up, sin_media_manana_down),
+    Migration(4, "esenciales: ingredientes que se compran siempre", esenciales_up, esenciales_down),
+    Migration(5, "modo cocina: platos marcados como cocinados", cocinados_up, cocinados_down),
+    Migration(6, "platos fuera del generador", fuera_generador_up, fuera_generador_down),
 ]

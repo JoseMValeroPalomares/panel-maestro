@@ -5,7 +5,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from core.files import _umask, atomic_write
+
+# P-12: permisos Unix (600, ejecutables): en NTFS no existen y conftest lo salta allí
+pytestmark = pytest.mark.permisos_unix
 
 ROOT = Path(__file__).resolve().parent.parent
 

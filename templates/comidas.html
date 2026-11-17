@@ -79,7 +79,7 @@
         <div class="qf-more-body">
           <label class="field"><span class="field-label">Franja</span><select id="qmFranja" class="select"><option value="">Según lo escrito (comida)</option></select></label>
           <label class="field"><span class="field-label">Tiempo (min)</span><input id="qmTiempo" type="number" class="input input-sm" min="0" max="10000" placeholder="—"></label>
-          <label class="field row-field"><input type="checkbox" id="qmUnica" class="switch"><span>La receta entera es una ración</span></label>
+          <label class="field row-field"><input type="checkbox" role="switch" id="qmUnica" class="switch"><span>La receta entera es una ración</span></label>
         </div>
       </details>
       <div class="qf-actions">
@@ -107,7 +107,26 @@
     <button type="button" class="btn btn-primary" data-call="openAddShopping">{{ icon('plus') }}<span>Añadir</span></button>
     <button type="button" class="btn btn-ghost btn-icon" data-call="openShopMenu" data-args='["$el"]' aria-label="Más acciones de la lista" aria-haspopup="menu">{{ icon('ellipsis') }}</button>
   </div>
-  <div id="shopLists" class="shop-lists"></div>
+  <div class="shop-layout">
+    <div id="shopLists" class="shop-lists"></div>
+    <!-- P-9 · Esenciales: al lado en escritorio, debajo en el móvil -->
+    <aside class="panel esenciales" aria-labelledby="esTitle">
+      <div class="panel-header"><h2 id="esTitle">Esenciales</h2><span class="grow"></span>
+        <button type="button" class="btn btn-ghost btn-sm" id="esAll" hidden>{{ icon('list-plus', 'icon-sm') }}<span>Añadir los que faltan</span></button>
+        <button type="button" class="btn btn-ghost btn-sm" id="esEdit" aria-pressed="false">{{ icon('pencil', 'icon-sm') }}<span>Editar</span></button></div>
+      <div class="panel-body stack">
+        <p class="small muted" id="esHint">Lo que compras siempre. Un toque lo pone en la lista; los que ya están salen marcados.</p>
+        <div id="esList" class="es-list"></div>
+        <form id="esForm" class="es-add" autocomplete="off">
+          <label class="sr-only" for="esName">Ingrediente esencial</label>
+          <input type="text" id="esName" class="input" list="ingredientOptions" maxlength="120" placeholder="Añadir esencial" required>
+          <label class="sr-only" for="esQty">Cantidad habitual en gramos (opcional)</label>
+          <input type="number" id="esQty" class="input tabular" min="1" max="1000000" step="1" inputmode="numeric" placeholder="g">
+          <button type="submit" class="btn btn-tinted btn-icon" aria-label="Añadir a esenciales">{{ icon('plus') }}</button>
+        </form>
+      </div>
+    </aside>
+  </div>
 </section>
 
 <!-- ═════════ INGREDIENTES ═════════ -->
@@ -240,7 +259,25 @@
     <button type="button" class="btn" id="recipeShopBtn">{{ icon('shopping-cart', 'icon-sm') }}A la compra</button>
     <span class="spacer"></span>
     <button type="button" class="btn btn-tinted" id="recipeEditBtn">{{ icon('pencil', 'icon-sm') }}Editar</button>
+    <button type="button" class="btn btn-primary" id="recipeCookBtn">{{ icon('chef-hat', 'icon-sm') }}<span>Cocinar</span></button>
   </div>
+</dialog>
+
+<!-- P-10 · Modo cocina: un paso por pantalla -->
+<dialog class="modal cook" id="cookModal" aria-labelledby="cookTitle">
+  <div class="cook-head">
+    <button type="button" class="btn btn-ghost btn-icon btn-lg" id="cookClose" aria-label="Salir del modo cocina">{{ icon('x') }}</button>
+    <div class="cook-titles"><h2 id="cookTitle">Cocinar</h2><p class="cook-sub" id="cookSub"></p></div>
+    <div class="cook-timers" id="cookTimers" role="group" aria-label="Temporizadores en marcha"></div>
+  </div>
+  <div class="cook-progress" aria-hidden="true"><span id="cookBar"></span></div>
+  <div class="cook-stage" id="cookStage" tabindex="-1" aria-live="polite"></div>
+  <div class="cook-foot">
+    <button type="button" class="btn btn-lg cook-nav" id="cookPrev">{{ icon('chevron-left') }}<span>Anterior</span></button>
+    <span class="cook-count tabular" id="cookCount"></span>
+    <button type="button" class="btn btn-primary btn-lg cook-nav" id="cookNext"><span>Siguiente</span>{{ icon('chevron-right') }}</button>
+  </div>
+  <p class="sr-only" id="cookAlert" role="alert"></p>
 </dialog>
 
 <!-- Formulario de plato -->
@@ -257,7 +294,7 @@
       <label class="field"><span class="field-label">Ración estándar (g)</span>
         <div class="row"><input type="number" id="mealGramos" class="input" min="0" max="10000" value="0" inputmode="numeric"><button type="button" class="btn btn-sm" data-call="suggestGramos">Sugerir</button></div>
         <span class="field-hint" id="mealGramosHint">0 = se sugiere al guardar</span></label>
-      <label class="field row-field"><input type="checkbox" id="mealUnica" class="switch"><span>La receta entera es una ración</span></label>
+      <label class="field row-field"><input type="checkbox" role="switch" id="mealUnica" class="switch"><span>La receta entera es una ración</span></label>
       <label class="field span-2"><span class="field-label">Etiquetas</span><input type="text" id="mealTags" class="input" maxlength="500" placeholder="pescado, verdura, rápido"></label>
       <div class="field span-2 photo-field">
         <span class="field-label">Foto</span>
@@ -277,8 +314,12 @@
       <div class="macro-preview" id="macroPreview"></div>
     </div>
     <div class="form-section">
-      <div class="row"><h3 class="grow">Pasos</h3><button type="button" class="btn btn-tinted btn-sm" data-call="addStepRow">{{ icon('plus', 'icon-sm') }}Añadir paso</button></div>
-      <ol id="stepRows" class="step-rows"></ol>
+      <div class="row"><h3 class="grow"><label for="mealSteps">Pasos</label></h3><span class="tiny muted" id="mealStepsCount"></span></div>
+      <!-- P-10 · Un paso por línea; al pegar una receta entera se parte por líneas o por «1.», «2.»… -->
+      <textarea id="mealSteps" class="textarea steps-editor" rows="6" maxlength="100000" aria-describedby="mealStepsHelp mealStepsPrev"
+        placeholder="Un paso por línea. Pega la receta entera y se parte sola.&#10;Pica la cebolla y el ajo.&#10;Sofríe 5 minutos a fuego medio."></textarea>
+      <p class="tiny muted" id="mealStepsHelp">Los tiempos que escribas («10 min», «media hora») serán temporizadores en el modo cocina.</p>
+      <ol class="steps-preview" id="mealStepsPrev" aria-label="Vista previa de los pasos"></ol>
     </div>
   </form>
   <div class="modal-footer">
@@ -341,6 +382,11 @@
     <div class="form-grid">
       <label class="field"><span class="field-label">Gramos por unidad</span><input type="number" id="ingGpu" class="input" min="0" max="5000" step="0.1" inputmode="decimal" placeholder="60"></label>
       <label class="field"><span class="field-label">Nombre de la unidad</span><input type="text" id="ingUnidad" class="input" maxlength="40" placeholder="huevo"></label>
+    </div>
+    <h3 class="small muted">Lista de la compra</h3>
+    <div class="form-grid">
+      <label class="field row-field"><input type="checkbox" role="switch" id="ingEsencial" class="switch"><span>Esencial: lo compro siempre</span></label>
+      <label class="field"><span class="field-label">Cantidad habitual (g, opcional)</span><input type="number" id="ingEsGramos" class="input" min="1" max="1000000" step="1" inputmode="numeric" placeholder="1000"></label>
     </div>
   </form>
   <div class="modal-footer">

@@ -14,6 +14,16 @@ const files = [
   ['node_modules/@highlightjs/cdn-assets/styles/github.min.css', 'highlight/github.min.css'],
   ['node_modules/@highlightjs/cdn-assets/styles/github-dark.min.css', 'highlight/github-dark.min.css'],
   ['node_modules/vis-network/standalone/umd/vis-network.min.js', 'vis-network/vis-network.min.js'],
+  // Lector de PDF de Universidad (static/js/pdf-visor.js): módulo + worker, mapas de caracteres, fuentes estándar,
+  // perfil ICC y los decodificadores en JS (useWasm: false, así la CSP no necesita 'wasm-unsafe-eval').
+  ['node_modules/pdfjs-dist/build/pdf.min.mjs', 'pdfjs/pdf.min.mjs'],
+  ['node_modules/pdfjs-dist/build/pdf.worker.min.mjs', 'pdfjs/pdf.worker.min.mjs'],
+  ['node_modules/pdfjs-dist/LICENSE', 'pdfjs/LICENSE'],
+  ['node_modules/pdfjs-dist/cmaps', 'pdfjs/cmaps'],
+  ['node_modules/pdfjs-dist/standard_fonts', 'pdfjs/standard_fonts'],
+  ['node_modules/pdfjs-dist/iccs', 'pdfjs/iccs'],
+  ['node_modules/pdfjs-dist/wasm/jbig2_nowasm_fallback.js', 'pdfjs/wasm/jbig2_nowasm_fallback.js'],
+  ['node_modules/pdfjs-dist/wasm/openjpeg_nowasm_fallback.js', 'pdfjs/wasm/openjpeg_nowasm_fallback.js'],
 ];
 for (const [src, dst] of files) {
   const target = `${out}/${dst}`;

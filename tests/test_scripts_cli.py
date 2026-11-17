@@ -90,6 +90,7 @@ def test_contrasena_por_teclado(env_file, monkeypatch, capsys, respuestas, codig
 # ── desktop_token ──────────────────────────────────────────────────────────
 
 
+@pytest.mark.permisos_unix
 def test_desktop_token_archivo_600_y_copia_del_env(env_file, tmp_path, monkeypatch, capsys):
     conf = tmp_path / "conf" / "panel-maestro"
     monkeypatch.setattr(desktop_token, "CONF", conf)

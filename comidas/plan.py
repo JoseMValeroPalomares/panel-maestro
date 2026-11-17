@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 
 from . import generador as gen
 from . import nutrition as nu
+from .cocina import cocinados_de
 from .core import (
     DIAS_SEMANA,
     FRANJA_FRACCION,
@@ -152,6 +153,11 @@ def _plan_state(conn, semana: str) -> dict:
     objetivo = nu.objetivos_comparables(targets)
     slots = conn.execute("SELECT * FROM weekly_plan WHERE semana=?", (semana,)).fetchall()
     dias = _comidas_por_dia(index, slots, _extras_por_plan(conn, semana))
+    hechos = cocinados_de(conn, [s["id"] for s in slots])
+    for d in dias.values():
+        for comida in d["comidas"].values():
+            for p in comida["platos"]:
+                p["cocinado"] = hechos.get((p["plan_id"], p["item_id"]))
     out_dias, semana_total = _resumen_dias(dias, objetivo)
     objetivo_semana = {k: v * 7 for k, v in objetivo.items()}
     dias_con_comida = sum(1 for d in out_dias.values() if d["total"]["kcal"] > 0)
@@ -279,6 +285,28 @@ def clear_weekly_plan_cell(plan_id: int):
     return {"status": "success"}
 
 
+@router.delete("/api/weekly-plan/{plan_id}/principal")
+def remove_principal(plan_id: int):
+    """P-7 · Quita solo el plato principal de una comida. Si hay platos adicionales, el primero (por orden) pasa a
+    principal con sus gramos y su papel; la comida conserva su chincheta. Sin adicionales, la comida queda vacía
+    (como «Vaciar esta comida»)."""
+    with get_db() as conn:
+        if not conn.execute("SELECT 1 FROM weekly_plan WHERE id=?", (plan_id,)).fetchone():
+            raise HTTPException(status_code=404, detail="Comida no encontrada")
+        sig = conn.execute("SELECT * FROM plan_items WHERE plan_id=? ORDER BY orden, id LIMIT 1", (plan_id,)).fetchone()
+        if sig is None:
+            conn.execute(
+                "UPDATE weekly_plan SET meal_id=NULL, is_fixed=0, gramos_racion=NULL, rol=NULL WHERE id=?", (plan_id,)
+            )
+            return {"status": "success", "promovido": None}
+        conn.execute(
+            "UPDATE weekly_plan SET meal_id=?, gramos_racion=?, rol=? WHERE id=?",
+            (sig["meal_id"], sig["gramos_racion"], _rol(sig), plan_id),
+        )
+        conn.execute("DELETE FROM plan_items WHERE id=?", (sig["id"],))
+    return {"status": "success", "promovido": sig["meal_id"]}
+
+
 @router.post("/api/weekly-plan/generate")
 def generate_weekly_plan(payload: GenerateWeekRequest):
     with get_db() as conn:
@@ -399,6 +427,8 @@ def _platos_sugeribles(index: dict, franja: str) -> list[dict]:
         if franja and m["franja"] != _catalogo_de(franja):
             continue
         if not m["gramos_receta"]:
+            continue
+        if "fuera_generador" in m["row"].keys() and m["row"]["fuera_generador"]:  # fuera del generador
             continue
         base = m["gramos_base"] or m["gramos_receta"]
         platos.append(

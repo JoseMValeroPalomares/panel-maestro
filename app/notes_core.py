@@ -62,21 +62,50 @@ def slugify(name: str) -> str:
 
 def note_slug(name: str) -> str:
     """Identificador válido para note_path a partir de un título (sin comas, signos de interrogación…)."""
-    return re.sub(r"[^\w\-]+", "-", slugify(name)).strip("-_") or "nota"
+    slug = re.sub(r"[^\w\-]+", "-", slugify(name)).strip("-_") or "nota"
+    return f"{slug}-nota" if windows_reserved(slug) else slug
 
 
 NOTE_ID_RE = re.compile(r"^[^\W_][\w\-]{0,199}$")
+# Nombres de dispositivo de Windows: «con.md» no se puede crear allí (P-12, datos compartidos con Windows)
+WINDOWS_RESERVED = {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(1, 10)), *(f"lpt{i}" for i in range(1, 10))}
+
+
+def windows_reserved(name: str) -> bool:
+    return name.split(".")[0].strip().lower() in WINDOWS_RESERVED
+
+
+def _case_twin(base: str, filename: str) -> str | None:
+    """Otro archivo de la carpeta que solo se distingue en mayúsculas: para Windows es el mismo y guardar uno pisaría
+    el otro. Solo se mira cuando el archivo exacto no existe (crear), así que leer o guardar una nota no lista nada."""
+    folded = filename.casefold()
+    try:
+        return next((n for n in os.listdir(base) if n != filename and n.casefold() == folded), None)
+    except OSError:
+        return None
 
 
 def note_path(note_id: str) -> str:
     """Ruta absoluta del .md de una nota, garantizando que queda DENTRO de
     NOTES_DIR (sin '..', separadores ni enlaces simbólicos que escapen)."""
-    if not isinstance(note_id, str) or not NOTE_ID_RE.match(note_id):
+    if not isinstance(note_id, str) or not NOTE_ID_RE.match(note_id) or windows_reserved(note_id):
         raise HTTPException(status_code=400, detail="Identificador de nota no válido")
     base = os.path.realpath(NOTES_DIR)
     candidate = os.path.realpath(os.path.join(base, f"{note_id}.md"))
     if os.path.dirname(candidate) != base:
         raise HTTPException(status_code=400, detail="Identificador de nota no válido")
+    # Mayúsculas (P-12): en Windows realpath devuelve el nombre con las mayúsculas del disco; en Linux, si no existe,
+    # se busca otro que solo cambie en mayúsculas
+    filename, on_disk = f"{note_id}.md", os.path.basename(candidate)
+    if on_disk != filename:
+        twin = on_disk if on_disk.casefold() == filename.casefold() else None
+    else:
+        twin = None if os.path.exists(candidate) else _case_twin(base, filename)
+    if twin:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Ya hay una nota «{twin[:-3]}» que solo cambia en mayúsculas (Windows no las distingue)",
+        )
     return candidate
 
 

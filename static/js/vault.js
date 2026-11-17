@@ -9,7 +9,10 @@ let searchQuery = '';
 let mainTab = 'library';
 let reloadTimer = null;
 
-const isPending = (r) => !r.title || r.title === r.url;
+// «Cargando» (esqueleto) solo mientras es reciente: si el servidor no pudo leer la página, a los 90 s se pinta con
+// lo que hay (dirección e icono de respaldo) en vez de quedarse cargando para siempre.
+const PENDING_MAX_S = 90;
+const isPending = (r) => (!r.title || r.title === r.url) && Date.now() / 1000 - (Number(r.added_at) || 0) < PENDING_MAX_S;
 const localImage = (r) => (r.image && r.image.startsWith('/static/')) ? r.image : '';
 
 /* ---------- Carga ---------- */
@@ -59,6 +62,54 @@ function revealWanted() {
     setTimeout(() => el.classList.remove('is-flash'), 2400);
 }
 
+/* ---------- Imágenes que no cargan ----------
+   Una miniatura o un icono que falla (el archivo ya no está en el servidor, corte de red) nunca se queda como imagen
+   rota: se reintenta una vez a los 2 s; si vuelve a fallar se pide al servidor que la recupere de su origen
+   (POST /api/resources/{id}/miniatura, una vez por recurso y visita, de dos en dos) y, si no hay manera, se pone el
+   icono de respaldo. Los errores de carga no burbujean: se escuchan en captura. */
+const imgRepair = { tried: new Set(), queue: [], running: 0 };
+function imgFallback(img) {
+    const span = document.createElement('span');
+    const favicon = img.classList.contains('favicon');
+    span.className = favicon ? 'favicon favicon-fallback' : 'yt-thumb-img yt-fallback';
+    span.innerHTML = icon(favicon ? 'globe' : 'youtube', favicon ? 'icon-sm' : 'icon-xl');
+    (img.closest('.yt-avatar-bg') || img).replaceWith(span);
+}
+function imgRepairNext() {
+    while (imgRepair.running < 2 && imgRepair.queue.length) {
+        const { id, img } = imgRepair.queue.shift();
+        imgRepair.running++;
+        api(`/api/resources/${id}/miniatura`, { method: 'POST', quiet: true })
+            .then((r) => {
+                if (!r.image || !img.isConnected) return imgFallback(img);
+                const res = allResources.find((x) => x.id === id);
+                if (res) res.image = r.image;
+                img.dataset.retry = '3';
+                img.src = `${r.image}?r=${Date.now()}`;
+                const bg = img.closest('.yt-avatar-bg');
+                if (bg) bg.style.setProperty('--av', `url('${r.image}')`);
+            })
+            .catch(() => imgFallback(img))
+            .finally(() => { imgRepair.running--; imgRepairNext(); });
+    }
+}
+document.getElementById('vaultContent').addEventListener('error', (e) => {
+    const img = e.target;
+    if (!(img instanceof HTMLImageElement) || !img.matches('.yt-thumb-img, .yt-avatar, .favicon')) return;
+    const id = Number(img.closest('[data-id]')?.dataset.id);
+    const step = Number(img.dataset.retry || 0);
+    if (step === 0) {  // primer fallo: puede ser un corte momentáneo
+        img.dataset.retry = '1';
+        const src = img.getAttribute('src').split('?')[0];
+        setTimeout(() => { if (img.isConnected) img.src = `${src}?r=${Date.now()}`; }, 2000);
+    } else if (step === 1 && id && !imgRepair.tried.has(id)) {
+        img.dataset.retry = '2';
+        imgRepair.tried.add(id);
+        imgRepair.queue.push({ id, img });
+        imgRepairNext();
+    } else imgFallback(img);
+}, true);
+
 /* Vídeos antiguos sin canal: el servidor los rellena en segundo plano (poco a poco); mientras tanto, «Canal desconocido» */
 const channelBackfill = { started: false, polls: 0 };
 async function maybeBackfillChannels() {
@@ -71,8 +122,94 @@ async function maybeBackfillChannels() {
     if (channelBackfill.polls++ < 12) setTimeout(loadResources, 5000);
 }
 
+/* ---------- Orden de las categorías: uno solo para todo el Baúl (chips, secciones, Vistos, extensión) ----------
+   Se guarda en Prefs (servidor); las categorías que no estén en él van detrás, alfabéticas (como app/vault.py) */
+const CAT_ORDER_KEY = 'baul-categorias';
+function catOrder() {
+    const o = Prefs.get(CAT_ORDER_KEY, []);
+    return Array.isArray(o) ? o.filter((c) => typeof c === 'string') : [];
+}
+function sortCats(cats) {
+    const pos = new Map(catOrder().map((c, i) => [c, i]));
+    const at = (c) => (pos.has(c) ? pos.get(c) : pos.size);
+    return [...cats].sort((a, b) => at(a) - at(b) || a.localeCompare(b, 'es'));
+}
+const allCats = () => sortCats(new Set(allResources.map(r => r.category || 'General')));
+
+function saveCatOrder(order) {
+    // Conserva al final las que ahora no tienen recursos: si vuelven, recuperan su sitio relativo
+    const rest = catOrder().filter((c) => !order.includes(c));
+    Prefs.set(CAT_ORDER_KEY, [...order, ...rest].slice(0, 500));
+    renderCategories();
+    applyFiltersAndRender();
+}
+
+function openCatOrder() {
+    renderCatOrder();
+    openModal('catOrderModal', { focus: '#catOrderList [data-sortable-item]' });
+}
+
+function renderCatOrder(focusCat, focusDir) {
+    const list = document.getElementById('catOrderList');
+    const cats = allCats();
+    document.getElementById('catOrderReset').disabled = !catOrder().length;
+    const count = {};
+    allResources.forEach((r) => { const c = r.category || 'General'; count[c] = (count[c] || 0) + 1; });
+    list.innerHTML = cats.map((c, i) => `<li class="list-row cat-order-row" data-cat="${escapeHtml(c)}" aria-label="${escapeHtml(c)}, posición ${i + 1} de ${cats.length}">
+        <span class="cat-order-grip" aria-hidden="true">${icon('grip-vertical', 'icon-sm')}</span>
+        <span class="dot" style="background:${categoryColor(c)}"></span>
+        <span class="row-main row-title">${escapeHtml(c)}</span>
+        <span class="count">${count[c] || 0}</span>
+        <span class="row-trail">
+          <button type="button" class="btn btn-ghost btn-icon btn-sm" data-move="-1" aria-label="Subir «${escapeHtml(c)}»" title="Subir"${i === 0 ? ' disabled' : ''}>${icon('chevron-up', 'icon-sm')}</button>
+          <button type="button" class="btn btn-ghost btn-icon btn-sm" data-move="1" aria-label="Bajar «${escapeHtml(c)}»" title="Bajar"${i === cats.length - 1 ? ' disabled' : ''}>${icon('chevron-down', 'icon-sm')}</button>
+        </span></li>`).join('');
+    Sortable.create(list, {
+        group: 'baul-categorias', items: '.cat-order-row', label: 'Categorías',
+        id: (el) => el.dataset.cat,
+        onDrop: () => {
+            const rows = [...list.querySelectorAll('.cat-order-row')];
+            saveCatOrder(rows.map((el) => el.dataset.cat));
+            document.getElementById('catOrderReset').disabled = false;
+            // Sin repintar (no corta la animación ni pierde el foco): posición y botones de los extremos
+            rows.forEach((el, i) => {
+                el.setAttribute('aria-label', `${el.dataset.cat}, posición ${i + 1} de ${rows.length}`);
+                el.querySelector('[data-move="-1"]').disabled = i === 0;
+                el.querySelector('[data-move="1"]').disabled = i === rows.length - 1;
+            });
+        },
+    });
+    if (focusCat == null) return;
+    const row = [...list.querySelectorAll('.cat-order-row')].find((el) => el.dataset.cat === focusCat);
+    if (!row) return;
+    if (focusDir === 'row') { row.focus(); return; }
+    const btn = row.querySelector(`[data-move="${focusDir}"]`);
+    (btn && !btn.disabled ? btn : row.querySelector('[data-move]:not([disabled])') || row).focus();
+}
+
+document.getElementById('catOrderList').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-move]');
+    if (!b || b.disabled) return;
+    const cat = b.closest('.cat-order-row').dataset.cat;
+    const order = allCats();
+    const i = order.indexOf(cat), j = i + Number(b.dataset.move);
+    if (i < 0 || j < 0 || j >= order.length) return;
+    [order[i], order[j]] = [order[j], order[i]];
+    saveCatOrder(order);
+    renderCatOrder(cat, b.dataset.move);
+});
+document.getElementById('catOrderReset').addEventListener('click', () => {
+    const before = catOrder();
+    if (!before.length) return;
+    Prefs.set(CAT_ORDER_KEY, []);
+    renderCategories();
+    applyFiltersAndRender();
+    renderCatOrder();
+    toast('Categorías en orden alfabético', { action: { label: 'Deshacer', onClick: () => { Prefs.set(CAT_ORDER_KEY, before); renderCategories(); applyFiltersAndRender(); renderCatOrder(); } } });
+});
+
 function renderCategories() {
-    const cats = [...new Set(allResources.map(r => r.category || 'General'))].sort((a, b) => a.localeCompare(b, 'es'));
+    const cats = allCats();
     if (activeCat && !cats.includes(activeCat)) activeCat = '';
     const chips = document.getElementById('catChips');
     chips.innerHTML = `<button type="button" class="chip" data-cat="" aria-pressed="${!activeCat}">Todas</button>` +
@@ -83,6 +220,7 @@ function renderCategories() {
         applyFiltersAndRender();
     }));
     document.getElementById('catList').innerHTML = cats.map(c => `<option value="${escapeHtml(c)}">`).join('');
+    document.getElementById('catOrderBtn').hidden = cats.length < 2;
 }
 
 function updateBadges() {
@@ -130,7 +268,7 @@ function applyFiltersAndRender() {
 function groupByCategory(items) {
     const groups = {};
     items.forEach(r => (groups[r.category || 'General'] ||= []).push(r));
-    return Object.keys(groups).sort((a, b) => a.localeCompare(b, 'es')).map(cat => ({ cat, items: groups[cat] }));
+    return sortCats(Object.keys(groups)).map(cat => ({ cat, items: groups[cat] }));
 }
 
 function render(items) {
@@ -204,7 +342,13 @@ document.getElementById('vaultContent').addEventListener('click', (e) => {
     b.setAttribute('aria-expanded', String(open));
     document.getElementById(b.getAttribute('aria-controls')).hidden = !open;
 });
-document.addEventListener('prefs:changed', () => { if (mainTab === 'watched') applyFiltersAndRender(); });
+// Llegó del servidor (otra pestaña u otro equipo): plegados o el orden de las categorías
+document.addEventListener('prefs:changed', () => {
+    if (!allResources.length) return;
+    renderCategories();
+    applyFiltersAndRender();
+    if (document.getElementById('catOrderModal').open) renderCatOrder();
+});
 
 /* Orden manual (componente común sortable.js): dentro de su sección (vídeos o web);
    soltar en otra categoría de la misma sección le cambia la categoría. */

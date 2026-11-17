@@ -87,7 +87,7 @@ browser.commands.onCommand.addListener(async (cmd) => {
 
 /* ---------- Mensajes del popup y las opciones ---------- */
 browser.runtime.onMessage.addListener((msg) => {
-  if (msg?.type === 'refresh') return refreshBadge();
+  if (msg?.type === 'refresh') { latido(); return refreshBadge(); }  // se acaba de guardar la configuración
   // youtube.js: vídeo visto de un canal del Baúl (sin conexión va a la cola) y vistos de un canal
   if (msg?.type === 'yt-visto') {
     const { video_id, channel, title } = msg;
@@ -132,9 +132,13 @@ browser.storage.onChanged?.addListener((changes, area) => {
   if (area === 'local' && ['baseUrl', 'token', 'autoLogin'].some((k) => k in changes)) syncContentScripts();
 });
 
+/* ---------- Latido (2.11): el Panel sabe que la extensión sigue viva y por dónde entra ---------- */
+function latido() { return Panel.heartbeat().catch(() => null); }  // sin configurar o sin conexión: ya lo dice la insignia
+
 /* ---------- Reintentos y estado periódicos ---------- */
 browser.alarms.create('refresh', { periodInMinutes: 1 });
-browser.alarms.onAlarm.addListener((a) => { if (a.name === 'refresh') refreshBadge(); });
+browser.alarms.create('latido', { periodInMinutes: 30 });
+browser.alarms.onAlarm.addListener((a) => { if (a.name === 'refresh') refreshBadge(); else if (a.name === 'latido') latido(); });
 browser.runtime.onStartup?.addListener(refreshBadge);
 browser.runtime.onInstalled.addListener(async (details) => {
   createMenus();
@@ -151,3 +155,4 @@ self.addEventListener?.('online', refreshBadge);
 createMenus();
 refreshBadge();
 syncContentScripts();
+latido();

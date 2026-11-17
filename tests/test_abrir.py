@@ -6,6 +6,9 @@ from pathlib import Path
 
 import pytest
 
+# P-12: permisos Unix (600, ejecutables): en NTFS no existen y conftest lo salta allí
+pytestmark = pytest.mark.permisos_unix
+
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("abrir", ROOT / "scripts/desktop/abrir/abrir.py")
 ab = importlib.util.module_from_spec(spec)

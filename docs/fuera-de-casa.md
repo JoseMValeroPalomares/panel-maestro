@@ -22,12 +22,20 @@ donde esté, sin abrir puertos, y con `tailscale serve` el panel tiene HTTPS con
 Instala la PWA en el móvil desde la dirección `ts.net` («Añadir a la pantalla de inicio»): con HTTPS funcionan el
 service worker, el cifrado de notas y el portapapeles.
 
+## Si en el móvil no carga
+
+Con la VPN de Tailscale activa y la página en blanco, casi siempre es el DNS: los nombres `ts.net` solo los resuelve
+el DNS de Tailscale. Prueba `https://100.69.0.39` (la IP de `tailscale ip -4`): si sale un aviso de certificado, la
+conexión va bien y falla el nombre. Arreglo: en la app de Tailscale, **Use Tailscale DNS** activado, y quitar lo que
+lo pise (perfil de DNS privado como AdGuard o NextDNS, otra VPN como 1.1.1.1/WARP, «DNS privado» en Android).
+
 ## Qué no funciona fuera de casa
 
 - **Con el portátil dormido o apagado no hay panel.** Tailscale no lo despierta. Si lo necesitas a menudo, evita la
   suspensión mientras está enchufado.
-- **ESP32**: la placa está en la red de casa y el panel se conecta a ella por la wifi local (`ESP32_HOST`). Si el
-  portátil sale de casa, la página Estudio la verá desconectada. La sincronía con iCloud sigue funcionando.
+- **ESP32**: la placa está en la red de casa y el panel se conecta a ella por la wifi local (la busca solo:
+  [red.md](red.md)). Con el portátil en casa, la página Estudio funciona también desde el móvil fuera de casa (entra
+  por el puente del panel). Si el portátil sale de casa, la verá desconectada. La sincronía con iCloud sigue funcionando.
 - **Abrir carpetas** (`panelmaestro://`, Universidad y Proyectos): abre la carpeta en el **portátil**, no en el móvil.
   Desde el móvil no hace nada.
 - **Carpeta de la universidad** (`/run/media/...`): solo se ve si el disco está conectado al portátil.

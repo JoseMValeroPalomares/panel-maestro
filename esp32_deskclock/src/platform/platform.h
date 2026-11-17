@@ -48,6 +48,9 @@ struct SysInfo {
   uint32_t freeHeapKB, minHeapKB, uptimeSec;
   float tempC, humidity;  // NAN si el sensor no responde
   float chipTempC;
+  char mac[18];          // "aa:bb:cc:dd:ee:ff"
+  char fw[16];           // FW_VERSION
+  char resetReason[16];  // por qué arrancó la última vez: encendido, reinicio, vigilante, error, tension…
 };
 void sysInfo(SysInfo& out);
 void requestRestart();

@@ -8,6 +8,7 @@ apuntar a un directorio temporal sin tocar los datos reales.
 """
 
 import os
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -60,6 +61,12 @@ CALENDAR_STATE = Path(
         else DATA_DIR / "calendar_sync_v2.json"
     )
 )
+
+# ── Sistema (P-12) ──────────────────────────────────────────────
+# «linux» o «windows»; por defecto, el sistema en el que corre. En Windows solo hay web: dotfiles, «Publicar», playerctl y
+# lo del escritorio se desactivan (docs/windows.md §4)
+PLATFORM = (_env("PANEL_PLATFORM") or ("windows" if sys.platform == "win32" else "linux")).lower()
+IS_WINDOWS = PLATFORM == "windows"
 
 # ── Autenticación ───────────────────────────────────────────────
 PASSWORD_HASH = _env("PANEL_PASSWORD_HASH")

@@ -164,6 +164,7 @@
     }
     const el = document.createElement('div');
     el.className = 'toast' + (type === 'error' ? ' error' : '');
+    if (type === 'error') window.Sonido?.play('error');  // solo si el sonido está encendido (sonido.js)
     el.innerHTML = icon(type === 'error' ? 'triangle-alert' : (type === 'info' ? 'info' : 'circle-check')) +
       `<span class="toast-msg">${escapeHtml(message)}</span>`;
     let timer;

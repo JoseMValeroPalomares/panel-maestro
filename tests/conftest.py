@@ -19,6 +19,26 @@ TEST_PASSWORD = "test-password-123"
 TEST_API_TOKEN = "token-de-prueba-abc"
 TMP = Path(tempfile.mkdtemp(prefix="panel-tests-"))
 
+# Desde el gancho pre-commit, git pasa su repo y su índice por el entorno (con `commit -a`, GIT_INDEX_FILE es un índice
+# temporal del commit). Los tests que hacen `git init` en un tmp lo heredarían y escribirían sus archivos en el índice
+# del commit de verdad («invalid object … for 'docs/guia.md'»). Cada git de los tests solo debe ver su propio repo.
+for _var in (
+    "GIT_DIR",
+    "GIT_INDEX_FILE",
+    "GIT_WORK_TREE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_PREFIX",
+    "GIT_COMMON_DIR",
+):
+    os.environ.pop(_var, None)
+
+# Ningún test avisa en el escritorio de verdad: la terminal hereda INVOCATION_ID de la sesión de systemd (el panel lo usa
+# para saber que corre como servicio) y los avisos de «el panel no arranca» de los tests salían en swaync. PANEL_NOTIFY
+# lo usan el panel y los scripts del escritorio; los tests que comprueban el aviso lo cambian con monkeypatch.
+os.environ.pop("INVOCATION_ID", None)
+os.environ["PANEL_NOTIFY"] = "true"
+
 os.environ.update(
     {
         # .env propio y vacío: el panel escribe en él («cerrar todas las sesiones») y nunca debe tocar el real
@@ -79,6 +99,24 @@ def anon(app):
 @pytest.fixture()
 def tmp_root():
     return TMP
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "permisos_unix: usa permisos Unix (600, ejecutable); se salta en NTFS (P-12)")
+
+
+def pytest_collection_modifyitems(config, items):
+    """scripts/probar_ntfs.sh pasa los tests con los datos en una imagen NTFS: allí no hay permisos Unix (docs/windows.md
+    §2.5) y lo que los prueba (token del escritorio, abridor, dotfiles) nunca vive en la partición compartida."""
+    from app.datos_compartidos import NTFS, sistema_de_archivos
+
+    base = config.option.basetemp or TMP
+    if sistema_de_archivos(TMP) not in NTFS and sistema_de_archivos(Path(base)) not in NTFS:
+        return
+    salta = pytest.mark.skip(reason="NTFS no tiene permisos Unix (docs/windows.md §2.5)")
+    for item in items:
+        if "permisos_unix" in item.keywords:
+            item.add_marker(salta)
 
 
 def pytest_sessionfinish(session, exitstatus):

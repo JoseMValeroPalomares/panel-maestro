@@ -513,6 +513,7 @@ function showHome() {
   clearTimeout(autoSaveTimer);
   autoSaveTimer = null;
   activeNoteId = null;
+  syncTabTitle();
   conflict = null;
   noteVersion = null;
   $('currentNoteId').value = '';
@@ -1101,10 +1102,25 @@ function enhanceRendered(container) {
     if (window.hljs) highlightCode(container);
     else loadScript(libUrl('hljs')).then(() => { if (container.isConnected) highlightCode(container); }).catch(() => {});
   }
+  if (!allNotes.length) return;
   const known = new Set(allNotes.map(n => n.id));
+  const alias = wikiAliases();
   container.querySelectorAll('.wiki-link[data-note-id]').forEach(a => {
-    if (allNotes.length && !known.has(a.dataset.noteId)) { a.classList.add('missing'); a.title = 'Nota inexistente: pulsa para crearla'; }
+    if (known.has(a.dataset.noteId)) return;
+    // [[Título]] → slug; si la nota se llama así pero su id es otro (título cambiado, id con tildes), se abre esa
+    const id = alias.get(a.dataset.noteId);
+    if (id) { a.dataset.noteId = id; a.href = `?note=${encodeURIComponent(id)}`; return; }
+    a.classList.add('missing'); a.title = 'Nota inexistente: pulsa para crearla';
   });
+}
+
+// slug del título (y del id, por si lleva tildes) → id; el primero que llega se queda
+function wikiAliases() {
+  const map = new Map();
+  for (const n of allNotes) {
+    for (const k of [slugify(n.title || ''), slugify(n.id)]) if (k && !map.has(k)) map.set(k, n.id);
+  }
+  return map;
 }
 
 /* ---------- Cambios hechos en otra pestaña (Tareas, Inbox, Gestión…) ----------
@@ -1621,8 +1637,14 @@ function autoStartWriting() {
   updateStatusBadge();
   toast('La nota pasa a «En desarrollo»', { type: 'info', duration: 2200 });
 }
+// La pestaña del navegador lleva el título de la nota abierta (y «Notas» en la portada)
+function syncTabTitle() {
+  const t = activeNoteId ? $('noteTitle').value.trim() : '';
+  document.title = `${t || 'Notas'} · Panel`;
+}
 function autosizeTitle() {
   const t = $('noteTitle');
+  syncTabTitle();
   if (CSS.supports('field-sizing', 'content')) return;
   t.style.height = 'auto';
   t.style.height = t.scrollHeight + 'px';

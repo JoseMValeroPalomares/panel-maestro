@@ -38,7 +38,8 @@ PUBLIC_EXACT = {
     "/sim",
     "/static/manifest.json",
 }
-PUBLIC_PREFIXES = ("/static/css/", "/static/js/", "/static/vendor/", "/static/icons/", "/static/fonts/")
+# /cal/: el calendario .ics por URL; la ruta comprueba su propio token (app/calendario_ics.py)
+PUBLIC_PREFIXES = ("/cal/", "/static/css/", "/static/js/", "/static/vendor/", "/static/icons/", "/static/fonts/")
 
 UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
@@ -97,10 +98,6 @@ def _bearer_kind(headers: dict) -> str | None:
     return None
 
 
-def _bearer_is_valid(headers: dict) -> bool:
-    return _bearer_kind(headers) is not None
-
-
 # Proxy de confianza (tailscale serve, S-1): el mismo que admite uvicorn --forwarded-allow-ips en start.sh
 TRUSTED_PROXIES = {"127.0.0.1", "::1"}
 
@@ -127,11 +124,14 @@ class AuthMiddleware:
         self.app = app
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http" or config.AUTH_DISABLED:
+        if scope["type"] not in ("http", "websocket") or config.AUTH_DISABLED:
             return await self.app(scope, receive, send)
 
         path = scope.get("path", "")
         headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])}
+
+        if scope["type"] == "websocket":
+            return await self._websocket(scope, receive, send, path, headers)
 
         if is_public_path(path):
             return await self.app(scope, receive, send)
@@ -164,6 +164,23 @@ class AuthMiddleware:
             full = path + ("?" + scope["query_string"].decode() if scope.get("query_string") else "")
             response = RedirectResponse(f"/login?next={quote(full)}", status_code=303)
         return await response(scope, receive, send)
+
+    async def _websocket(self, scope, receive, send, path: str, headers: dict):
+        """WebSocket (el puente /estudio/ws con la placa): token Bearer, o cookie de sesión con un Origin que sea el
+        del propio panel. Lo segundo no es opcional: a un WebSocket no se le aplica la política del mismo origen, así
+        que sin esa comprobación cualquier web abierta en el navegador podría usar la sesión (CSWSH). Sin permiso se
+        cierra antes de aceptar (el navegador ve un 403)."""
+        kind = _bearer_kind(headers)
+        if kind:
+            scope.setdefault("state", {}).update(auth="token", token=kind)
+            return await self.app(scope, receive, send)
+        if auth_configured() and session_is_valid(_cookie_from_header(headers.get("cookie", ""))):
+            client_ip = (scope.get("client") or ("",))[0]
+            if headers.get("origin") and _origin_matches_host(headers, client_ip):
+                scope.setdefault("state", {})["auth"] = "session"
+                return await self.app(scope, receive, send)
+            log.warning("WebSocket %s bloqueado: Origin «%s» distinto del panel", path, headers.get("origin", ""))
+        await send({"type": "websocket.close", "code": 1008})
 
 
 # ── Rutas de login ──────────────────────────────────────────────
@@ -287,7 +304,8 @@ def extension_session(request: Request):
 
 @router.api_route("/healthz", methods=["GET", "HEAD"])
 def healthz():
-    """Público (systemd, monitores): SELECT 1 en las dos BDs. 503 si alguna no responde; nunca dice cuál ni por qué."""
+    """Público (systemd, monitores): SELECT 1 en las dos BDs. 503 si alguna no responde; nunca dice cuál ni por qué.
+    `app` deja a la extensión reconocer el panel al buscarlo (no es un secreto: la pantalla de acceso ya lo dice)."""
     for db in (config.BRAIN_DB, config.COMIDAS_DB):
         try:
             conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=2)
@@ -297,5 +315,5 @@ def healthz():
                 conn.close()
         except sqlite3.Error:
             log.warning("healthz: %s no responde", Path(db).name)
-            return JSONResponse({"status": "error"}, status_code=503)
-    return {"status": "ok"}
+            return JSONResponse({"status": "error", "app": "panel-maestro"}, status_code=503)
+    return {"status": "ok", "app": "panel-maestro"}

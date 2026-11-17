@@ -87,7 +87,22 @@ def fetch(beat: bool) -> tuple[dict | None, float]:
 
 def notify(urgency: str, title: str, body: str) -> None:
     subprocess.run(
-        [os.environ.get("PANEL_NOTIFY", "notify-send"), "-a", "Panel", "-u", urgency, "-i", "chronometer", title, body],
+        # una sola notificación del contador a la vez: la nueva sustituye a la anterior (pista synchronous)
+        [
+            os.environ.get("PANEL_NOTIFY", "notify-send"),
+            "-a",
+            "Panel",
+            "-u",
+            urgency,
+            "-i",
+            "chronometer",
+            "-h",
+            "string:x-canonical-private-synchronous:panel-contador",
+            "-h",
+            "string:synchronous:panel-contador",
+            title,
+            body,
+        ],  # fmt: skip
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         check=False,

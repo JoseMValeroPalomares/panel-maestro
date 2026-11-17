@@ -11,10 +11,16 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
-from app import contextos
+from app import contextos, prefs
 from app.database import get_db
 from app.ordering import next_resource_order
-from app.scraper import cache_thumbnail, canonical_youtube_url, fetch_metadata, youtube_video_id
+from app.scraper import (
+    cache_thumbnail,
+    canonical_youtube_url,
+    fetch_metadata,
+    youtube_channel_info,
+    youtube_video_id,
+)
 from core import config, undo
 from core.files import atomic_write
 from core.logging_config import get_logger
@@ -55,7 +61,16 @@ class ResourceUpdate(BaseModel):
 
 
 def do_scrape_and_save(url: str, category: str):
-    meta = fetch_metadata(url)
+    """Rellena título, descripción e imagen de un recurso recién añadido (tarea de fondo). Pase lo que pase deja un
+    título distinto de la URL: es lo que la interfaz usa para saber que ya no está «cargando»."""
+    try:
+        meta = fetch_metadata(url)
+    except Exception as e:  # noqa: BLE001 — una web rara no puede dejar el recurso cargando para siempre
+        log.warning("Baúl: no se pudieron leer los metadatos de %s: %s", url, e)
+        host = re.sub(r"^www\.", "", re.sub(r"^https?://([^/]+).*$", r"\1", url))
+        meta = {"title": host or "Sin título", "description": "", "image": "", "resource_type": "web"}
+        if youtube_video_id(url):
+            meta["resource_type"] = "youtube"
     image = (cache_thumbnail(meta["image"], THUMBS_DIR) or meta["image"]) if meta.get("image") else ""
     with get_db() as conn:
         conn.execute(
@@ -67,6 +82,56 @@ def do_scrape_and_save(url: str, category: str):
 
 
 THUMB_RETRY_S = 7 * 86400  # una miniatura que falla no se vuelve a pedir hasta pasada una semana (V-3)
+THUMB_REPAIR_S = 600  # «reparar» la miniatura de un recurso a petición del navegador: como mucho cada 10 min
+_thumb_repairs: dict[int, float] = {}
+_thumb_repair_lock = threading.Lock()
+
+
+def _thumb_file(image: str) -> str:
+    """Ruta en disco de una miniatura local («» si `image` no lo es)."""
+    m = re.fullmatch(r"/static/uploads/thumbs/([0-9a-f]{32}\.webp)", image or "")
+    return os.path.join(THUMBS_DIR, m.group(1)) if m else ""
+
+
+def repair_thumbnail(resource_id: int, now: float | None = None) -> dict:
+    """La imagen de un recurso no carga en el navegador (el archivo ya no está, nunca se pudo bajar…): se vuelve a
+    obtener de su origen y se guarda en local. {"image": ruta local o "", "motivo"}."""
+    now = time.time() if now is None else now
+    with get_db() as conn:
+        row = conn.execute("SELECT id, url, image, resource_type FROM resources WHERE id=?", (resource_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "Recurso no encontrado")
+    local = _thumb_file(row["image"])
+    if local and os.path.isfile(local) and os.path.getsize(local) > 0:
+        return {"image": row["image"], "motivo": "ya-estaba"}  # el archivo está bien: fue un fallo de red del navegador
+    with _thumb_repair_lock:
+        if now - _thumb_repairs.get(resource_id, 0.0) < THUMB_REPAIR_S:
+            return {"image": "", "motivo": "espera"}
+        _thumb_repairs[resource_id] = now
+        if len(_thumb_repairs) > 500:  # no crece sin fin
+            for k in sorted(_thumb_repairs, key=_thumb_repairs.get)[:250]:  # type: ignore[arg-type]
+                _thumb_repairs.pop(k, None)
+    candidatas = []
+    if (row["image"] or "").startswith("http"):
+        candidatas.append(row["image"])
+    vid = youtube_video_id(row["url"])
+    try:
+        if vid:
+            candidatas.append(f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg")
+        elif row["resource_type"] == "youtube":
+            candidatas.append(youtube_channel_info(row["url"]).get("image", ""))
+        else:
+            candidatas.append(fetch_metadata(row["url"]).get("image", ""))
+    except Exception as e:  # noqa: BLE001 — sin red o web caída: se queda con el respaldo
+        log.info("Baúl: no se pudo volver a buscar la imagen de %s: %s", row["url"], e)
+    for remota in dict.fromkeys(c for c in candidatas if c):
+        nueva = cache_thumbnail(remota, THUMBS_DIR)
+        if nueva:
+            with get_db() as conn:
+                conn.execute("UPDATE resources SET image=? WHERE id=?", (nueva, resource_id))
+            log.info("Baúl: miniatura del recurso %d recuperada", resource_id)
+            return {"image": nueva, "motivo": "recuperada"}
+    return {"image": "", "motivo": "sin-imagen"}
 
 
 def _thumb_failures_file():
@@ -170,6 +235,12 @@ def backfill_channels(pausa_s: float = 1.5, reintentos: int = 3, dormir=time.sle
     return hechos
 
 
+@router.post("/api/resources/{resource_id}/miniatura")
+def repair_resource_thumbnail(resource_id: int):
+    """Lo llama el Baúl cuando una imagen no carga (una vez por recurso y visita)."""
+    return repair_thumbnail(resource_id)
+
+
 @router.post("/api/resources/backfill-channels")
 def start_backfill_channels(background_tasks: BackgroundTasks):
     """Lanza en segundo plano el relleno de canales (el Baúl lo pide al abrir «Vistos» si hay vídeos sin canal)."""
@@ -239,11 +310,21 @@ def get_resources(category: str = None):
     return {"resources": [{**dict(r), **(contextos.label(r, conts) if "contexto" in r.keys() else {})} for r in rows]}
 
 
+CATEGORY_ORDER_PREF = "baul-categorias"  # orden propio de las categorías (lo escribe el Baúl con Prefs, vault.js)
+
+
+def sort_categories(cats) -> list[str]:
+    """Primero las del orden propio, en ese orden; las que no estén en él, detrás y alfabéticas."""
+    saved = prefs.get(CATEGORY_ORDER_PREF, [])
+    pos = {c: i for i, c in enumerate(saved if isinstance(saved, list) else []) if isinstance(c, str)}
+    return sorted(set(cats), key=lambda c: (pos.get(c, len(pos)), c.casefold()))
+
+
 @router.get("/api/resources/categories")
 def get_resource_categories():
     with get_db() as conn:
-        rows = conn.execute("SELECT DISTINCT category FROM resources ORDER BY category").fetchall()
-    return {"categories": [r["category"] for r in rows]}
+        rows = conn.execute("SELECT DISTINCT category FROM resources").fetchall()
+    return {"categories": sort_categories(r["category"] or "General" for r in rows)}
 
 
 @router.patch("/api/resources/{resource_id}")

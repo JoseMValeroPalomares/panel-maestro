@@ -2,18 +2,58 @@
    Tablero del Inbox (static/js/board.js) — SVG propio
    ========================================================================== */
 .board-area {
+  container: tablero / inline-size;
   display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%;
   background: var(--bg-elev); border-radius: var(--r-lg); overflow: hidden;
   box-shadow: var(--shadow-1), 0 0 0 0.5px var(--separator);
 }
-.board-bar { display: flex; align-items: center; gap: var(--sp-2); padding: 8px var(--sp-3) 4px; }
+.board-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--sp-2); padding: 8px var(--sp-3); border-bottom: 1px solid var(--separator); }
 .board-select { width: auto; min-width: 140px; max-width: 260px; font-weight: 600; }
-.board-toolbar {
-  display: flex; align-items: center; gap: 2px; padding: 4px var(--sp-2) 6px;
-  border-bottom: 1px solid var(--separator); flex-wrap: wrap; row-gap: 2px;
+/* Opciones del lienzo (propiedades, organizar, vista): fuera del dibujo, para dejar el lienzo limpio */
+.board-bar-tools { display: flex; align-items: center; gap: 2px; min-width: 0; max-width: 100%; margin-left: auto; overflow-x: auto; scrollbar-width: none; }
+.board-bar-tools::-webkit-scrollbar { display: none; }
+.board-bar-tools .toolbar-sep { margin: 0 4px; }
+@media (max-width: 767px) {
+  .board-bar { flex-wrap: wrap; row-gap: 4px; padding-bottom: 4px; }
+  .board-bar-tools { order: 9; flex: 1 0 100%; }
 }
-@media (max-width: 767px) { .board-toolbar { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; } }
-.board-toolbar::-webkit-scrollbar { display: none; }
+
+/* Herramientas de dibujo: dentro de la barra de arriba. Tablero ancho: una sola fila (tablero · herramientas ·
+   opciones). Estrecho: arriba el tablero y sus opciones; debajo, las herramientas (desplazables si no caben). */
+.board-tools {
+  display: flex; align-items: center; gap: 2px; min-width: 0; max-width: 100%; padding: 2px;
+  border-radius: var(--r-md); background: var(--bg-sunken); box-shadow: inset 0 0 0 0.5px var(--separator);
+  overflow-x: auto; scrollbar-width: none;
+}
+.board-tools::-webkit-scrollbar { display: none; }
+.board-tools .tool-btn, .board-bar-tools .tool-btn { min-width: 32px; height: 32px; padding: 0 7px; }
+.board-tools .toolbar-sep { margin: 0 3px; height: 20px; }
+.board-bar-break { display: none; }
+@container tablero (max-width: 1099px) {
+  .board-bar-break { display: block; order: 9; flex-basis: 100%; height: 0; }
+  .board-tools { order: 10; flex: 0 1 auto; }
+  #boardSaveStatus { order: 11; margin-left: auto; }
+  .board-select { min-width: 120px; }
+}
+@media (pointer: coarse) { .board-tools .tool-btn, .board-bar-tools .tool-btn { min-width: var(--touch); height: var(--touch); } }
+
+/* Barra flotante sobre el lienzo: zoom y deshacer abajo a la izquierda */
+.board-float {
+  position: absolute; z-index: 3; display: flex; align-items: center; gap: 2px; padding: 4px;
+  border-radius: var(--r-md); background: color-mix(in srgb, var(--bg-elev) 92%, transparent);
+  box-shadow: var(--shadow-2), 0 0 0 0.5px var(--separator-strong);
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+}
+.board-zoom .toolbar-sep { margin: 0 3px; height: 22px; }
+.board-zoom { left: 12px; bottom: 12px; padding: 3px; }
+
+@media (max-width: 767px) {
+  .board-zoom { left: 8px; bottom: 8px; }
+  .board-wrap .board-minimap { right: 8px; bottom: 62px; width: 132px; height: 88px; }
+}
+/* Hoja de propiedades abierta (tablero estrecho): el zoom se aparta como el minimapa */
+.board-body.props-sheet:has(> .board-props:not([hidden])) .board-zoom { display: none; }
+
 .tool-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex-shrink: 0;
   min-width: 34px; height: 34px; padding: 0 8px; border-radius: 8px;
@@ -28,7 +68,8 @@
 .zoom-label { min-width: 54px; font-variant-numeric: tabular-nums; }
 @media (pointer: coarse) { .tool-btn { min-width: var(--touch); height: var(--touch); } }
 
-/* Lienzo: --board-bg/--board-grid vienen del tema (themes.css); siempre oscuro */
+/* Lienzo: --board-bg/--board-grid vienen del tema (themes.css). Oscuro por defecto; el claro (.is-light)
+   invierte solo lo dibujado, sin tocar los colores guardados (los mismos tonos, con la luz al revés) */
 .board-wrap {
   position: relative; flex: 1; min-height: 0; background: var(--board-bg); overflow: hidden;
 }
@@ -40,6 +81,9 @@
 .board-wrap[data-tool="text"] .board-svg, .board-wrap[data-tool="arrow"] .board-svg, .board-wrap[data-tool="pen"] .board-svg { cursor: crosshair; }
 .board-wrap[data-tool="eraser"] .board-svg { cursor: cell; }
 .grid-dot { fill: var(--board-grid, var(--separator-strong)); }
+.board-wrap.is-light { background: #f7f7f9; }
+.board-wrap.is-light > :is(.board-svg, .board-minimap, .board-empty, .edge-label-editor) { filter: invert(0.93) hue-rotate(180deg); }
+.board-wrap.is-light .board-svg:focus-visible { box-shadow: inset 0 0 0 2px #2a4b85; }
 .board-grid { transition: opacity var(--dur); pointer-events: none; }
 
 /* Cajas */
@@ -153,7 +197,7 @@
 }
 .props-empty { font-size: var(--fs-13); color: var(--text-2); padding: var(--sp-2) 0; }
 .board-props {
-  position: absolute; z-index: 2; top: 12px; right: 12px; width: 252px; max-height: calc(100% - 156px); overflow-y: auto; overscroll-behavior: contain;
+  position: absolute; z-index: 4; top: 12px; right: 12px; width: 252px; max-height: calc(100% - 88px); overflow-y: auto; overscroll-behavior: contain;
   padding: var(--sp-2) var(--sp-3) var(--sp-3); border-radius: var(--r-md); background: color-mix(in srgb, var(--bg-elev) 94%, transparent);
   box-shadow: var(--shadow-2), 0 0 0 0.5px var(--separator-strong); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
   animation: props-in var(--dur) var(--ease-out);
@@ -207,3 +251,31 @@
 /* Barra: enlace a la tarea dueña del tablero */
 .board-item-link { min-width: 0; max-width: 260px; color: var(--text-2); }
 .board-item-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Trazo a mano: el contorno es un trazado aparte (la forma de debajo solo rellena y recibe el clic) */
+.node .sketch, .edge-sketch { pointer-events: none; }
+.edge.is-selected .edge-sketch { filter: drop-shadow(0 0 3px var(--accent)); }
+
+/* Menú de acciones y atajos («/» y «?») */
+.board-actions { width: min(520px, calc(100vw - 32px)); }
+.ba-body { display: flex; flex-direction: column; gap: var(--sp-2); padding-top: 0; }
+.ba-search { position: relative; display: flex; align-items: center; }
+.ba-search > .icon { position: absolute; left: 10px; color: var(--text-3); pointer-events: none; }
+.ba-search .input { padding-left: 32px; }
+.ba-list { max-height: min(56vh, 460px); overflow-y: auto; overscroll-behavior: contain; margin: 0 calc(var(--sp-2) * -1); padding: 0 var(--sp-2); }
+.ba-group { padding: 10px 8px 4px; font-size: var(--fs-12); font-weight: 600; color: var(--text-3); }
+.ba-item {
+  display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 4px 8px; border-radius: var(--r-xs); cursor: pointer;
+  font-size: var(--fs-14); color: var(--text);
+}
+.ba-item > .icon { flex-shrink: 0; color: var(--text-2); }
+.ba-item[aria-selected="true"] { background: var(--accent-soft); }
+.ba-item[aria-selected="true"] > .icon { color: var(--accent-text); }
+.ba-item:hover:not([aria-disabled="true"]) { background: var(--hover); }
+.ba-item[aria-selected="true"]:hover { background: var(--accent-soft); }
+.ba-item[aria-disabled="true"] { cursor: default; color: var(--text-3); }
+.ba-label { flex: 1; min-width: 0; }
+.ba-keys { display: inline-flex; gap: 3px; flex-shrink: 0; }
+.ba-empty { padding: var(--sp-3) 8px; color: var(--text-2); font-size: var(--fs-13); }
+.ba-foot { padding-top: var(--sp-2); border-top: 1px solid var(--separator); }
+@media (pointer: coarse) { .ba-item { min-height: var(--touch); } }

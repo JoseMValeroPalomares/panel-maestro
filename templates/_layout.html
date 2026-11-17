@@ -107,6 +107,7 @@
   </div>
   <div class="modal-body stack">
     <button type="button" class="btn btn-block" data-open-status>{{ icon('plug-zap', 'icon-sm') }}Estado de las conexiones<span class="net-dot" data-status-dot hidden></span></button>
+    <button type="button" class="btn btn-block" data-call="Red.open">{{ icon('network', 'icon-sm') }}Red y dispositivos</button>
     <button type="button" class="btn btn-block" data-call="closeModal;openAiSettings" data-args='[["moreSheet"], []]'>{{ icon('sparkles', 'icon-sm') }}IA para corregir notas</button>
     <button type="button" class="btn btn-block" data-call="closeModal;Palette.open" data-args='[["moreSheet"], []]'>{{ icon('search', 'icon-sm') }}Buscar en todo el panel <kbd class="hide-mobile">Ctrl K</kbd></button>
     <ul class="list">
@@ -144,6 +145,8 @@
       <button type="button" class="btn btn-tinted btn-sm theme-edit" data-tp-open>{{ icon('palette', 'icon-sm') }}Editar mi paleta…</button>
     </fieldset>
     <button type="button" class="btn btn-block" data-call="closeModal;Reminders.openSettings" data-args='[["moreSheet"], []]'>{{ icon('bell', 'icon-sm') }}Avisos y recordatorios</button>
+    <label class="field sound-field"><input type="checkbox" role="switch" id="soundSwitch" class="switch" aria-describedby="soundHint">
+      <span><span class="field-label">Sonidos</span><span class="field-hint" id="soundHint">Un sonido corto y bajo al completar, al recibir un aviso y si algo falla. Solo en este dispositivo.</span></span></label>
     <label class="field capture-key-field"><span class="field-label">Tecla de la captura rápida</span>
       <input class="input" id="captureKeyInput" maxlength="1" autocomplete="off" aria-describedby="captureKeyHint">
       <span class="field-hint" id="captureKeyHint">Una letra; funciona fuera de los campos de texto. Ctrl+K abre la paleta de comandos.</span></label>
@@ -158,6 +161,7 @@
 
 <script src="{{ asset('/static/js/auth-guard.js') }}"></script>
 <script src="{{ asset('/static/js/ui.js') }}"></script>
+<script src="{{ asset('/static/js/sonido.js') }}"></script>
 <script src="{{ asset('/static/js/rapido.js') }}"></script>
 <script src="{{ asset('/static/js/tema-propio.js') }}"></script>
 <script src="{{ asset('/static/js/sortable.js') }}"></script>
@@ -171,6 +175,7 @@
 <script src="{{ asset('/static/js/timer.js') }}"></script>
 <script src="{{ asset('/static/js/palette.js') }}"></script>
 <script src="{{ asset('/static/js/status.js') }}"></script>
+<script src="{{ asset('/static/js/red.js') }}"></script>
 <script src="{{ asset('/static/js/ia-ajustes.js') }}"></script>
 {% block scripts %}{% endblock %}
 </body>

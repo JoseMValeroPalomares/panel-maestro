@@ -13,6 +13,7 @@
 #include <WiFi.h>
 #include <Wire.h>
 #include <esp_sntp.h>
+#include <esp_task_wdt.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <sys/time.h>
@@ -105,7 +106,10 @@ void dropSlot(Assembly* s) {
   *s = Assembly();
 }
 
+volatile bool helloPending = false;  // un cliente nuevo: se le saluda con un latido desde loop()
+
 void onWsEvent(AsyncWebSocket*, AsyncWebSocketClient* client, AwsEventType type, void* arg, uint8_t* data, size_t len) {
+  if (type == WS_EVT_CONNECT) { helloPending = true; return; }
   if (type == WS_EVT_DISCONNECT) { dropSlot(slotFor(client->id(), false)); return; }
   if (type != WS_EVT_DATA) return;
   const AwsFrameInfo* info = (const AwsFrameInfo*)arg;
@@ -150,6 +154,28 @@ void netProcess() {
   }
 }
 
+// Latido cada 30 s mientras haya alguien escuchando, y enseguida cuando entra un cliente
+void heartbeatPoll() {
+  static uint32_t last = 0;
+  const uint32_t now = millis();
+  if (!helloPending && now - last < 30000) return;
+  if (helloPending && now - last < 1000) return;  // varios clientes a la vez: un solo saludo
+  helloPending = false;
+  last = now;
+  if (ws.count() && WiFi.status() == WL_CONNECTED) protocol::sendHeartbeat();
+}
+
+// Memoria: con poca, la carátula (29 KB) o un mensaje grande dejan de caber. Se avisa por serie, una vez por minuto.
+void heapPoll() {
+  static uint32_t last = 0;
+  if (millis() - last < 60000) return;
+  last = millis();
+  const uint32_t libre = ESP.getFreeHeap(), bloque = ESP.getMaxAllocHeap();
+  if (libre < 40000 || bloque < 30000)
+    logf("memoria: quedan %u KB (bloque mayor %u KB, mínimo histórico %u KB)", (unsigned)(libre / 1024),
+         (unsigned)(bloque / 1024), (unsigned)(ESP.getMinFreeHeap() / 1024));
+}
+
 uint32_t wifiLostMs = 0;
 bool mdnsUp = false;
 
@@ -160,9 +186,17 @@ void wifiPoll() {
   if (WiFi.status() == WL_CONNECTED) {
     wifiLostMs = 0;
     if (!mdnsUp) {
+      MDNS.end();  // tras una reconexión: se anuncia de nuevo con la IP que toque
       mdnsUp = MDNS.begin(HOSTNAME);
-      if (mdnsUp) MDNS.addService("http", "tcp", 80);
-      logf("WiFi: %s (%d dBm)", WiFi.localIP().toString().c_str(), WiFi.RSSI());
+      if (mdnsUp) {
+        MDNS.addService("http", "tcp", 80);
+        MDNS.addServiceTxt("http", "tcp", "app", "panel-estudio");
+        MDNS.addServiceTxt("http", "tcp", "fw", FW_VERSION);
+        MDNS.addServiceTxt("http", "tcp", "ws", "/ws");
+      }
+      logf("WiFi: %s (%d dBm), %s.local %s", WiFi.localIP().toString().c_str(), WiFi.RSSI(), HOSTNAME,
+           mdnsUp ? "anunciado" : "SIN anunciar (mDNS falló)");
+      helloPending = true;  // la IP puede ser otra: que el panel se entere ya
     }
     return;
   }
@@ -341,10 +375,22 @@ void beginInputs() {
   dht.begin();
 }
 
+void beginWatchdog() {
+  SysInfo s;
+  sysInfo(s);
+  logf("arranque: firmware %s, MAC %s, motivo: %s", s.fw, s.mac, s.resetReason);
+  // 20 s: montar una SD que no responde tarda unos segundos; un cuelgue de verdad no se recupera solo
+  const esp_task_wdt_config_t cfg = {.timeout_ms = 20000, .idle_core_mask = 1 << 0, .trigger_panic = true};
+  esp_task_wdt_reconfigure(&cfg);
+  enableLoopWDT();  // loop() lo alimenta en cada vuelta (lo hace el núcleo de Arduino)
+}
+
 void poll() {
   netProcess();
   irPoll();
   wifiPoll();
+  heartbeatPoll();
+  heapPoll();
   dhtPoll();
   timePoll();
   device_sdPoll();

@@ -66,3 +66,12 @@ circle-check-big
 percent
 git-compare
 bell-off clock-alert circle-stop timer-off
+chef-hat list-ordered
+ban
+# Universidad: carpeta, temas propuestos, archivos y ejercicios
+pencil-ruler folder-x folder-check scan-search file-x book-open-text folder-search
+signature clipboard-paste paint-bucket chart-gantt paperclip message-square arrow-down-up layout-list messages-square arrow-up arrow-down signal
+flask-conical folder-input corner-left-up file-symlink
+# Ajustes → Red y dispositivos
+network laptop cpu puzzle radar
+compass

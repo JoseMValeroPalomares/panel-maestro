@@ -184,7 +184,9 @@ los colores del tema activo.
 - Categorías (Notas, Baúl, Grafo): `--cat-0…9` del tema activo, solo en puntos y en los nodos del grafo.
 - Azulejos: un color por sección (`tile-*`) con su glifo `tile-fg`. Eventos, ideas y rutinas tienen su color propio
   (`--c-event`, `--c-idea`, `--c-routine`), que no depende del de ninguna sección. El lienzo del tablero (`board-bg`) es la
-  superficie del tema en los oscuros y Mocha base en los claros: siempre oscuro, porque las formas son para él.
+  superficie del tema en los oscuros y Mocha base en los claros: oscuro por defecto, porque las formas se guardan
+  pensadas para él. El lienzo claro (preferencia `tablero.lienzo`: oscuro, claro o como el panel) invierte solo en
+  pantalla lo dibujado (`filter: invert(0.93) hue-rotate(180deg)`) sobre `#f7f7f9`: los colores guardados no cambian.
 
 ## Typography
 
@@ -238,7 +240,11 @@ modales 22 px; chips en píldora; azulejos 7 px (9 px el grande). Iconos Lucide 
 - **Modal único** (`dialog.modal`, `-sm`, `-lg`) con `ui.js:openModal`; centrado en escritorio (el reset global
   anula el `margin: auto` nativo, por eso `dialog.modal` lo vuelve a poner). Confirmaciones con `uiConfirm`; las
   destructivas usan `danger: true`. Restaurar una copia pide escribir RESTAURAR.
-- **Toast** con acción opcional («Deshacer» tras borrar en lote, 12 s).
+- **Toast** con acción opcional («Deshacer» tras borrar en lote, 12 s). Es un HUD oscuro igual en todos los temas
+  (`#313244`, filo `#45475a`) con texto claro fijo (`#e6e9f5`) y la acción en el acento aclarado con blanco: así se lee
+  también en los temas claros. Un error puede sonar (`sonido.js`, apagado de serie).
+- **Página 404** (`templates/404.html`): el estado «sin resultados» centrado, con la ruta pedida y tres salidas (Hoy,
+  Buscar, Volver). Solo para navegaciones del navegador; la API sigue respondiendo JSON.
 - **Estado vacío** (`emptyState`) con icono en círculo, título y una frase de qué hacer; **skeletons** al cargar.
 - **Estados ilustrados** (`stateView` / `showState` / `loadFailed`): vacío, hecho, sin resultados, error y sin
   conexión, con ilustración propia (`static/ilustraciones.svg`) cuyo acento dice el tono; error y sin conexión llevan

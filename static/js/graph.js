@@ -61,13 +61,16 @@ async function initGraph() {
   renderGraph();
 }
 
-function pruneEmptyCategories(nodes, edges) {
+/* Quita las categorías sin nada visible dentro (p. ej. con el filtro de estado). Las plegadas se quedan siempre:
+   sus hijos están ocultos a propósito y es la única forma de volver a desplegarlas. */
+function pruneEmptyCategories(nodes, edges, keepIds = new Set()) {
   const noteIds = new Set(nodes.filter(n => n.type === 'note').map(n => n.id));
   const catIds = new Set(nodes.filter(n => n.type === 'category').map(n => n.id));
   let changed = true;
   while (changed) {
     changed = false;
     catIds.forEach(catId => {
+      if (keepIds.has(catId)) return;
       if (!edges.some(e => e.from === catId && (noteIds.has(e.to) || catIds.has(e.to)))) { catIds.delete(catId); changed = true; }
     });
   }
@@ -84,18 +87,75 @@ function computeOrphanIds() {
 
 function showLoading(show) { document.getElementById('loadingOverlay').hidden = !show; }
 
+/* La vista (centro y zoom) se recuerda entre visitas, aparte en el móvil y en el escritorio (Prefs, servidor).
+   Al repintar (plegar, filtros, tema) se conserva la que hay en pantalla: solo se encuadra si no hay ninguna. */
+const isPhone = () => matchMedia('(max-width: 767px)').matches;
+const viewKey = () => (isPhone() ? 'grafo-vista-movil' : 'grafo-vista');
+let keepView = null;
+let viewTimer = null;
+function currentView() {
+  const p = network.getViewPosition();
+  return { x: Math.round(p.x), y: Math.round(p.y), scale: Math.round(network.getScale() * 1000) / 1000 };
+}
+function savedView() {
+  const v = Prefs.get(viewKey(), null);
+  return v && [v.x, v.y, v.scale].every(Number.isFinite) && v.scale > 0.02 && v.scale < 10 ? v : null;
+}
+// Mientras la página termina de colocarse (leyenda, filtros) el lienzo cambia de alto y vis-network reescala la
+// vista: la restaurada se vuelve a aplicar en cada cambio de tamaño hasta que se toque el grafo o pase un momento
+let pinnedView = null;
+const applyView = (v) => network.moveTo({ position: { x: v.x, y: v.y }, scale: v.scale, animation: false });
+function userMovedView() { pinnedView = null; saveView(); }
+function saveView() {
+  clearTimeout(viewTimer);
+  viewTimer = setTimeout(() => { if (network) Prefs.set(viewKey(), currentView()); }, 400);
+}
+
+/* Botón «Encuadrar todo»: vuelve a ver el grafo entero (y esa pasa a ser la vista guardada) */
+function fitAll() {
+  if (!network) return;
+  const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  network.fit({ animation: still ? false : { duration: 400, easingFunction: 'easeInOutQuad' }, minZoomLevel: isPhone() ? 0.12 : 0.15, maxZoomLevel: 1.2 });
+  if (still) saveView();
+}
+
 function renderGraph() {
   const P = themePalette();
   const hidden = new Set();
   collapsedCats.forEach(catId => getDescendantIds(catId).forEach(id => hidden.add(id)));
+  // Cada nodo oculto queda representado por su categoría plegada visible más alta
+  const shownCollapsed = [...collapsedCats].filter(id => !hidden.has(id) && rawData.nodes.some(n => n.id === id));
+  const holder = new Map();
+  shownCollapsed.forEach(catId => getDescendantIds(catId).forEach(id => holder.set(id, catId)));
   const filtered = (statusFilter === 'all' ? rawData.nodes : rawData.nodes.filter(n => n.type === 'category' || n.status === statusFilter))
     .filter(n => !hidden.has(n.id));
   const ids = new Set(filtered.map(n => n.id));
-  const { nodes, edges } = pruneEmptyCategories(filtered, rawData.edges.filter(e => ids.has(e.from) && ids.has(e.to)));
+  const { nodes, edges } = pruneEmptyCategories(filtered, rawData.edges.filter(e => ids.has(e.from) && ids.has(e.to)), new Set(shownCollapsed));
+  const shownIds = new Set(nodes.map(n => n.id));
+  // Conexiones de las notas plegadas con el resto: salen de su categoría (una por pareja, sin repetir)
+  const passes = (id) => statusFilter === 'all' || rawData.nodes.find(n => n.id === id)?.status === statusFilter;
+  const folded = new Map();
+  rawData.edges.forEach(e => {
+    if (e.type === 'category' || (!holder.has(e.from) && !holder.has(e.to))) return;
+    if (!passes(e.from) || !passes(e.to)) return;
+    const from = holder.get(e.from) || e.from, to = holder.get(e.to) || e.to;
+    if (from === to || !shownIds.has(from) || !shownIds.has(to)) return;
+    const key = from < to ? `${from}\u0000${to}` : `${to}\u0000${from}`;
+    const prev = folded.get(key);
+    if (prev) prev.count++; else folded.set(key, { id: 'plegada:' + key, from, to, type: 'folded', count: 1 });
+  });
+  edges.push(...folded.values());
   const orphanIds = orphanHighlight ? new Set(computeOrphanIds()) : new Set();
   const now = Date.now() / 1000;
   const font = { color: P.text, face: getComputedStyle(document.body).fontFamily, strokeWidth: 3, strokeColor: P.bg };
 
+  // Al repintar (plegar, filtros, tema) cada nodo sigue donde estaba en pantalla: solo los nuevos usan la física
+  const onScreen = network ? network.getPositions() : {};
+  const place = (node, n) => {
+    const at = onScreen[n.id] || (n.x != null && n.y != null ? n : null);  // lo de pantalla manda: lo arrastrado sin guardar no vuelve atrás
+    if (at) Object.assign(node, { x: at.x, y: at.y, physics: false }); else node.physics = true;
+    return node;
+  };
   const visNodes = nodes.map(n => {
     const c = categoryColor(n.group || 'Sin categoría');
     if (n.type === 'category') {
@@ -108,8 +168,7 @@ function renderGraph() {
         shapeProperties: { borderRadius: 7 }, borderWidth: isCollapsed ? 2 : 0,
         mass: n.depth === 0 ? 3 : 1.5, opacity: n.depth === 0 ? 1 : 0.88,
       };
-      if (n.x != null && n.y != null) Object.assign(node, { x: n.x, y: n.y, physics: false }); else node.physics = true;
-      return node;
+      return place(node, n);
     }
     const status = n.status || 'por-escribir';
     let border = P.status[status], borderWidth = status === 'consolidado' ? 3 : 2;
@@ -135,11 +194,15 @@ function renderGraph() {
       borderWidth: isOrphan ? 3 : borderWidth, borderWidthSelected: 4,
       shapeProperties: n.fijado ? { borderDashes: [3, 3] } : { borderDashes: false },
     };
-    if (n.x != null && n.y != null) Object.assign(node, { x: n.x, y: n.y, physics: false }); else node.physics = true;
-    return node;
+    return place(node, n);
   });
 
   const visEdges = edges.map(e => {
+    if (e.type === 'folded') {
+      return { id: e.id, from: e.from, to: e.to, color: { color: alpha(P.text2, 0.6), highlight: P.text, hover: P.text },
+        width: Math.min(1 + e.count * 0.5, 4), dashes: [2, 4], smooth: { type: 'curvedCW', roundness: 0.1 },
+        arrows: { to: { enabled: false } }, selectionWidth: 1, title: undefined };
+    }
     if (e.type === 'category') {
       return { id: e.id, from: e.from, to: e.to, color: { color: P.separator, highlight: P.text2, hover: P.text2 }, width: 1,
         smooth: { type: 'cubicBezier', roundness: 0.4 }, arrows: { to: { enabled: false } }, selectionWidth: 1 };
@@ -160,21 +223,28 @@ function renderGraph() {
     physics: {
       enabled: true, solver: 'forceAtlas2Based',
       forceAtlas2Based: { gravitationalConstant: -90, centralGravity: 0.008, springLength: 140, springConstant: 0.08, damping: 0.65, avoidOverlap: 0.7 },
-      stabilization: { enabled: true, iterations: 400, updateInterval: 30 },
+      stabilization: { enabled: true, iterations: 400, updateInterval: 30, fit: false },
     },
     interaction: { hover: true, hoverConnectedEdges: true, selectConnectedEdges: false, tooltipDelay: 999999, keyboard: { enabled: true, bindToWindow: false }, zoomView: true, dragView: true, dragNodes: true },
     manipulation: { enabled: false },
   };
 
-  if (network) network.destroy();
+  if (network) { keepView = currentView(); network.destroy(); }
   network = new vis.Network(document.getElementById('graph-container'), { nodes: nodesDS, edges: edgesDS }, options);
   let finished = false;
   const finish = () => {
     if (finished) return;
     finished = true;
     network.setOptions({ physics: { enabled: false } });
-    // encuadre con un mínimo de escala: así se leen los nombres sin acercarse (lo que sobra, se arrastra)
-    network.fit({ animation: false, minZoomLevel: matchMedia('(max-width: 767px)').matches ? 0.4 : 0.6, maxZoomLevel: 1.2 });
+    const view = keepView || savedView();
+    keepView = null;
+    if (view) {
+      applyView(view);
+      pinnedView = view;
+      setTimeout(() => { pinnedView = null; }, 1500);
+    }
+    // sin vista guardada: encuadre con un mínimo de escala, así se leen los nombres sin acercarse (lo que sobra, se arrastra)
+    else network.fit({ animation: false, minZoomLevel: isPhone() ? 0.4 : 0.6, maxZoomLevel: 1.2 });
     showLoading(false);
     buildLegend();
     updateStats();
@@ -188,7 +258,11 @@ function renderGraph() {
   network.on('hoverNode', showTooltip);
   network.on('blurNode', hideTooltip);
   network.on('dragStart', hideTooltip);
-  network.on('dragEnd', (p) => (p.nodes || []).forEach((id) => movedNodes.add(id)));
+  network.on('dragEnd', (p) => { (p.nodes || []).forEach((id) => movedNodes.add(id)); if (!(p.nodes || []).length) userMovedView(); });
+  network.on('zoom', userMovedView);
+  // vis-network avisa del cambio de tamaño antes de reescalar: se reaplica justo después
+  network.on('resize', () => queueMicrotask(() => { if (pinnedView && network) applyView(pinnedView); }));
+  network.on('animationFinished', saveView);
   network.on('click', onNetworkClick);
   network.on('oncontext', onRightClick);
 }
@@ -259,7 +333,8 @@ function showTooltip(params) {
   document.getElementById('tt-title').innerHTML = node.type === 'note'
     ? `<span class="status-dot" data-status="${status}"></span>${node.encrypted ? icon('lock', 'icon-sm') : ''}${escapeHtml(node.label)}`
     : escapeHtml(node.label);
-  document.getElementById('tt-cat').textContent = node.type === 'note' ? (node.group || '') : 'Categoría · clic para plegar';
+  document.getElementById('tt-cat').textContent = node.type === 'note' ? (node.group || '')
+    : collapsedCats.has(node.id) ? 'Categoría plegada · clic para desplegar' : 'Categoría · clic para plegar';
   const meta = [];
   if (node.type === 'note') {
     if (node.tags) meta.push(node.tags.split(',').map(t => '#' + t.trim()).join(' '));
@@ -288,7 +363,13 @@ function onNetworkClick(params) {
   if (!params.nodes.length) { closePanel(); return; }
   const nodeId = params.nodes[0];
   const node = rawData.nodes.find(n => n.id === nodeId);
-  if (node?.type === 'category' && !editMode) { toggleCategoryCollapse(nodeId); return; }
+  if (node?.type === 'category' && !editMode) {
+    // El segundo clic de un doble clic no la vuelve a desplegar (antes: plegar y desplegar de golpe)
+    if (lastToggle.id === nodeId && Date.now() - lastToggle.at < 450) return;
+    lastToggle = { id: nodeId, at: Date.now() };
+    toggleCategoryCollapse(nodeId);
+    return;
+  }
   if (editMode && (ctrlDown || linkSource) && node?.type === 'note') {
     if (!linkSource) {
       linkSource = nodeId;
@@ -309,6 +390,7 @@ function getDescendantIds(catId) {
   const children = rawData.edges.filter(e => e.from === catId && e.type === 'category').map(e => e.to);
   return children.reduce((acc, c) => [...acc, c, ...getDescendantIds(c)], []);
 }
+let lastToggle = { id: null, at: 0 };
 function toggleCategoryCollapse(catId) {
   if (collapsedCats.has(catId)) collapsedCats.delete(catId); else collapsedCats.add(catId);
   renderGraph();

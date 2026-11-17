@@ -47,10 +47,14 @@ ROW_KINDS = {
     "rows.categoria": ("categoría", "folder-tree"),
     "rows.proyecto": ("proyecto", "rocket"),
     "rows.version": ("versión de proyecto", "milestone"),
+    "rows.comentario": ("comentario de tarea", "message-square"),
+    "rows.adjunto": ("adjunto de tarea", "paperclip"),
     "rows.asignatura": ("asignatura", "school"),
     "rows.tema": ("tema", "book-open"),
+    "rows.ejercicio": ("ejercicio", "pencil-ruler"),
     "rows.plantilla-comida": ("plantilla de comidas", "utensils"),
     "rows.peso": ("registro de peso", "scale"),
+    "rows.compra": ("lista de la compra", "shopping-cart"),
 }
 
 
@@ -195,6 +199,12 @@ def purge_expired() -> int:
                 shutil.rmtree(entry, ignore_errors=True)
     if n:
         log.info("Papelera: %d entradas caducadas eliminadas", n)
+    try:  # comentarios y adjuntos de tareas que ya no están (y sus archivos)
+        from app.item_extras import purge_orphans
+
+        purge_orphans()
+    except Exception:
+        log.exception("No se pudieron purgar los adjuntos huérfanos")
     return n
 
 

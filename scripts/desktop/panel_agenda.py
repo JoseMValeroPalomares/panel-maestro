@@ -2,18 +2,24 @@
 """
 Módulo de la Waybar con la agenda del Panel (sustituye al reloj nativo). Solo biblioteca estándar.
 
-    panel_agenda.py              JSON para Waybar: texto, tooltip (mes con hoy resaltado + agenda de hoy
-                                 y mañana) y clase (sin-eventos, proximo, ahora, retrasado, sin-conexion)
+    panel_agenda.py              JSON para Waybar: texto (hora, lo siguiente con cuenta atrás, número de atrasadas y
+                                 un icono si las copias no están al día), tooltip (mes con hoy resaltado + agenda de
+                                 hoy y mañana) y clase (sin-eventos, proximo, ahora, retrasado, atrasadas,
+                                 copias-aviso, sin-conexion)
     panel_agenda.py --mes +1|-1|0   cambia el mes del tooltip (rueda; 0 = el actual) y refresca
-    panel_agenda.py --menu       rofi con la agenda de los próximos días; al elegir: completar, posponer
-                                 o abrir en la app (clic izquierdo)
+    panel_agenda.py --menu [modo]   el centro de mando (panel_mando.py; clic izquierdo y Super+Alt+K)
     panel_agenda.py --atrasada JSON   (interno) notificación con botones de una tarea atrasada; espera al botón y
                                  llama a la API. La lanza el propio módulo, en segundo plano, una vez al día por tarea
+    panel_agenda.py --aviso JSON (interno) igual con un aviso (tarea o rutina con hora, evento, resumen de la mañana)
 
 Cada vez que se ejecuta además: reenvía la cola de capturas pendientes y muestra con notify-send los
-avisos de escritorio que toquen (si están activados en el Panel → Avisos), también las tareas atrasadas con sus
-botones (Completar · Mañana · Hoy no · Borrar; a la hora y en los días de Avisos, una vez al día por tarea). Sin conexión usa la última
-agenda guardada (~/.cache/panel-maestro/agenda.json) y marca la clase «sin-conexion», sin errores.
+avisos de escritorio que toquen (si están activados en el Panel → Avisos): los de tareas y rutinas con botones
+(Empezar · Completar · +1 h o Mañana), los eventos con «Abrir», el resumen de la mañana una vez al día, y las tareas
+atrasadas con los suyos (Completar · Mañana · Hoy no · Borrar; a la hora y en los días de Avisos, una vez al día por
+tarea). Cada aviso se reclama antes en el Panel (POST /api/reminders/vistos): si ya lo enseñó el navegador, aquí no se
+repite. Todas las notificaciones van como app «Panel» (swaync las agrupa) y las que se sustituyen a sí mismas (copias,
+confirmaciones) llevan la pista `synchronous`. Sin conexión usa la última agenda guardada
+(~/.cache/panel-maestro/agenda.json) y marca la clase «sin-conexion», sin errores.
 Señal de refresco: RTMIN+9 (`pkill -RTMIN+9 waybar`).
 """
 
@@ -130,7 +136,8 @@ def side_jobs() -> None:
                 notify(
                     "low",
                     "Panel: cola enviada",
-                    f"{res['sent']} captura{'s' if res['sent'] != 1 else ''} pendiente{'s' if res['sent'] != 1 else ''} enviada{'s' if res['sent'] != 1 else ''}",
+                    tag="panel-cola",
+                    body=f"{res['sent']} captura{'s' if res['sent'] != 1 else ''} pendiente{'s' if res['sent'] != 1 else ''} enviada{'s' if res['sent'] != 1 else ''}",
                 )
     except Exception:  # noqa: BLE001
         pass
@@ -145,12 +152,23 @@ def side_jobs() -> None:
     except (OSError, ValueError):
         seen = {}
     now = data["now"]
-    changed = False
-    for r in data.get("reminders", []):
-        if r["fire_at"] <= now and r["key"] not in seen:
-            seen[r["key"]] = time.time()
-            changed = True
-            notify("normal" if r["kind"] != "evento" else "critical", r["title"], r["body"])
+    shown = set(data.get("shown") or [])
+    due = [r for r in data.get("reminders", []) if r["fire_at"] <= now and r["key"] not in seen]
+    changed = bool(due)
+    for r in due:
+        seen[r["key"]] = time.time()  # aquí ya no se vuelve a mirar, lo enseñe quien lo enseñe
+    claimed = set()
+    fresh = [r["key"] for r in due if r["key"] not in shown]
+    if fresh:
+        try:
+            claimed = set(pc.request("POST", "/api/reminders/vistos", {"keys": fresh}).get("claimed") or [])
+        except RuntimeError:  # un Panel sin esa ruta (servicio aún sin reiniciar): se avisa como antes
+            claimed = set(fresh)
+        except Exception:  # noqa: BLE001 — sin conexión: mejor no avisar que avisar dos veces
+            claimed = set()
+    for r in due:
+        if r["key"] in claimed:
+            spawn("--aviso", json.dumps(r, ensure_ascii=False))
     if changed:
         week = time.time() - 7 * 86400
         seen = {k: v for k, v in seen.items() if v > week}
@@ -198,9 +216,11 @@ def spawn(*args: str) -> None:
     )
 
 
-def notify_actions(urgency: str, title: str, body: str, actions: list[tuple[str, str]]) -> str | None:
+def notify_actions(
+    urgency: str, title: str, body: str, actions: list[tuple[str, str]], icon: str = "appointment-missed"
+) -> str | None:
     """notify-send con botones (-A); espera y devuelve el nombre del pulsado («default» = clic en el aviso) o None."""
-    cmd = [os.environ.get("PANEL_NOTIFY", "notify-send"), "-a", "Panel", "-u", urgency, "-i", "appointment-missed"]
+    cmd = [os.environ.get("PANEL_NOTIFY", "notify-send"), "-a", "Panel", "-u", urgency, "-i", icon]
     cmd += [f"--action={name}={label}" for name, label in actions] + [title, body]
     try:
         out = subprocess.run(cmd, capture_output=True, text=True, timeout=LATE_WAIT, check=False).stdout
@@ -240,7 +260,7 @@ def late_notification(e: dict) -> str:
         "hoy_no": "Callada hasta mañana",
         "borrar": "A la papelera",
     }[what]
-    notify("low", f"Panel: {msg}", e["title"])
+    notify("low", f"Panel: {msg}", e["title"], tag="panel-accion")
     refresh_bar()
     return msg
 
@@ -265,6 +285,52 @@ def late_rest_notification(ids: list[int]) -> str:
             return ""
         return "Calladas hasta mañana"
     return ""
+
+
+def reminder_entry(r: dict) -> dict:
+    """Un aviso con la forma de una línea de la agenda, para las acciones de panel_mando.act()."""
+    kind = {"tarea": "task", "rutina": "routine", "evento": "event"}.get(r["kind"], r["kind"])
+    return {"kind": kind, "id": r.get("item_id"), "item_id": r.get("item_id"), "title": r["title"], "done": False,
+            "start": r.get("start"), "end": None, "all_day": bool(r.get("all_day")), "day": r.get("day")}  # fmt: skip
+
+
+def reminder_actions(r: dict) -> list[tuple[str, str]]:
+    if r["kind"] == "tarea" and r.get("item_id"):
+        later = ("manana", "Mañana") if r.get("all_day") else ("1h", "+1 hora")
+        return [("start", "Empezar"), ("done", "Completar"), later, ("default", "Abrir en el panel")]
+    if r["kind"] == "rutina" and r.get("item_id"):
+        return [("start", "Empezar"), ("done", "Hecha"), ("default", "Abrir en el panel")]
+    if r["kind"] == "resumen":
+        return [("mando", "Ver el día"), ("default", "Abrir Hoy")]
+    return [("default", "Abrir en el panel")]
+
+
+def reminder_notification(r: dict) -> str:
+    """La notificación de un aviso con sus botones y lo que hace cada uno. Devuelve la confirmación ('' = nada)."""
+    import panel_mando
+
+    urgency = "critical" if r["kind"] == "evento" else "low" if r["kind"] == "resumen" else "normal"
+    icon = {"resumen": "weather-clear", "evento": "appointment-soon"}.get(r["kind"], "appointment-soon")
+    what = notify_actions(urgency, r["title"], r["body"], reminder_actions(r), icon=icon)
+    if what == "default":
+        subprocess.Popen(["xdg-open", pc.base_url() + (r.get("url") or "/hoy")],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)  # fmt: skip
+        return ""
+    if what == "mando":
+        spawn("--menu")
+        return ""
+    if what not in ("start", "done", "1h", "manana"):
+        return ""  # cerrada sin elegir
+    e = reminder_entry(r)
+    try:
+        msg = panel_mando.act(e, what)
+    except (pc.Offline, pc.AuthError, RuntimeError) as ex:
+        notify("critical", "Panel: no se pudo", str(ex))
+        return ""
+    if msg:
+        notify("low", f"Panel: {msg}", r["title"], tag="panel-accion")
+    refresh_bar()
+    return msg or what
 
 
 def backups_problem() -> dict | None:
@@ -298,6 +364,7 @@ def notify_backups_once(bk: dict, today: date) -> None:
         "normal",
         "Panel: copias de seguridad",
         f"{backups_text(bk)}. Ábrelas en Copias o pulsa «Hacer copia ahora» en Hoy.",
+        tag="panel-copias",
     )
     try:
         pc.STATE.mkdir(parents=True, exist_ok=True)
@@ -306,7 +373,10 @@ def notify_backups_once(bk: dict, today: date) -> None:
         pass
 
 
-def notify(urgency: str, title: str, body: str) -> None:
+def notify(urgency: str, title: str, body: str, tag: str | None = None) -> None:
+    """notify-send como app «Panel» (swaync agrupa). Con `tag`, sustituye a la anterior del mismo tag en vez de
+    amontonarse (pista synchronous, la que usan los OSD de volumen)."""
+    hints = ["-h", f"string:x-canonical-private-synchronous:{tag}", "-h", f"string:synchronous:{tag}"] if tag else []
     subprocess.run(
         [
             os.environ.get("PANEL_NOTIFY", "notify-send"),
@@ -316,9 +386,10 @@ def notify(urgency: str, title: str, body: str) -> None:
             urgency,
             "-i",
             "appointment-soon",
+            *hints,
             title,
             body,
-        ],
+        ],  # fmt: skip
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         check=False,
@@ -380,8 +451,8 @@ def status(data: dict | None, now: datetime) -> dict:
         e = nxt[0]
         mins = int((parse(e["start"]) - now).total_seconds() // 60)
         when = (
-            f"en {mins} min"
-            if mins < 60
+            countdown(mins)
+            if mins < COUNTDOWN_MIN and e["start"][:10] == today
             else (
                 e["start"][11:16]
                 if e["start"][:10] == today
@@ -400,11 +471,28 @@ def status(data: dict | None, now: datetime) -> dict:
     return out("", "sin-eventos")
 
 
-def bar_text(st: dict, now: datetime) -> str:
-    """Hora en negrita, el día en gris y lo próximo con el color del estado (CSS de la barra)."""
+COUNTDOWN_MIN = 6 * 60  # lo de hoy que empieza antes de esto va en cuenta atrás («en 2 h 10»)
+I_BACKUP = "\uf1c0"  # fa-database (Nerd Font)
+
+
+def countdown(mins: int) -> str:
+    if mins < 60:
+        return f"en {max(mins, 1)} min"
+    h, m = divmod(mins, 60)
+    return f"en {h} h {m:02d}" if m else f"en {h} h"
+
+
+def bar_text(st: dict, now: datetime, late: int = 0, copias: bool = False) -> str:
+    """Hora en negrita, el día en gris, lo próximo con el color del estado (CSS de la barra) y, al final, el número de
+    atrasadas (rojo) y un aviso de copias (melocotón) solo cuando los hay."""
     dia = f"{DIAS[now.weekday()][:3]} {now.day}"
     txt = f"<span color='{C['blue']}'>{I_CAL}</span> <b>{now:%H:%M}</b> <span color='{C['sub']}'>{dia}</span>"
-    return txt + (f"  <span size='small'>{I_DOT}</span> {esc(st['label'])}" if st.get("label") else "")
+    txt += f"  <span size='small'>{I_DOT}</span> {esc(st['label'])}" if st.get("label") else ""
+    if late:
+        txt += f"  <span color='{C['red']}'>{I_LATE} {'20+' if late >= 20 else late}</span>"
+    if copias:
+        txt += f"  <span color='{C['peach']}'>{I_BACKUP}</span>"
+    return txt
 
 
 def month_block(ref: date, today: date, marked: set[str]) -> list[str]:
@@ -516,7 +604,7 @@ def tooltip(data: dict | None, now: datetime, online: bool, offset: int, copias:
         parts += ["", span(f"{I_OFF} Sin conexión con el Panel · datos de {when}", C["red"])]
     parts += [
         "",
-        f"<span color='{C['dim']}' size='small'>Clic o Super+Alt+K: agenda · Clic derecho: evento rápido · Rueda: cambiar de mes</span>",
+        f"<span color='{C['dim']}' size='small'>Clic o Super+Alt+K: centro de mando · Clic derecho: evento rápido · Rueda: cambiar de mes</span>",
     ]
     return "\n".join(parts)
 
@@ -534,9 +622,15 @@ def waybar() -> dict:
     copias = backups_problem() if online else None
     if copias:
         notify_backups_once(copias, now.date())
-    classes = [st["class"]] + ([] if online else ["sin-conexion"]) + (["copias-aviso"] if copias else [])
+    late = len((data or {}).get("overdue") or [])
+    classes = (
+        [st["class"]]
+        + (["atrasadas"] if late else [])
+        + ([] if online else ["sin-conexion"])
+        + (["copias-aviso"] if copias else [])
+    )
     return {
-        "text": bar_text(st, now),
+        "text": bar_text(st, now, late, bool(copias)),
         "tooltip": tooltip(data, now, online, offset, copias),
         "class": classes,
         "alt": st["class"],
@@ -544,237 +638,14 @@ def waybar() -> dict:
 
 
 # ─────────────────────────────────────────────
-# Menú rofi (clic izquierdo o Super+Alt+K): la agenda con atajos directos
+# Menú: el centro de mando (panel_mando.py)
 # ─────────────────────────────────────────────
 
-KEYS = [
-    ("Alt+c", "done"),
-    ("Alt+p", "1h"),
-    ("Alt+m", "manana"),
-    ("Alt+o", "open"),
-    ("Alt+e", "start"),
-]  # kb-custom-1…5 → 10…14
 
+def menu(mode: str = "hoy") -> int:
+    import panel_mando
 
-def rofi(
-    lines: list[str],
-    mesg: str,
-    theme: str = "panel-agenda.rasi",
-    selected: int = 0,
-    active: list[int] | None = None,
-    urgent: list[int] | None = None,
-    keys: bool = False,
-) -> tuple[int | None, int]:
-    """(fila elegida, código de salida): 0 = Intro, 10… = Alt+tecla de KEYS, 1 = Esc."""
-    cmd = [
-        os.environ.get("PANEL_ROFI", "rofi"),
-        "-dmenu",
-        "-i",
-        "-format",
-        "i",
-        "-no-custom",
-        "-markup-rows",
-        "-config",
-        str(DIR / "rofi" / theme),
-        "-mesg",
-        mesg,
-        "-p",
-        "",
-        "-selected-row",
-        str(selected),
-    ]
-    if active:
-        cmd += ["-a", ",".join(map(str, active))]
-    if urgent:
-        cmd += ["-u", ",".join(map(str, urgent))]
-    if keys:
-        for n, (k, _) in enumerate(KEYS, 1):
-            cmd += [f"-kb-custom-{n}", k]
-    proc = subprocess.run(cmd, input="\n".join(lines), capture_output=True, text=True)
-    out = proc.stdout.strip()
-    return (int(out) if out.isdigit() else None), proc.returncode
-
-
-def act(e: dict, what: str) -> str:
-    if what == "start":  # contador en marcha (P-2): el módulo panel_contador.py lo enseña y lo notifica
-        if e["kind"] == "event" or not e.get("item_id"):
-            return ""
-        pc.request("POST", "/api/contador/empezar", {"item_id": e["item_id"]})
-        try:
-            import panel_contador
-
-            panel_contador.poke()
-        except Exception:  # noqa: BLE001
-            pass
-        return ""  # la notificación «En marcha» la da el módulo del contador
-    if what == "done":
-        if e["kind"] == "event":
-            return ""
-        if e["kind"] == "routine":
-            pc.request("POST", f"/api/routines/{e['item_id']}/check", {"day": e["day"], "done": not e["done"]})
-        else:
-            pc.request("PATCH", f"/api/items/{e['item_id']}", {"done": not e["done"]})
-        return "Hecho" if not e["done"] else "Vuelve a pendiente"
-    if what in ("1h", "manana"):
-        if e["kind"] == "routine":
-            return ""
-        delta = timedelta(hours=1) if what == "1h" else timedelta(days=1)
-        if e["kind"] == "event":
-            if e["all_day"]:
-                start = (parse(e["start"]) + timedelta(days=1)).date().isoformat()
-                pc.request("PATCH", f"/api/calendar/events/{e['id']}", {"start": start})
-            else:
-                pc.request(
-                    "PATCH",
-                    f"/api/calendar/events/{e['id']}",
-                    {"start": (parse(e["start"]) + delta).strftime("%Y-%m-%dT%H:%M")},
-                )
-        elif e["kind"] == "task":
-            base = parse(e["start"])
-            if e.get("overdue") or base.date() < date.today():  # atrasada: a hoy (o mañana) desde hoy
-                base = datetime.combine(
-                    date.today() - (timedelta(days=1) if what == "manana" else timedelta(0)), base.time()
-                )
-            nd = base + (delta if not e["all_day"] else timedelta(days=1))
-            body = {"due_date": nd.date().isoformat()}
-            if not e["all_day"]:
-                body["due_time"] = nd.strftime("%H:%M")
-            pc.request("PATCH", f"/api/items/{e['item_id']}", body)
-        return "Pospuesto" if what == "1h" else "Pasado a mañana"
-    url = pc.base_url() + (
-        f"/calendario?dia={e['start'][:10]}" if e["kind"] == "event" else f"/tareas?item={e['item_id']}"
-    )
-    subprocess.Popen(["xdg-open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return ""
-
-
-def menu_rows(
-    data: dict, today: date, now: datetime | None = None
-) -> tuple[list[str], list, list[int], list[int], int]:
-    """Filas del menú: acciones, atrasadas, y la agenda por días con su cabecera.
-    Devuelve (filas, qué es cada fila, cabeceras, atrasadas, fila que se selecciona al abrir)."""
-    rows = [
-        f"<span color='{C['blue']}'>{I_PLUS}</span>  <b>Nuevo evento…</b>",
-        f"<span color='{C['teal']}'>{I_EDIT}</span>  <b>Capturar una tarea, idea o rutina…</b>",
-        f"<span color='{C['mauve']}'>{I_OPEN}</span>  <b>Abrir el calendario</b>",
-    ]
-    what: list = ["new-event", "capture", "open-cal"]
-    heads, late, sel = [], [], None
-    if data.get("overdue"):
-        heads.append(len(rows))
-        rows.append(f"<span color='{C['red']}'><b>{I_LATE}  ATRASADAS · {len(data['overdue'])}</b></span>")
-        what.append(None)
-        for e in data["overdue"]:
-            late.append(len(rows))
-            rows.append(entry_line({**e, "overdue": True}, show_day=True))
-            what.append({**e, "overdue": True})
-    entries = sorted(data["entries"], key=lambda e: (e["start"][:10], not e["all_day"], e["start"]))
-    now = now or datetime.now()
-    for i in range(7):
-        day = today + timedelta(days=i)
-        items = [e for e in entries if on_day(e, day) and (i == 0 or e["start"][:10] == day.isoformat())]
-        if not items and i > 1:
-            continue
-        label = "HOY" if i == 0 else "MAÑANA" if i == 1 else DIAS[day.weekday()].upper()
-        heads.append(len(rows))
-        rows.append(
-            f"<span color='{C['mauve']}'><b>{label}</b></span>  <span color='{C['sub']}'>{DIAS[day.weekday()]} {day.day} {MESES_CORTOS[day.month - 1]}</span>"
-        )
-        what.append(None)
-        if not items:
-            rows.append(f"     <span color='{C['dim']}'>Nada</span>")
-            what.append(None)
-        for e in items:
-            if sel is None and i == 0 and not e.get("done") and (e["all_day"] or parse(e["end"] or e["start"]) >= now):
-                sel = len(rows)
-            rows.append(entry_line(e))
-            what.append(e)
-    if sel is None:  # nada pendiente hoy: el primer elemento que haya
-        sel = next((n for n, w in enumerate(what) if isinstance(w, dict)), 0)
-    return rows, what, heads, late, sel
-
-
-def menu() -> int:
-    sel = None
-    while True:
-        data, online = fetch(7)
-        if not data:
-            notify("normal", "Panel sin conexión", "No hay agenda guardada todavía")
-            return 1
-        rows, what, heads, late, first = menu_rows(data, date.today())
-        keys = "  ".join(
-            f"<b>{k.title()}</b> {t}"
-            for (k, _), t in zip(KEYS, ["completar", "+1 hora", "a mañana", "abrir", "empezar"])
-        )
-        mesg = f"<b>Intro</b> opciones   {keys}" + (
-            "" if online else f"   <span color='{C['red']}'>{I_OFF} sin conexión: solo lectura</span>"
-        )
-        i, rc = rofi(rows, mesg, selected=sel if sel is not None else first, active=heads, urgent=late, keys=online)
-        if i is None or rc == 1 or i >= len(what):
-            return 0
-        sel = i
-        w = what[i]
-        if w in ("new-event", "capture"):
-            subprocess.Popen(
-                [str(DIR / "quick_capture.sh")] + (["--evento"] if w == "new-event" else []),
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            return 0
-        if w == "open-cal":
-            subprocess.Popen(
-                ["xdg-open", pc.base_url() + "/calendario"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-            )
-            return 0
-        if not isinstance(w, dict) or not online:
-            continue  # cabecera o «Nada»: el menú sigue abierto
-        if rc >= 10:  # atajo directo: se hace y el menú vuelve a abrirse en la misma fila
-            how = KEYS[rc - 10][1]
-        else:
-            how = submenu(w)
-            if how is None:
-                continue
-        try:
-            msg = act(w, how)
-        except (pc.Offline, pc.AuthError, RuntimeError) as ex:
-            notify("critical", "Panel: no se pudo", str(ex))
-            return 1
-        if msg:
-            notify("low", f"Panel: {msg}", w["title"])
-        refresh_bar()
-        if how == "open":
-            return 0
-
-
-def submenu(e: dict) -> str | None:
-    opts = []
-    if e["kind"] != "event":
-        opts.append(
-            (
-                "done",
-                f"{I_DONE}  " + ("Desmarcar" if e.get("done") else "Completar") + "   <span size='small'>Alt+C</span>",
-            )
-        )
-    if e["kind"] in ("event", "task"):
-        if not e["all_day"]:
-            opts.append(("1h", "\uf017  Posponer 1 hora   <span size='small'>Alt+P</span>"))
-        opts.append(("manana", "\uf061  Pasar a mañana   <span size='small'>Alt+M</span>"))
-    if e["kind"] != "event" and not e.get("done"):
-        opts.append(("start", "\uf04b  Empezar contador   <span size='small'>Alt+E</span>"))
-    opts += [
-        ("open", f"{I_OPEN}  Abrir en el Panel   <span size='small'>Alt+O</span>"),
-        ("back", "\uf060  Volver a la agenda"),
-    ]
-    when = "todo el día" if e["all_day"] else e["start"][11:16] + (f"–{e['end'][11:16]}" if e.get("end") else "")
-    d = parse(e["start"])
-    j, _ = rofi(
-        [t for _, t in opts],
-        f"<b>{esc(e['title'])}</b>   <span size='small'>{DIAS[d.weekday()]} {d.day} {MESES_CORTOS[d.month - 1]} · {when}</span>",
-        theme="panel-confirmar.rasi",
-    )
-    if j is None or opts[j][0] == "back":
-        return None
-    return opts[j][0]
+    return panel_mando.main(["panel_mando.py", "--modo", mode])
 
 
 def refresh_bar() -> None:
@@ -785,7 +656,11 @@ def refresh_bar() -> None:
 
 def main(argv: list[str]) -> int:
     if "--menu" in argv:
-        return menu()
+        i = argv.index("--menu")
+        return menu(argv[i + 1] if len(argv) > i + 1 else "hoy")
+    if "--aviso" in argv:
+        reminder_notification(json.loads(argv[argv.index("--aviso") + 1]))
+        return 0
     if "--atrasada" in argv:
         late_notification(json.loads(argv[argv.index("--atrasada") + 1]))
         return 0

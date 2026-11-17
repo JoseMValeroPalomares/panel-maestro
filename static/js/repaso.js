@@ -78,5 +78,17 @@
       : `<li>${emptyState({ iconName: 'circle-check', title: 'Todo repasado', text: 'Ninguna nota lleva más de 30 días sin repasar.', compact: true })}</li>`;
   }
 
-  load().catch(() => {});
+  // Si el panel no responde: un aviso con «Reintentar» en lugar de esqueletos y paneles vacíos
+  function fail() {
+    const box = document.querySelector('.repaso');
+    box.querySelectorAll(':scope > section').forEach((s) => { s.hidden = true; });
+    $('summary').textContent = '';
+    if (!$('repasoError')) box.insertAdjacentHTML('afterbegin', '<div id="repasoError"></div>');
+    showState($('repasoError'), loadFailed('No se pudo cargar el repaso'), () => {
+      $('repasoError').remove();
+      box.querySelectorAll(':scope > section').forEach((s) => { s.hidden = false; });
+      load().catch(fail);
+    });
+  }
+  load().catch(fail);
 })();

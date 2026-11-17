@@ -6,7 +6,6 @@ from estudio import main as estudio_main
 
 def test_sin_placa_no_se_intenta_conectar(client, monkeypatch):
     monkeypatch.setattr(estudio_main, "ESP32_HOST", "")
-    monkeypatch.setattr(estudio_main, "ESP32_WS_URL", "")
     status = client.get("/estudio/api/esp32-status").json()
     assert status["host"] == "" and status["online"] is False and status["esp32_ws_url"] == ""
     assert "Sin panel ESP32" in client.get("/estudio/").text

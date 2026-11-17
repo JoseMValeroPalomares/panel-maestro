@@ -192,7 +192,7 @@ def test_migracion_25_arriba_y_abajo_sobre_copia_real(tmp_path):
             "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '%fts%'"
         )
     }
-    assert apply_pending(conn, MIGRATIONS) == [25]
+    assert apply_pending(conn, [m for m in MIGRATIONS if m.version <= 25]) == [25]
     item = conn.execute("SELECT id FROM inbox LIMIT 1").fetchone()["id"]
     conn.execute(
         "INSERT INTO sesiones (item_id, titulo, tipo, dia, inicio, activa) VALUES (?, 'x', 'tarea', '2026-11-15', 1, 1)",
@@ -201,7 +201,7 @@ def test_migracion_25_arriba_y_abajo_sobre_copia_real(tmp_path):
     conn.execute("INSERT INTO sesion_tramos (sesion_id, inicio, fin) VALUES (1, 1, 61)")
     revert(conn, MIGRATIONS, 24)
     assert not conn.execute("SELECT 1 FROM sqlite_master WHERE name='sesiones'").fetchone()
-    assert apply_pending(conn, MIGRATIONS) == [25]  # vuelve con sus datos
+    assert apply_pending(conn, [m for m in MIGRATIONS if m.version <= 25]) == [25]  # vuelve con sus datos
     assert conn.execute("SELECT COUNT(*) FROM sesion_tramos WHERE sesion_id=1").fetchone()[0] == 1
     assert conn.execute("SELECT activa FROM sesiones").fetchone()[0] == 1
     conn.execute("DELETE FROM sesiones")  # en cascada, sus tramos (la clave foránea sigue apuntando bien)

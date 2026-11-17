@@ -209,7 +209,8 @@
     load(key).catch((err) => {
       panel.setAttribute('aria-busy', 'false');
       panel.dataset.health = 'error';
-      $(`${key}Text`).textContent = err.message;
+      $(`${key}Text`).textContent = /^Error \d+$/.test(err.message) || err.status === undefined
+        ? 'No se pudo comprobar: el panel no ha respondido.' : err.message;
     });
   });
   modalPush.addEventListener('click', () => push(current));

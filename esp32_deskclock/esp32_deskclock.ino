@@ -32,6 +32,7 @@ void setup() {
   device::beginInputs();
   device::beginNetwork();   // el WiFi se conecta en segundo plano
   ui::invalidate();
+  device::beginWatchdog();  // lo último: nada de lo de arriba cuenta para el vigilante
 }
 
 void loop() {

@@ -75,3 +75,22 @@ def test_ajuste_del_dia_cierra_el_hueco_de_kcal_dentro_de_los_limites():
     tope = [["comida", p1, p1["gramos_max"]]]
     cm._ajustar_raciones_dia(tope, 500)
     assert tope[0][2] == p1["gramos_max"]
+
+
+def test_grupos_reconocen_todos_los_pescados_carnes_y_procesados_del_catalogo():
+    """Caballa, sardinas, pulpo… cuentan para el mínimo de pescado; el fiambre y el bacon, como procesados."""
+    from comidas.core import _food_group_of
+    from comidas.generador import _classify_meal_groups
+
+    casos = {
+        "Caballa": "pescado", "Sardinas en lata": "pescado", "Dorada": "pescado", "Lenguado": "pescado",
+        "Calamar": "pescado", "Mejillones": "pescado", "Pulpo cocido": "pescado", "Conejo": "carne_blanca",
+        "Carne picada mixta": "carne_roja", "Bacon": "procesada", "Pavo fiambre": "procesada", "Gulas": "procesada",
+        "Pechuga de pollo": "carne_blanca", "Clara de huevo": "huevo", "Caldo de pescado": None,
+    }  # fmt: skip
+    for nombre, grupo in casos.items():
+        assert _food_group_of(nombre.lower(), "General") == grupo, nombre
+    # un plato con caldo de pescado y pollo no cuenta como pescado
+    filas = [{"nombre": "Caldo de pescado", "categoria": "General", "gramos": 300},
+             {"nombre": "Pechuga de pollo", "categoria": "proteina", "gramos": 300}]  # fmt: skip
+    assert "pescado" not in _classify_meal_groups(filas)

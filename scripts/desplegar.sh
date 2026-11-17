@@ -2,15 +2,18 @@
 # Despliegue con vuelta atrás (C-4): el panel de verdad deja de servirse desde la carpeta donde se programa.
 #
 #   scripts/desplegar.sh [REF]       despliega REF (etiqueta, rama o commit; por defecto HEAD)
+#   scripts/desplegar.sh --comprobar [REF]   solo las comprobaciones previas: no prepara, no para ni cambia nada
 #   scripts/desplegar.sh --estado    qué versión está en marcha, la anterior y las que se guardan
 #   scripts/desplegar.sh --volver    vuelve a la versión anterior (no toca las BDs)
 #   scripts/desplegar.sh --unidad-propuesta   la unidad de systemd que hace falta, y su diferencia con la instalada
 # Opciones: --raiz DIR (PANEL_DEPLOY_ROOT; por defecto ~/.local/share/panel-maestro) · --unidad NOMBRE (panel-maestro)
 #           --url URL de /healthz · --espera S (90) · --sin-tests · --guardar N versiones (3)
 #
-# Pasos: tests de esa versión con sus dependencias → para el servicio → copia de las dos BDs y del estado del
-# calendario (API de backup) → cambia el enlace «actual» → arranca → espera a /healthz. Si no responde: para,
-# restaura BDs y estado, vuelve al enlace anterior y arranca. Detalle y decisiones: docs/despliegue.md
+# Pasos: comprobaciones previas (herramientas, unidad, datos, espacio) → tests de esa versión con sus dependencias →
+# para el servicio → copia de las dos BDs y del estado del calendario (API de backup) → cambia el enlace «actual» →
+# arranca → espera a /healthz. Si no responde: para, restaura BDs y estado, vuelve al enlace anterior y arranca.
+# Se puede repetir: desplegar la versión que ya está en marcha no hace nada (o la arranca si estaba parada).
+# Detalle y decisiones: docs/despliegue.md
 set -euo pipefail
 
 REPO=$(git -C "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" rev-parse --show-toplevel)
@@ -33,8 +36,9 @@ while (($#)); do
         --sin-tests) TESTS=0 ;;
         --estado) accion=estado ;;
         --volver) accion=volver ;;
+        --comprobar) accion=comprobar ;;
         --unidad-propuesta) accion=unidad ;;
-        -h|--help) sed -n '2,13p' "$0" | cut -c3-; exit 0 ;;
+        -h|--help) sed -n '2,16p' "$0" | cut -c3-; exit 0 ;;
         -*) echo "Opción desconocida: $1 (prueba --help)" >&2; exit 2 ;;
         *) ref=$1 ;;
     esac
@@ -112,6 +116,11 @@ espera_salud() {
             echo "  $url responde ok"
             return 0
         fi
+        # Ha salido con un código que systemd no reintenta (p. ej. 3, las guardas de los datos): no hay que esperar más
+        if sc is-failed --quiet "$UNIDAD" 2>/dev/null; then
+            echo "  $UNIDAD ha fallado al arrancar"
+            return 1
+        fi
         sleep 1
     done
     echo "  $url no responde tras ${ESPERA} s"
@@ -134,6 +143,43 @@ comprobar_unidad() {
     envs=$(sc show -p EnvironmentFiles --value "$UNIDAD")
     [[ $exec == *"$ACTUAL/start.sh"* ]] || die "La unidad $UNIDAD no arranca $ACTUAL/start.sh. Aplica antes: scripts/desplegar.sh --unidad-propuesta"
     [[ $envs == *"$ENTORNO"* ]] || die "La unidad $UNIDAD no carga $ENTORNO. Aplica antes: scripts/desplegar.sh --unidad-propuesta"
+}
+
+# ── Comprobaciones previas: todo lo que puede saberse sin tocar nada ─────────────────────────────────────────
+MIN_LIBRE_MB=300  # para la versión nueva y su entorno de Python (uno nuevo ocupa unos 200 MB) y para la copia previa
+libre_mb() { df -Pm "$1" 2>/dev/null | awk 'NR==2 {print $4}'; }
+existente_de() { local d=$1; while [[ ! -e $d && $d != / ]]; do d=$(dirname "$d"); done; printf '%s' "$d"; }
+comprobaciones() {
+    local fallos=0 c d envf libre
+    ko() { printf '  \033[31m✗\033[0m %s\n' "$*"; fallos=$((fallos + 1)); }
+    ok() { printf '  \033[32m✓\033[0m %s\n' "$*"; }
+    for c in git python3 curl flock systemctl sha256sum df; do
+        command -v "$c" >/dev/null 2>&1 || ko "Falta la herramienta «$c»"
+    done
+    ((fallos)) || ok "Herramientas: git, python3, curl, flock, systemctl"
+    if git -C "$REPO" rev-parse --verify --quiet "$ref^{commit}" >/dev/null; then
+        ok "Versión: $ref = $(git -C "$REPO" rev-parse --short "$ref^{commit}")"
+    else ko "No existe la versión «$ref» en $REPO"; fi
+    if (comprobar_unidad) >/dev/null 2>&1; then ok "Unidad $UNIDAD: arranca $ACTUAL/start.sh y carga $ENTORNO"
+    else ko "La unidad $UNIDAD no está preparada: scripts/desplegar.sh --unidad-propuesta"; fi
+    envf=$(dato PANEL_ENV_FILE)
+    if [[ -r $envf ]]; then ok "Secretos: $envf"
+    else ko "No se puede leer PANEL_ENV_FILE ($envf): la versión nueva arrancaría sin contraseña"; fi
+    if [[ -f $BRAIN && -f $COMIDAS ]]; then
+        ok "BDs: $BRAIN y $COMIDAS"
+        for d in "$(dirname "$BRAIN")" "$(dirname "$COMIDAS")"; do
+            [[ -w $d ]] || ko "No se puede escribir en $d (¿disco montado en solo lectura?)"
+        done
+    else ko "No encuentro las BDs de $ENTORNO ($BRAIN, $COMIDAS): ¿está montado el disco de los datos?"; fi
+    # La copia previa se crea al desplegar: aquí solo se mira que su carpeta (o la primera que exista) admita escritura
+    d=$(existente_de "$COPIAS")
+    [[ -w $d ]] || ko "No se puede escribir la copia previa en $COPIAS"
+    for d in "$(existente_de "$RAIZ")" "$(existente_de "$COPIAS")"; do
+        libre=$(libre_mb "$d")
+        if [[ -n $libre ]] && ((libre < MIN_LIBRE_MB)); then ko "Poco espacio en $d: $libre MB libres (hacen falta $MIN_LIBRE_MB)"
+        elif [[ -n $libre ]]; then ok "Espacio en $d: $libre MB libres"; fi
+    done
+    return "$fallos"
 }
 
 estado() {
@@ -189,7 +235,7 @@ limpiar() {
         grep -qxF "$v" <<<"$usados" || { rm -rf "$v"; echo "  fuera el entorno $(basename "$v")"; }
     done
     # copias previas de despliegues: las 5 últimas
-    ls -1dt "$(dato PANEL_BACKUPS_DIR)"/pre-despliegue/*/ 2>/dev/null | tail -n +6 | xargs -r rm -rf
+    ls -1dt "$(dato PANEL_BACKUPS_DIR)"/pre-despliegue/*/ 2>/dev/null | tail -n +6 | xargs -r -d '\n' rm -rf
 }
 
 case $accion in
@@ -211,6 +257,15 @@ case $accion in
         rm -f "$nueva"
         exit 0 ;;
     estado) estado; exit 0 ;;
+    comprobar)  # solo mira: no crea panel.env, ni carpetas, ni toma el cerrojo
+        [[ -f $ENTORNO ]] || die "$ENTORNO no existe todavía: el primer despliegue lo crea (míralo con --unidad-propuesta)"
+        BRAIN=$(dato PANEL_BRAIN_DB)
+        COMIDAS=$(dato PANEL_COMIDAS_DB)
+        COPIAS=$(dato PANEL_BACKUPS_DIR)/pre-despliegue
+        say "Comprobaciones previas (no se cambia nada)"
+        comprobaciones || die "Hay que arreglar lo marcado con ✗ antes de desplegar"
+        echo "Todo listo para: scripts/desplegar.sh $ref"
+        exit 0 ;;
 esac
 
 mkdir -p "$RAIZ/releases"
@@ -251,6 +306,24 @@ REL=$RAIZ/releases/$etiqueta
 [[ -n $(git -C "$REPO" status --porcelain --untracked-files=no) && $ref == HEAD ]] \
     && echo "Aviso: hay cambios sin commit en $REPO; se despliega solo lo que está en el commit ${sha:0:7}."
 
+# Repetible: si esa versión ya es la que está en marcha no hay nada que desplegar (ni tests ni parada). Si el servicio
+# estaba parado o no responde, se arranca y se espera; las BDs no se tocan.
+previa=$(readlink "$ACTUAL" 2>/dev/null || true)
+if [[ $previa == "$REL" ]]; then
+    if curl -fsSk --max-time 3 "$(url_salud)" 2>/dev/null | grep -q '"ok"'; then
+        say "$etiqueta ya es la versión en marcha y responde: nada que hacer"
+        exit 0
+    fi
+    say "$etiqueta ya es la versión desplegada pero no responde: arrancando $UNIDAD"
+    sc reset-failed "$UNIDAD" 2>/dev/null || true
+    sc restart "$UNIDAD"
+    espera_salud || die "$etiqueta no responde: mira journalctl --user -u $UNIDAD, o vuelve atrás con --volver"
+    exit 0
+fi
+
+say "Comprobaciones previas"
+comprobaciones || die "No se despliega: arregla lo marcado con ✗ (el servicio sigue como estaba)"
+
 say "Versión $etiqueta"
 [[ -e $REL ]] || git -C "$REPO" worktree add --detach --quiet "$REL" "$sha"
 preparar_venv "$REL"
@@ -263,8 +336,6 @@ if ((TESTS)); then
         --ignore=tests/e2e -x -q -p no:cacheprovider) || die "Los tests fallan: no se despliega (el servicio sigue como estaba)"
 fi
 
-previa=$(readlink "$ACTUAL" 2>/dev/null || true)
-[[ $previa == "$REL" ]] && die "$etiqueta ya es la versión en marcha"
 copia=$COPIAS/$etiqueta-$(date +%H%M%S)
 
 say "Parando $UNIDAD y copiando BDs y estado del calendario"

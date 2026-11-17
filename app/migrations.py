@@ -770,6 +770,203 @@ def sesiones_down(conn: sqlite3.Connection) -> None:
         conn.execute(f"DROP INDEX IF EXISTS {idx}")
 
 
+# 26 ─ Universidad: archivos de cada tema (orden propio, «no encontrado», última página leída), temas
+#      fusionados, carpetas descartadas en la propuesta y ejercicios asociables a uno o varios temas ─────────
+UNI_TABLES = ("uni_archivos", "uni_ejercicios", "uni_ejercicio_temas")
+UNI_COLS = {
+    "temas": (("fusionado_en", "INTEGER"),),  # un tema fusionado se oculta y sus archivos van al otro
+    "asignaturas": (("ignorar", "TEXT NOT NULL DEFAULT '[]'"), ("por_confirmar", "INTEGER NOT NULL DEFAULT 0")),
+}
+
+
+def uni_archivos_up(conn: sqlite3.Connection) -> None:
+    """Solo añade: las asignaturas y los temas de siempre no cambian. Si una bajada guardó las tablas aparte
+    (`*_bak`), vuelven con sus datos."""
+    for t in UNI_TABLES:
+        if _table_exists(conn, f"{t}_bak") and not _table_exists(conn, t):
+            conn.execute(f"ALTER TABLE {t}_bak RENAME TO {t}")
+    for table, cols in UNI_COLS.items():
+        if not _table_exists(conn, table):
+            continue
+        for col, kind in cols:
+            if not has_column(conn, table, col):
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {kind}")
+        if _table_exists(conn, "contexto_backup"):  # lo que guardó una bajada vuelve a su sitio
+            clave = f"{table}.columnas-26"
+            row = conn.execute(
+                "SELECT rowid, datos FROM contexto_backup WHERE tabla=? ORDER BY at DESC LIMIT 1", (clave,)
+            ).fetchone()
+            if row:
+                for r in json.loads(row[1]):
+                    names = [c for c, _ in cols if c in r]
+                    conn.execute(
+                        f"UPDATE {table} SET {', '.join(f'{c}=?' for c in names)} WHERE id=?",
+                        (*[r[c] for c in names], r["id"]),
+                    )
+                conn.execute("DELETE FROM contexto_backup WHERE tabla=?", (clave,))
+    conn.execute("""CREATE TABLE IF NOT EXISTS uni_archivos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        asignatura_id INTEGER NOT NULL,
+        tema_id INTEGER,                 -- NULL: su tema aún no está confirmado (o se quitó); conserva la página
+        ruta TEXT NOT NULL,              -- relativa a la carpeta de la asignatura (solo lectura)
+        nombre TEXT NOT NULL,
+        ext TEXT NOT NULL DEFAULT '',
+        bytes INTEGER,
+        mtime REAL,
+        orden REAL NOT NULL DEFAULT 0,
+        tema_manual INTEGER NOT NULL DEFAULT 0,  -- movido a mano a otro tema: la sincronía no lo devuelve
+        falta_desde REAL,
+        pagina INTEGER,
+        paginas INTEGER,
+        leido_at REAL,
+        created_at REAL DEFAULT (unixepoch()),
+        UNIQUE (asignatura_id, ruta))""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_uni_archivos_tema ON uni_archivos(tema_id, orden)")
+    conn.execute("""CREATE TABLE IF NOT EXISTS uni_ejercicios (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        asignatura_id INTEGER NOT NULL,
+        titulo TEXT NOT NULL,
+        enunciado TEXT,
+        notas TEXT,
+        estado TEXT NOT NULL DEFAULT 'pendiente',
+        dificultad INTEGER,              -- 1 fácil, 2 media, 3 difícil
+        archivo_id INTEGER,              -- el PDF donde está (opcional) y su página
+        pagina INTEGER,
+        orden REAL NOT NULL DEFAULT 0,
+        hecho_at REAL,
+        created_at REAL DEFAULT (unixepoch()),
+        updated_at REAL DEFAULT (unixepoch()))""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_uni_ejercicios_asig ON uni_ejercicios(asignatura_id, orden)")
+    conn.execute("""CREATE TABLE IF NOT EXISTS uni_ejercicio_temas (
+        ejercicio_id INTEGER NOT NULL,
+        tema_id INTEGER NOT NULL,
+        PRIMARY KEY (ejercicio_id, tema_id))""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_uni_ejercicio_temas_tema ON uni_ejercicio_temas(tema_id)")
+
+
+def uni_archivos_down(conn: sqlite3.Connection) -> None:
+    # Nada se tira: las tablas quedan aparte (`*_bak`) y las columnas, en contexto_backup
+    for t in UNI_TABLES:
+        if _table_exists(conn, t):
+            conn.execute(f"DROP TABLE IF EXISTS {t}_bak")
+            conn.execute(f"ALTER TABLE {t} RENAME TO {t}_bak")
+    for idx in (
+        "idx_uni_archivos_tema",
+        "idx_uni_ejercicios_asig",
+        "idx_uni_ejercicio_temas_tema",
+    ):
+        conn.execute(f"DROP INDEX IF EXISTS {idx}")
+    conn.execute("CREATE TABLE IF NOT EXISTS contexto_backup (tabla TEXT, datos TEXT, at REAL)")
+    for table, cols in UNI_COLS.items():
+        if not _table_exists(conn, table):
+            continue
+        names = [c for c, _ in cols if has_column(conn, table, c)]
+        if not names:
+            continue
+        rows = [dict(r) for r in conn.execute(f"SELECT id, {', '.join(names)} FROM {table}")]
+        conn.execute(
+            "INSERT INTO contexto_backup VALUES (?, ?, ?)",
+            (f"{table}.columnas-26", json.dumps(rows, ensure_ascii=False), time.time()),
+        )
+        for col in names:
+            conn.execute(f"ALTER TABLE {table} DROP COLUMN {col}")
+
+
+# 27 ─ Proyectos estilo gestor: prioridad, fechas y etiquetas del proyecto; título y descripción de cada versión;
+#      comentarios y adjuntos de las tareas. Solo añade. Comentarios y adjuntos van por `item_id` SIN clave foránea
+#      en cascada: al borrar una tarea se quedan (huérfanos) y, si se restaura desde la papelera con su mismo id,
+#      vuelven solos; la purga diaria quita los huérfanos de más de 31 días (app/item_extras.purge_orphans).
+PROY_TABLES = ("item_comentarios", "item_adjuntos")
+PROY_COLS = {
+    "proyectos": [
+        ("prioridad", "TEXT"),  # alta / media / baja / NULL
+        ("fecha_inicio", "TEXT"),  # AAAA-MM-DD
+        ("fecha_fin", "TEXT"),  # objetivo
+        ("etiquetas", "TEXT NOT NULL DEFAULT '[]'"),
+    ],
+    "versiones": [("titulo", "TEXT"), ("descripcion", "TEXT")],
+}
+
+
+def proyectos_gestor_up(conn: sqlite3.Connection) -> None:
+    for t in PROY_TABLES:
+        if _table_exists(conn, f"{t}_bak") and not _table_exists(conn, t):
+            conn.execute(f"ALTER TABLE {t}_bak RENAME TO {t}")
+    for table, cols in PROY_COLS.items():
+        if not _table_exists(conn, table):
+            continue
+        for col, kind in cols:
+            if not has_column(conn, table, col):
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {kind}")
+        if _table_exists(conn, "contexto_backup"):  # lo que guardó una bajada vuelve a su sitio
+            clave = f"{table}.columnas-27"
+            row = conn.execute(
+                "SELECT rowid, datos FROM contexto_backup WHERE tabla=? ORDER BY at DESC LIMIT 1", (clave,)
+            ).fetchone()
+            if row:
+                for r in json.loads(row[1]):
+                    names = [c for c, _ in cols if c in r]
+                    conn.execute(
+                        f"UPDATE {table} SET {', '.join(f'{c}=?' for c in names)} WHERE id=?",
+                        (*[r[c] for c in names], r["id"]),
+                    )
+                conn.execute("DELETE FROM contexto_backup WHERE tabla=?", (clave,))
+    conn.execute("""CREATE TABLE IF NOT EXISTS item_comentarios (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        item_id INTEGER NOT NULL,        -- fila de inbox (sin cascada: ver arriba)
+        texto TEXT NOT NULL,             -- Markdown
+        created_at REAL DEFAULT (unixepoch()),
+        updated_at REAL,
+        huerfano_desde REAL)""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_item_comentarios_item ON item_comentarios(item_id, created_at)")
+    conn.execute("""CREATE TABLE IF NOT EXISTS item_adjuntos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        item_id INTEGER NOT NULL,
+        nombre TEXT NOT NULL,            -- nombre original (solo para mostrar y descargar)
+        archivo TEXT NOT NULL UNIQUE,    -- relativo a data/adjuntos: <item>/<uuid>.<ext>
+        mime TEXT,
+        bytes INTEGER,
+        created_at REAL DEFAULT (unixepoch()),
+        huerfano_desde REAL)""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_item_adjuntos_item ON item_adjuntos(item_id, created_at)")
+
+
+def proyectos_gestor_down(conn: sqlite3.Connection) -> None:
+    # Nada se tira: las tablas quedan aparte (`*_bak`) y las columnas, en contexto_backup (los archivos no se tocan)
+    for t in PROY_TABLES:
+        if _table_exists(conn, t):
+            conn.execute(f"DROP TABLE IF EXISTS {t}_bak")
+            conn.execute(f"ALTER TABLE {t} RENAME TO {t}_bak")
+    for idx in ("idx_item_comentarios_item", "idx_item_adjuntos_item"):
+        conn.execute(f"DROP INDEX IF EXISTS {idx}")
+    conn.execute("CREATE TABLE IF NOT EXISTS contexto_backup (tabla TEXT, datos TEXT, at REAL)")
+    for table, cols in PROY_COLS.items():
+        if not _table_exists(conn, table):
+            continue
+        names = [c for c, _ in cols if has_column(conn, table, c)]
+        if not names:
+            continue
+        rows = [dict(r) for r in conn.execute(f"SELECT id, {', '.join(names)} FROM {table}")]
+        conn.execute(
+            "INSERT INTO contexto_backup VALUES (?, ?, ?)",
+            (f"{table}.columnas-27", json.dumps(rows, ensure_ascii=False), time.time()),
+        )
+        for col in names:
+            conn.execute(f"ALTER TABLE {table} DROP COLUMN {col}")
+
+
+def uni_oculto_up(conn: sqlite3.Connection) -> None:
+    """Solo añade: `uni_archivos.oculto` = quitado a mano de su tema (la sincronía no lo vuelve a poner)."""
+    if _table_exists(conn, "uni_archivos") and not has_column(conn, "uni_archivos", "oculto"):
+        conn.execute("ALTER TABLE uni_archivos ADD COLUMN oculto INTEGER NOT NULL DEFAULT 0")
+
+
+def uni_oculto_down(conn: sqlite3.Connection) -> None:
+    # Lo quitado vuelve a verse en su tema: no se pierde nada que no se pueda rehacer a mano
+    if _table_exists(conn, "uni_archivos") and has_column(conn, "uni_archivos", "oculto"):
+        conn.execute("ALTER TABLE uni_archivos DROP COLUMN oculto")
+
+
 MIGRATIONS = [
     Migration(1, "inbox: un nivel de subelementos y tipo del padre", _inbox_one_level_up, _inbox_one_level_down),
     Migration(2, "baúl: orden manual (resources.sort_order)", resources_order_up, resources_order_down),
@@ -811,4 +1008,22 @@ MIGRATIONS = [
         24, "tableros: revisión del lienzo y copia previa (conflictos entre dispositivos)", board_rev_up, board_rev_down
     ),
     Migration(25, "contador en marcha: sesiones y sus tramos (P-2)", sesiones_up, sesiones_down),
+    Migration(
+        26,
+        "universidad: archivos de cada tema, temas fusionados, última página leída y ejercicios",
+        uni_archivos_up,
+        uni_archivos_down,
+    ),
+    Migration(
+        27,
+        "proyectos: prioridad, fechas y etiquetas; versiones con título y descripción; comentarios y adjuntos",
+        proyectos_gestor_up,
+        proyectos_gestor_down,
+    ),
+    Migration(
+        28,
+        "universidad: quitar un archivo de su tema sin tocar el disco (uni_archivos.oculto)",
+        uni_oculto_up,
+        uni_oculto_down,
+    ),
 ]

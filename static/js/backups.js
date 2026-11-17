@@ -4,7 +4,7 @@
 (function () {
   'use strict';
 
-  const KIND_LABELS = { diaria: 'Diaria', semanal: 'Semanal', manual: 'Manual', 'pre-restauracion': 'Antes de restaurar', antigua: 'Formato antiguo' };
+  const KIND_LABELS = { diaria: 'Diaria', semanal: 'Semanal', manual: 'Manual', 'pre-restauracion': 'Antes de restaurar', 'cambio-sistema': 'Cambio de sistema', antigua: 'Formato antiguo' };
   const dateFmt = new Intl.DateTimeFormat('es-ES', { dateStyle: 'medium', timeStyle: 'short' });
   const $ = (id) => document.getElementById(id);
   const state = { backups: [], kind: 'all', restoring: null };
@@ -20,7 +20,7 @@
 
   /* ---------- Estado ---------- */
   async function loadStatus() {
-    const st = await api('/api/backups/status');
+    const st = await api('/api/backups/status', { quiet: true });  // si falla, lo dice la tarjeta (firstLoad)
     const panel = $('statusPanel');
     panel.dataset.health = st.health;
     panel.setAttribute('aria-busy', 'false');
@@ -56,10 +56,10 @@
 
   /* ---------- Listado ---------- */
   async function loadList() {
-    const data = await api('/api/backups');
+    const data = await api('/api/backups', { quiet: true });
     state.backups = data.backups;
     const r = data.retention;
-    $('retentionNote').textContent = `Se conservan las ${r.diaria} últimas diarias, ${r.semanal} semanales, ${r.manual} manuales y ${r['pre-restauracion']} previas a restaurar. Las del formato antiguo no se borran solas.`;
+    $('retentionNote').textContent = `Se conservan las ${r.diaria} últimas diarias, ${r.semanal} semanales, ${r.manual} manuales, ${r['pre-restauracion']} previas a restaurar y ${r['cambio-sistema']} de cambio de sistema. Las del formato antiguo no se borran solas.`;
     renderChips();
     renderList();
   }
@@ -184,6 +184,22 @@
   $('restoreForm').addEventListener('change', syncRestoreButton);
   $('restoreForm').addEventListener('submit', submitRestore);
 
-  $('backupList').innerHTML = `<li class="list-row">${skeletonRows(3)}</li>`;
-  refresh().catch(() => {});
+  // Si el panel no responde, se dice (nunca esqueletos eternos ni «no hay copias», que sería mentira)
+  async function firstLoad() {
+    $('backupList').innerHTML = `<li class="list-row">${skeletonRows(3)}</li>`;
+    const [st, list] = await Promise.allSettled([loadStatus(), loadList()]);
+    if (st.status === 'rejected') {
+      const panel = $('statusPanel');
+      panel.dataset.health = 'error';
+      panel.setAttribute('aria-busy', 'false');
+      $('healthIcon').innerHTML = icon('triangle-alert');
+      $('healthTitle').textContent = 'No se pudo comprobar el estado de las copias';
+      $('healthText').textContent = 'El panel no ha respondido. Tus datos y tus copias siguen donde estaban.';
+    }
+    if (list.status === 'rejected') {
+      $('backupList').innerHTML = '<li></li>';
+      showState($('backupList').firstElementChild, loadFailed('No se pudo cargar la lista de copias', true), firstLoad);
+    }
+  }
+  firstLoad();
 })();

@@ -110,3 +110,8 @@ body { width: 380px; padding: 12px 14px 14px; display: flex; flex-direction: col
 .detected[data-kind="seen"] .badge-detected { background: color-mix(in srgb, var(--success) 22%, transparent); border-color: var(--success); }
 .detected[data-certain="false"] .badge-detected::after { content: "?"; margin-left: 4px; opacity: .8; }
 .detected-reason { color: var(--text-2); flex: 1 1 140px; min-width: 0; }
+
+/* Categoría automática (popup.js:detectCategory): como la clasificación; «Cambiar» abre el campo y los chips */
+.cat-picker { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.cat-picker[hidden] { display: none; }
+#catDetected[data-kind="mine"] .badge-detected { background: color-mix(in srgb, var(--accent) 22%, transparent); border-color: var(--accent); }

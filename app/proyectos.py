@@ -36,6 +36,34 @@ log = get_logger("proyectos")
 router = APIRouter(prefix="/api/proyectos")
 
 ESTADOS = ("idea", "en-curso", "pausado", "terminado")
+PRIORIDADES = ("alta", "media", "baja")
+MAX_DESC = 20_000
+
+
+def _fecha(v):
+    if v in (None, ""):
+        return v
+    return date.fromisoformat(v).isoformat()
+
+
+def _etiquetas(v):
+    if v is None:
+        return None
+    out, seen = [], set()
+    for t in v:
+        t = re.sub(r"\s+", " ", str(t)).strip().lstrip("#")[:30]
+        if t and t.lower() not in seen:
+            seen.add(t.lower())
+            out.append(t)
+    return out[:20]
+
+
+def _prioridad(v):
+    if v not in (None, "") and v not in PRIORIDADES:
+        raise ValueError("Prioridad: alta, media o baja")
+    return v
+
+
 VERSION_RE = re.compile(r"^v?\d+(\.\d+){0,2}([\-+][\w.]+)?$", re.I)
 
 
@@ -48,12 +76,16 @@ def slugify(nombre: str) -> str:
 class ProyectoIn(BaseModel):
     nombre: str = Field(min_length=1, max_length=120)
     slug: str | None = Field(default=None, max_length=60)
-    descripcion: str | None = Field(default=None, max_length=5000)
+    descripcion: str | None = Field(default=None, max_length=MAX_DESC)
     estado: str = Field(default="en-curso", max_length=12)
     color: str | None = Field(default=None, max_length=10)
     repo_url: str | None = Field(default=None, max_length=1000)
     carpeta: str | None = Field(default=None, max_length=1000)
     enlaces: list[Enlace] = Field(default_factory=list, max_length=30)
+    prioridad: str | None = Field(default=None, max_length=5)
+    fecha_inicio: str | None = Field(default=None, max_length=10)
+    fecha_fin: str | None = Field(default=None, max_length=10)
+    etiquetas: list[str] = Field(default_factory=list, max_length=40)
 
     @field_validator("estado")
     @classmethod
@@ -62,16 +94,24 @@ class ProyectoIn(BaseModel):
             raise ValueError("Estado: idea, en-curso, pausado o terminado")
         return v
 
+    _v_prio = field_validator("prioridad")(classmethod(lambda cls, v: _prioridad(v)))
+    _v_fechas = field_validator("fecha_inicio", "fecha_fin")(classmethod(lambda cls, v: _fecha(v)))
+    _v_tags = field_validator("etiquetas")(classmethod(lambda cls, v: _etiquetas(v)))
+
 
 class ProyectoPatch(BaseModel):
     nombre: str | None = Field(default=None, min_length=1, max_length=120)
-    descripcion: str | None = Field(default=None, max_length=5000)
+    descripcion: str | None = Field(default=None, max_length=MAX_DESC)
     estado: str | None = Field(default=None, max_length=12)
     color: str | None = Field(default=None, max_length=10)
     repo_url: str | None = Field(default=None, max_length=1000)
     carpeta: str | None = Field(default=None, max_length=1000)
     enlaces: list[Enlace] | None = Field(default=None, max_length=30)
     before_id: int | None = None
+    prioridad: str | None = Field(default=None, max_length=5)  # "" la quita
+    fecha_inicio: str | None = Field(default=None, max_length=10)  # "" la quita
+    fecha_fin: str | None = Field(default=None, max_length=10)  # "" la quita
+    etiquetas: list[str] | None = Field(default=None, max_length=40)
 
     @field_validator("estado")
     @classmethod
@@ -80,10 +120,16 @@ class ProyectoPatch(BaseModel):
             raise ValueError("Estado: idea, en-curso, pausado o terminado")
         return v
 
+    _v_prio = field_validator("prioridad")(classmethod(lambda cls, v: _prioridad(v)))
+    _v_fechas = field_validator("fecha_inicio", "fecha_fin")(classmethod(lambda cls, v: _fecha(v)))
+    _v_tags = field_validator("etiquetas")(classmethod(lambda cls, v: _etiquetas(v)))
+
 
 class VersionIn(BaseModel):
     nombre: str = Field(min_length=1, max_length=30)
     fecha_objetivo: str | None = Field(default=None, max_length=10)
+    titulo: str | None = Field(default=None, max_length=120)
+    descripcion: str | None = Field(default=None, max_length=MAX_DESC)
 
     @field_validator("nombre")
     @classmethod
@@ -106,6 +152,8 @@ class VersionPatch(BaseModel):
     fecha_objetivo: str | None = Field(default=None, max_length=10)  # "" la quita
     changelog: str | None = Field(default=None, max_length=50_000)
     estado: str | None = Field(default=None, max_length=10)  # abierta (reabrir)
+    titulo: str | None = Field(default=None, max_length=120)  # "" lo quita
+    descripcion: str | None = Field(default=None, max_length=MAX_DESC)  # "" la quita
 
 
 class CerrarIn(BaseModel):
@@ -146,8 +194,8 @@ def create(data: ProyectoIn) -> int:
             slug, n = f"{base}-{n}", n + 1
         cnt = conn.execute("SELECT COUNT(*), COALESCE(MAX(orden), 0) FROM proyectos").fetchone()
         cur = conn.execute(
-            "INSERT INTO proyectos (nombre, slug, descripcion, estado, color, repo_url, carpeta, enlaces, orden) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO proyectos (nombre, slug, descripcion, estado, color, repo_url, carpeta, enlaces, orden, "
+            "prioridad, fecha_inicio, fecha_fin, etiquetas) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 data.nombre.strip(),
                 slug,
@@ -158,6 +206,10 @@ def create(data: ProyectoIn) -> int:
                 clean_rel(data.carpeta) or None if data.carpeta else None,
                 json.dumps([e.model_dump() for e in data.enlaces], ensure_ascii=False),
                 cnt[1] + 1,
+                data.prioridad or None,
+                data.fecha_inicio or None,
+                data.fecha_fin or None,
+                json.dumps(data.etiquetas, ensure_ascii=False),
             ),
         )
         return cur.lastrowid
@@ -179,6 +231,13 @@ def update(pid: int, data: ProyectoPatch) -> None:
         )
         if data.carpeta is not None:
             conn.execute("UPDATE proyectos SET carpeta=? WHERE id=?", (clean_rel(data.carpeta) or None, pid))
+        for campo in ("prioridad", "fecha_inicio", "fecha_fin"):  # "" lo quita
+            if getattr(data, campo) is not None:
+                conn.execute(f"UPDATE proyectos SET {campo}=? WHERE id=?", (getattr(data, campo) or None, pid))
+        if data.etiquetas is not None:
+            conn.execute(
+                "UPDATE proyectos SET etiquetas=? WHERE id=?", (json.dumps(data.etiquetas, ensure_ascii=False), pid)
+            )
         if data.enlaces is not None:
             conn.execute(
                 "UPDATE proyectos SET enlaces=? WHERE id=?",
@@ -197,6 +256,8 @@ def _version_out(r, tareas: list[dict]) -> dict:
     return {
         "id": r["id"],
         "nombre": r["nombre"],
+        "titulo": r["titulo"],
+        "descripcion": r["descripcion"],
         "fecha_objetivo": r["fecha_objetivo"],
         "estado": r["estado"],
         "changelog": r["changelog"],
@@ -245,6 +306,11 @@ def resumen(conn, r) -> dict:
         "repo_url": r["repo_url"],
         "carpeta": r["carpeta"],
         "enlaces": _jl(r["enlaces"]),
+        "prioridad": r["prioridad"],
+        "fecha_inicio": r["fecha_inicio"],
+        "fecha_fin": r["fecha_fin"],
+        "etiquetas": _jl(r["etiquetas"]),
+        "created_at": r["created_at"],
         "note_id": r["note_id"],
         "orden": r["orden"],
         "tareas_abiertas": len(solo) - hechas,
@@ -287,8 +353,14 @@ def create_version(pid: int, data: VersionIn) -> int:
         ).fetchone():
             raise HTTPException(status_code=409, detail=f"Ya existe la {data.nombre}")
         return conn.execute(
-            "INSERT INTO versiones (proyecto_id, nombre, fecha_objetivo) VALUES (?, ?, ?)",
-            (pid, data.nombre, data.fecha_objetivo),
+            "INSERT INTO versiones (proyecto_id, nombre, fecha_objetivo, titulo, descripcion) VALUES (?, ?, ?, ?, ?)",
+            (
+                pid,
+                data.nombre,
+                data.fecha_objetivo,
+                (data.titulo or "").strip() or None,
+                (data.descripcion or "").strip() or None,
+            ),
         ).lastrowid
 
 
@@ -301,7 +373,8 @@ def changelog_de(conn, v) -> str:
         "ORDER BY sort_order DESC",
         (v["id"],),
     ).fetchall()
-    lines = [f"## {v['nombre']} — {date.today().strftime('%d/%m/%Y')}", ""]
+    titulo = f" · {v['titulo']}" if v["titulo"] else ""
+    lines = [f"## {v['nombre']}{titulo} — {date.today().strftime('%d/%m/%Y')}", ""]
     if not hechas:
         lines.append("- (sin tareas completadas)")
     for r in hechas:
@@ -359,6 +432,9 @@ def update_version(vid: int, data: VersionPatch) -> None:
             )
         if data.changelog is not None:
             conn.execute("UPDATE versiones SET changelog=? WHERE id=?", (data.changelog, vid))
+        for campo in ("titulo", "descripcion"):  # "" lo quita
+            if getattr(data, campo) is not None:
+                conn.execute(f"UPDATE versiones SET {campo}=? WHERE id=?", (getattr(data, campo).strip() or None, vid))
         if data.estado == "abierta":
             conn.execute("UPDATE versiones SET estado='abierta', cerrada_at=NULL WHERE id=?", (vid,))
 
@@ -468,8 +544,14 @@ def api_create(data: ProyectoIn):
 
 @router.get("/{slug}")
 def api_get(slug: str):
+    from app.item_extras import contar
+
     with get_db() as conn:
-        return resumen(conn, by_slug(conn, slug))
+        out = resumen(conn, by_slug(conn, slug))
+        ids = [r["id"] for r in conn.execute("SELECT id FROM inbox WHERE proyecto_id=?", (out["id"],))]
+        # comentarios y adjuntos de cada tarea, para los contadores de las tarjetas
+        out["extras"] = {str(k): v for k, v in contar(conn, ids).items()}
+        return out
 
 
 @router.patch("/{pid}")

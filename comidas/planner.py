@@ -279,7 +279,10 @@ def add_plato_doble(data: DobleIn):
         pool = [
             m
             for m in catalogo.values()
-            if m["id"] not in ya and m["kcal_100g"] > 0 and (m["franja"] == fuente or m["franja"] in ("comida", "cena"))
+            if m["id"] not in ya
+            and m["kcal_100g"] > 0
+            and not m.get("fuera_generador")
+            and (m["franja"] == fuente or m["franja"] in ("comida", "cena"))
         ]
         tipos = {m["id"]: _tipo_doble(m, tags.get(m["id"], "")) for m in pool}
 
@@ -332,6 +335,19 @@ def add_plato_doble(data: DobleIn):
 
 class FavIn(BaseModel):
     favorito: bool
+
+
+class GeneradorIn(BaseModel):
+    fuera: bool
+
+
+@router.patch("/meals/{meal_id}/generador")
+def set_meal_generator(meal_id: int, data: GeneradorIn):
+    """Saca un plato del generador (semana, regenerar, plato doble y sugerencias) o lo vuelve a meter."""
+    with get_db() as conn:
+        if not conn.execute("UPDATE meals SET fuera_generador=? WHERE id=?", (int(data.fuera), meal_id)).rowcount:
+            raise HTTPException(status_code=404, detail="Plato no encontrado")
+    return {"status": "success", "fuera_generador": data.fuera}
 
 
 @router.patch("/meals/{meal_id}/favorito")

@@ -229,13 +229,22 @@ INGREDIENT_FIELDS = (
     "unidad_nombre",
 )
 
+# Subcadenas del nombre del ingrediente (en minúsculas). «Procesada» va antes que las carnes: el fiambre de pavo es
+# procesado (en _food_group_of gana el primero que encaja). Nada de «pescado» suelto: el caldo de pescado no es pescado.
 FOOD_GROUP_KEYWORDS = {
-    "pescado": ["salmon", "salmón", "merluza", "atun", "atún", "bacalao", "boquerones", "gambas"],
-    "carne_blanca": ["pollo", "pavo"],
-    "carne_roja": ["ternera", "cerdo", "lomo"],
-    "procesada": ["jamon", "jamón", "chorizo", "panceta", "salchich", "morcilla"],
+    "pescado": [
+        "salmon", "salmón", "merluza", "atun", "atún", "bacalao", "boquerones", "gambas", "langostino", "caballa",
+        "sardina", "dorada", "lubina", "lenguado", "rape", "trucha", "bonito", "emperador", "calamar", "chipir",
+        "sepia", "pulpo", "mejill",
+    ],
+    "procesada": [
+        "jamon", "jamón", "chorizo", "panceta", "salchich", "morcilla", "bacon", "beicon", "fiambre", "mortadela",
+        "salami", "salchichón", "longaniza", "butifarra", "gulas", "surimi",
+    ],
+    "carne_blanca": ["pollo", "pavo", "conejo"],
+    "carne_roja": ["ternera", "cerdo", "lomo", "carne picada", "cordero", "buey", "vacuno"],
     "huevo": ["huevo"],
-}
+}  # fmt: skip
 
 PROTEIN_PORTION_G = {
     "pescado": 200,

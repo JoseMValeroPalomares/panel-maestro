@@ -16,6 +16,7 @@ si llega cuando ya tocaba intentar (no dentro de la espera que puso otro).
 import asyncio
 import time
 
+from core import red
 from core.logging_config import get_logger
 
 log = get_logger("esp32")
@@ -121,23 +122,41 @@ class Esp32Link:
 LINK = Esp32Link()
 
 
-async def keep_connected(session, url: str, serve, **ws_kwargs) -> None:
+def _resolver(url) -> str:
+    """La URL del WebSocket de la placa: fija (tests) o la que diga `core.red` en este momento."""
+    return url() if callable(url) else url
+
+
+async def buscar_placa() -> None:
+    """Tras un fallo: ¿la placa ha cambiado de IP? `core.red` la busca (como mucho una vez por minuto) y, si
+    aparece en otra dirección, los puentes reconectan ya en vez de esperar su pausa."""
+    try:
+        if await asyncio.to_thread(red.redetectar_si_toca):
+            LINK.retry()
+    except Exception as e:  # noqa: BLE001 — la búsqueda nunca tumba un puente
+        log.debug(f"Búsqueda de la placa fallida: {e!r}")
+
+
+async def keep_connected(session, url, serve, **ws_kwargs) -> None:
     """Bucle de un puente con conexión permanente: espera su turno, conecta, atiende con
     `serve(ws)` hasta que se cierre y vuelve a empezar. Sin conexión no escribe nada en el
-    log (lo cuenta LINK una vez)."""
+    log (lo cuenta LINK una vez). `url` puede ser una función: se resuelve en cada intento,
+    así un cambio de IP de la placa no pide reiniciar nada."""
     while True:
         await LINK.wait_turn()
         connected = False
         try:
-            async with session.ws_connect(url, **ws_kwargs) as ws:
+            async with session.ws_connect(_resolver(url), **ws_kwargs) as ws:
                 connected = True
                 LINK.ok()
+                red.visto_esp32()
                 await serve(ws)
         except asyncio.CancelledError:
             raise
         except Exception as e:  # noqa: BLE001 — cualquier fallo de red cuenta igual
             if not connected:
                 LINK.failed(e)
+                await buscar_placa()
             else:
                 log.debug(f"Conexión cerrada: {e!r}")
         finally:

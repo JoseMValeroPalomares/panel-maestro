@@ -17,6 +17,7 @@ if grep -qE '\.py$' <<<"$staged"; then
 fi
 if grep -qE '\.(js|mjs)$' <<<"$staged" && [[ -x node_modules/.bin/eslint ]]; then
     node_modules/.bin/eslint . || fail "eslint ha encontrado errores"
+    node --test "tests/js/*.test.mjs" >/dev/null 2>&1 || { node --test "tests/js/*.test.mjs" | tail -20; fail "tests de JS (npm test)"; }
 fi
 if [[ -z ${PANEL_HOOK_RAPIDO:-} ]] && grep -qE '\.(py|js|html|css|ini|toml|txt)$' <<<"$staged"; then
     log=$(mktemp)

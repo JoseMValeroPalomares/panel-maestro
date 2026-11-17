@@ -41,7 +41,7 @@ from core import config
 from core.logging_config import get_logger
 
 from . import icloud_sync as legacy
-from .esp32_link import LINK
+from .esp32_link import LINK, _resolver
 
 log = get_logger("calendar")
 TZ = ZoneInfo("Europe/Madrid")
@@ -470,7 +470,7 @@ class CalendarSyncBridge:
         }
         try:
             async with self.session.ws_connect(
-                self.esp32_ws_url, heartbeat=10, timeout=aiohttp.ClientWSTimeout(ws_close=10)
+                _resolver(self.esp32_ws_url), heartbeat=10, timeout=aiohttp.ClientWSTimeout(ws_close=10)
             ) as ws:
                 await ws.send_str(json.dumps(payload, ensure_ascii=False))
                 await asyncio.sleep(0.3)

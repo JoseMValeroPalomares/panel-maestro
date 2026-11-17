@@ -37,7 +37,7 @@ tests/                  ~342 tests pytest (API, lógica, migraciones, seguridad)
 **Backend**: Python 3.14 · FastAPI 0.141 / Starlette 1.6 · Pydantic 2 · Uvicorn · Jinja2 · APScheduler (copias
 03:30, purga de papelera 03:40, miniaturas al arrancar) · SQLite (WAL) · python-frontmatter · httpx · BeautifulSoup +
 lxml (scraper del Baúl, con protección SSRF) · ddgs · Pillow · aiohttp (WebSocket ESP32) · caldav + icalendar (iCloud)
-· colorthief.
+· (el color de la carátula lo saca Pillow).
 
 **Frontend**: HTML de servidor (Jinja) + JS clásico sin framework ni build (IIFE con `window.*`), CSS propio con tokens.
 Librerías vendorizadas por `npm run build` (Node solo para eso): marked 9.1.6, DOMPurify 3.1.6, KaTeX 0.16.9,

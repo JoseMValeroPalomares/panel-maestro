@@ -60,6 +60,14 @@ def _asig(client, codigo, **kw):
     return r.json()["id"]
 
 
+def _confirmar(client, aid):
+    """Confirma todos los temas que propone la carpeta (la sincronía ya no los crea sola)."""
+    p = client.get(f"/api/uni/asignaturas/{aid}/escaneo").json()
+    r = client.post(f"/api/uni/asignaturas/{aid}/escaneo", json={"temas": [{"ruta": t["ruta"]} for t in p["nuevos"]]})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
 def _item(client, iid):
     return next(i for i in client.get("/api/items").json()["items"] if i["id"] == iid)
 
@@ -274,7 +282,11 @@ def test_sincronizar_con_carpeta(client, uni):
     huella = _tree_hash(uni)
     aid = _asig(client, "SYNC", carpeta="Tercero/Bases de datos")
     r = client.post(f"/api/uni/asignaturas/{aid}/sync").json()
-    assert r["nuevos"] == 4, r  # Practica 2, Practica 3, tema1.pdf, tema2.pdf (no build, main.cpp, zip ni el enlace)
+    assert r["por_confirmar"] == 4, (
+        r
+    )  # Practica 2, Practica 3, tema1.pdf, tema2.pdf (no build, main.cpp, zip ni el enlace)
+    assert not [t for t in client.get("/api/uni").json()["temas"] if t["asignatura_id"] == aid]  # nada sin confirmar
+    assert _confirmar(client, aid)["creados"] == 4
     temas = {t["ruta"]: t for t in client.get("/api/uni").json()["temas"] if t["asignatura_id"] == aid}
     assert set(temas) == {"Practica 2", "Practica 3", "tema1.pdf", "tema2.pdf"}
     assert temas["Practica 3"]["grupo"] == "practicas" and temas["tema1.pdf"]["grupo"] == "teoria"
@@ -292,7 +304,8 @@ def test_sincronizar_con_carpeta(client, uni):
     )
     huella = _tree_hash(uni)
     r = client.post(f"/api/uni/asignaturas/{aid}/sync").json()
-    assert (r["nuevos"], r["faltan"]) == (1, 1), r
+    assert (r["por_confirmar"], r["faltan"]) == (1, 1), r
+    _confirmar(client, aid)
     temas = {t["ruta"] or t["titulo"]: t for t in client.get("/api/uni").json()["temas"] if t["asignatura_id"] == aid}
     assert temas["Practica 2"]["falta"] and not temas["Practica 2 vieja"]["falta"]  # marcado, no borrado
     assert temas["tema1.pdf"]["titulo"] == "Tema 1 · Introducción" and temas["tema1.pdf"]["estado"] == "repasado"
@@ -313,7 +326,7 @@ def test_sincronizar_con_carpeta(client, uni):
 
 def test_sin_disco_no_se_marca_nada(client, uni, monkeypatch):
     aid = _asig(client, "NODISK", carpeta="Tercero/Bases de datos")
-    client.post(f"/api/uni/asignaturas/{aid}/sync")
+    _confirmar(client, aid)
     monkeypatch.setenv("PANEL_UNI_ROOT", str(uni.parent / "no-montado"))
     r = client.post(f"/api/uni/asignaturas/{aid}/sync")
     assert r.status_code == 409 and "disponible" in r.json()["detail"]
@@ -339,7 +352,7 @@ def test_rutas_fuera_de_la_raiz_se_rechazan(client, uni):
 
 def test_abrir_devuelve_ruta_relativa(client, uni):
     aid = _asig(client, "OPEN", carpeta="Tercero/Bases de datos")
-    client.post(f"/api/uni/asignaturas/{aid}/sync")
+    _confirmar(client, aid)
     r = client.get(f"/api/abrir/asignatura/{aid}").json()
     assert (r["raiz"], r["ruta"], r["existe"]) == ("universidad", "Tercero/Bases de datos", True)
     assert (
@@ -355,7 +368,7 @@ def test_abrir_devuelve_ruta_relativa(client, uni):
 
 def test_nota_de_tema_y_de_clase(client, uni):
     aid = _asig(client, "NOTA", carpeta="Tercero/Bases de datos")
-    client.post(f"/api/uni/asignaturas/{aid}/sync")
+    _confirmar(client, aid)
     tema = next(t for t in client.get("/api/uni").json()["temas"] if t["asignatura_id"] == aid)
     r = client.post(f"/api/uni/temas/{tema['id']}/nota").json()
     assert r["creada"] and client.post(f"/api/uni/temas/{tema['id']}/nota").json() == {

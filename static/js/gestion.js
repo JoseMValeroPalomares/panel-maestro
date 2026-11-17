@@ -131,10 +131,12 @@
   /* ---------- Carga y filtrado ---------- */
   async function load() {
     $('tableBody').innerHTML = `<tr><td colspan="9">${skeletonRows(6)}</td></tr>`;
+    state.failed = false;
     try {
       state.rows = await cfg().load();
     } catch {
       state.rows = [];
+      state.failed = true;  // un fallo no es «aún no hay»: se dice y se ofrece reintentar
     }
     const valid = new Set(state.rows.map((r) => String(r[cfg().key])));
     state.selected = new Set([...state.selected].filter((id) => valid.has(id)));
@@ -201,7 +203,11 @@
 
     const body = $('tableBody');
     const empty = $('tableEmpty');
-    if (!state.view.length) {
+    if (state.failed) {
+      body.innerHTML = '';
+      empty.hidden = false;
+      showState(empty, loadFailed(`No se pudieron cargar ${c.fem ? 'las' : 'los'} ${c.many}`, true), load);
+    } else if (!state.view.length) {
       body.innerHTML = '';
       empty.hidden = false;
       empty.innerHTML = state.rows.length

@@ -42,3 +42,71 @@ def test_miniatura_que_falla_no_se_reintenta_en_el_siguiente_arranque(client, mo
         conn.execute("DELETE FROM resources WHERE image=?", (URL_ROTA,))
     vault.backfill_thumbnails(now=t0 + 2 * vault.THUMB_RETRY_S + 2)
     assert vault._load_thumb_failures() == {}
+
+
+# ── Reparar una miniatura que no carga (4.2) ─────────────────────────────
+def _recurso(url, image):
+    from app.database import get_db
+
+    with get_db() as conn:
+        conn.execute("DELETE FROM resources WHERE url=?", (url,))
+        cur = conn.execute(
+            "INSERT INTO resources (url, title, description, image, resource_type, category) VALUES (?, 't', '', ?, ?, 'General')",
+            (url, image, "youtube" if "youtu" in url else "web"),
+        )
+        return cur.lastrowid
+
+
+def test_reparar_miniatura_que_ya_no_esta_en_disco(client, monkeypatch):
+    from app import vault
+    from app.database import get_db
+
+    vault._thumb_repairs.clear()
+    rid = _recurso("https://www.youtube.com/watch?v=abcdefghijk", "/static/uploads/thumbs/" + "0" * 32 + ".webp")
+    pedidas = []
+
+    def cache(url, _dir):
+        pedidas.append(url)
+        return "/static/uploads/thumbs/" + "1" * 32 + ".webp"
+
+    monkeypatch.setattr(vault, "cache_thumbnail", cache)
+    r = client.post(f"/api/resources/{rid}/miniatura").json()
+    assert r == {"image": "/static/uploads/thumbs/" + "1" * 32 + ".webp", "motivo": "recuperada"}
+    assert pedidas == ["https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg"]  # la del vídeo, sin pedir la página
+    with get_db() as conn:
+        assert conn.execute("SELECT image FROM resources WHERE id=?", (rid,)).fetchone()["image"] == r["image"]
+
+
+def test_reparar_no_insiste_y_no_toca_la_que_esta_bien(client, monkeypatch, tmp_path):
+    from app import vault
+
+    vault._thumb_repairs.clear()
+    monkeypatch.setattr(vault, "cache_thumbnail", lambda url, _dir: "")
+    monkeypatch.setattr(vault, "fetch_metadata", lambda url: {"image": "https://ejemplo.org/i.png"})
+    rid = _recurso("https://ejemplo.org/articulo", "")
+    assert client.post(f"/api/resources/{rid}/miniatura").json() == {"image": "", "motivo": "sin-imagen"}
+    assert client.post(f"/api/resources/{rid}/miniatura").json() == {"image": "", "motivo": "espera"}  # 10 min
+
+    monkeypatch.setattr(vault, "THUMBS_DIR", str(tmp_path))
+    (tmp_path / ("2" * 32 + ".webp")).write_bytes(b"RIFF")
+    rid2 = _recurso("https://ejemplo.org/otra", "/static/uploads/thumbs/" + "2" * 32 + ".webp")
+    assert client.post(f"/api/resources/{rid2}/miniatura").json()["motivo"] == "ya-estaba"
+    assert client.post("/api/resources/999999/miniatura").status_code == 404
+    assert vault._thumb_file("/static/uploads/thumbs/../../etc/passwd") == ""
+
+
+def test_metadatos_que_fallan_no_dejan_el_recurso_cargando(client, monkeypatch):
+    from app import vault
+    from app.database import get_db
+
+    def rota(url):
+        raise RuntimeError("web rara")
+
+    monkeypatch.setattr(vault, "fetch_metadata", rota)
+    _recurso("https://www.ejemplo.org/pagina", "")
+    vault.do_scrape_and_save("https://www.ejemplo.org/pagina", "General")
+    with get_db() as conn:
+        fila = conn.execute(
+            "SELECT title, resource_type FROM resources WHERE url=?", ("https://www.ejemplo.org/pagina",)
+        ).fetchone()
+    assert fila["title"] == "ejemplo.org" and fila["resource_type"] == "web"

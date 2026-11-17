@@ -5,6 +5,9 @@ import io
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import PlainTextResponse, Response
+from pydantic import BaseModel, Field
+
+from core import undo
 
 from .core import Semana, ShoppingItemIn, ShoppingItemUpdate, _recipe_index
 from .database import get_db
@@ -165,6 +168,25 @@ def add_shopping_item(data: ShoppingItemIn):
     return {"status": "success"}
 
 
+@router.delete("/api/shopping-list")
+def clear_shopping_list():
+    """P-6 · Vacía la lista entera. La instantánea va a undo_log (papelera, tipo rows.compra): «Deshacer» la devuelve
+    idéntica (mismos ids, cantidades, origen y marcas de comprado)."""
+    with get_db() as conn:
+        rows = undo.select(conn, "shopping_list", "1=1 ORDER BY id")
+        if not rows:
+            return {"status": "success", "deleted": 0, "undo_token": None, "undo_db": "comidas"}
+        n = len(rows)
+        token = undo.save_rows(
+            conn,
+            "rows.compra",
+            [("shopping_list", rows)],
+            title=f"Lista de la compra ({n} producto{'s' if n != 1 else ''})",
+        )
+        conn.execute("DELETE FROM shopping_list")
+    return {"status": "success", "deleted": n, "undo_token": token, "undo_db": "comidas"}
+
+
 @router.delete("/api/shopping-list/done")
 def clear_done_shopping_items():
     with get_db() as conn:
@@ -216,6 +238,91 @@ def export_week_shopping_list(semana: Semana, formato: str = "txt"):
     return PlainTextResponse(
         _texto_compra(semana, filas), headers={"Content-Disposition": f'attachment; filename="{nombre}.txt"'}
     )
+
+
+# ─────────────────────────────────────────────
+# P-9 · Esenciales: lo que se compra siempre (ingredients.esencial, migración 4). Un toque lo pone en la lista con
+# su cantidad habitual; no cambia nada de lo que añade el plan de la semana.
+# ─────────────────────────────────────────────
+class EsencialIn(BaseModel):
+    gramos: float | None = Field(default=None, gt=0, le=1_000_000)
+
+
+def _ingrediente_o_404(conn, ingredient_id: int):
+    row = conn.execute("SELECT * FROM ingredients WHERE id=?", (ingredient_id,)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Ese ingrediente no existe")
+    return row
+
+
+@router.get("/api/esenciales")
+def list_esenciales():
+    """Cada esencial con su línea de la lista, si la tiene (en_lista, comprado y de dónde viene)."""
+    with get_db() as conn:
+        lineas = {}
+        for r in conn.execute(
+            "SELECT id, ingredient_id, comprado, source FROM shopping_list WHERE ingredient_id IS NOT NULL ORDER BY id"
+        ):
+            lineas.setdefault(r["ingredient_id"], r)
+        rows = conn.execute(
+            "SELECT id, nombre, categoria, esencial_gramos, gramos_por_unidad, unidad_nombre FROM ingredients "
+            "WHERE esencial=1 ORDER BY categoria, nombre COLLATE NOCASE"
+        ).fetchall()
+    out = []
+    for r in rows:
+        linea = lineas.get(r["id"])
+        out.append(
+            {
+                "ingredient_id": r["id"],
+                "nombre": r["nombre"],
+                "categoria": r["categoria"],
+                "gramos": r["esencial_gramos"],
+                "gramos_por_unidad": r["gramos_por_unidad"],
+                "unidad_nombre": r["unidad_nombre"],
+                "en_lista": linea is not None,
+                "lista_id": linea["id"] if linea else None,
+                "lista_source": linea["source"] if linea else None,
+                "comprado": bool(linea["comprado"]) if linea else False,
+            }
+        )
+    return {"esenciales": out}
+
+
+@router.put("/api/esenciales/{ingredient_id}")
+def set_esencial(ingredient_id: int, data: EsencialIn):
+    """Marca el ingrediente como esencial (o cambia su cantidad habitual; sin cantidad = ninguna)."""
+    with get_db() as conn:
+        _ingrediente_o_404(conn, ingredient_id)
+        conn.execute("UPDATE ingredients SET esencial=1, esencial_gramos=? WHERE id=?", (data.gramos, ingredient_id))
+    return {"status": "success"}
+
+
+@router.delete("/api/esenciales/{ingredient_id}")
+def unset_esencial(ingredient_id: int):
+    """Deja de ser esencial (la línea de la lista, si la hay, se queda)."""
+    with get_db() as conn:
+        _ingrediente_o_404(conn, ingredient_id)
+        conn.execute("UPDATE ingredients SET esencial=0, esencial_gramos=NULL WHERE id=?", (ingredient_id,))
+    return {"status": "success"}
+
+
+@router.post("/api/esenciales/{ingredient_id}/lista")
+def add_esencial_to_list(ingredient_id: int):
+    """Lo pone en la lista con su cantidad habitual (si no, una unidad; si tampoco, 0 g para escribirla). Si ya está,
+    no suma nada: un toque de más no duplica."""
+    with get_db() as conn:
+        ing = _ingrediente_o_404(conn, ingredient_id)
+        ya = conn.execute(
+            "SELECT id FROM shopping_list WHERE ingredient_id=? ORDER BY id LIMIT 1", (ingredient_id,)
+        ).fetchone()
+        if ya:
+            return {"status": "success", "added": False, "item_id": ya["id"]}
+        gramos = ing["esencial_gramos"] or ing["gramos_por_unidad"] or 0
+        item_id = conn.execute(
+            "INSERT INTO shopping_list (ingredient_id, cantidad_gramos, source) VALUES (?, ?, 'esencial')",
+            (ingredient_id, gramos),
+        ).lastrowid
+    return {"status": "success", "added": True, "item_id": item_id}
 
 
 @router.patch("/api/shopping-list/{item_id}")

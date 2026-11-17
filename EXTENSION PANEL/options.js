@@ -1,4 +1,6 @@
-/* options.js — dirección del Panel, token y entrada automática con el token; «Probar conexión» antes de guardar.
+/* options.js — dirección del Panel (escrita o detectada), token y entrada automática con el token; «Probar conexión»
+   antes de guardar. Tras conectar se manda un latido: el Panel contesta con su dirección recomendada y, si no es la
+   escrita, se ofrece cambiarla con un clic.
    Permisos (2.9, S-4): la extensión no tiene acceso fijo a ninguna web. Al guardar o probar se pide permiso solo para
    el origen del Panel; YouTube, solo si se usa. permissions.request tiene que llamarse dentro del clic, antes de
    cualquier await (si no, Firefox lo rechaza). */
@@ -9,7 +11,7 @@ const $ = (id) => document.getElementById(id);
 function show(type, text) {
   const el = $('result');
   el.dataset.type = type;
-  el.innerHTML = `<svg class="icon"><use href="icons.svg#i-${type === 'ok' ? 'check' : 'circle-alert'}"/></svg><span></span>`;
+  el.innerHTML = `<svg class="icon"><use href="icons.svg#i-${type === 'ok' ? 'check' : type === 'info' ? 'radar' : 'circle-alert'}"/></svg><span></span>`;
   el.querySelector('span').textContent = text;
   el.hidden = false;
 }
@@ -20,6 +22,46 @@ function askHost(baseUrl) {
   const pattern = Panel.hostPattern(baseUrl);
   if (!pattern || !browser.permissions?.request) return Promise.resolve(Boolean(pattern));
   return browser.permissions.request({ origins: [pattern] }).catch(() => false);
+}
+
+/* ---------- Detectar la dirección (2.11) ---------- */
+let candidatas = Panel.DEFAULT_URLS;   // se rellena al cargar: permissions.request no admite un await antes
+let sugerida = '';
+
+function suggest(url, text) {
+  sugerida = url;
+  $('suggestText').textContent = text;
+  $('suggest').hidden = !url;
+}
+
+// Pide permiso para las candidatas (un solo aviso de Firefox) y se queda con la primera donde contesta el Panel
+async function detect() {
+  const escrita = Panel.normalizeUrl($('baseUrl').value);
+  const urls = [...new Set([escrita, ...candidatas].filter(Boolean))];
+  const origins = [...new Set(urls.map(Panel.hostPattern).filter(Boolean))];
+  const granted = browser.permissions?.request ? browser.permissions.request({ origins }).catch(() => false) : Promise.resolve(true);  // dentro del clic
+  $('detect').disabled = true;
+  suggest('', '');
+  show('info', 'Buscando el Panel…');
+  try {
+    if (!(await granted)) { show('error', 'Sin permiso no se puede buscar. Pulsa «Detectar» otra vez y acepta el aviso de Firefox, o escribe la dirección a mano.'); return; }
+    const found = await Panel.detect(urls);
+    if (!found) { show('error', `El Panel no contesta en ${urls.map((u) => new URL(u).host).join(', ')}. ¿Está en marcha? Si entras por otra dirección, escríbela.`); return; }
+    $('baseUrl').value = found;
+    if ($('token').value.trim()) await test(`Panel encontrado en ${found}. `);
+    else { show('ok', `Panel encontrado en ${found}. Falta el token.`); $('token').focus(); }
+  } finally { $('detect').disabled = false; }
+}
+
+// Tras conectar: latido, y si el Panel recomienda otra dirección (su nombre https de la tailnet), se ofrece
+async function afterConnect(cfg) {
+  try {
+    const { principal, urls } = await Panel.heartbeat(cfg);
+    candidatas = [...new Set([...urls, ...Panel.DEFAULT_URLS])];
+    if (principal && principal !== cfg.baseUrl && /^https:/i.test(principal) && !/^https:/i.test(cfg.baseUrl)) {
+      suggest(principal, `El Panel recomienda entrar por ${principal}: va cifrada, no cambia aunque cambie la IP y sirve fuera de casa.`);
+    } else suggest('', '');
+  } catch { /* un Panel anterior a la 2.11 no tiene latido: no pasa nada */ }
 }
 
 // Prueba la configuración del formulario (sin guardarla). prefix: «Guardado. » al guardar
@@ -34,6 +76,7 @@ async function test(prefix = '', granted = Promise.resolve(true)) {
   try {
     const st = await Panel.status(cfg);
     show('ok', `${prefix}Conectado: tienes ${st.pending} pendiente${st.pending === 1 ? '' : 's'} en el Inbox.`);
+    afterConnect(cfg);
     return true;
   } catch (err) {
     show('error', prefix + (err.kind === 'network' ? `No se puede conectar con ${cfg.baseUrl}: ¿está el Panel en marcha y la dirección bien escrita?` : err.message));
@@ -51,8 +94,28 @@ async function load() {
   $('ytAuto').checked = ytAuto;
   $('ytPct').value = ytPct;
   syncYoutubePermission();
-  (cfg.baseUrl ? $('token') : $('baseUrl')).focus();
+  candidatas = await Panel.candidates();
+  const { movedFrom, movedAt } = await browser.storage.local.get(['movedFrom', 'movedAt']);
+  if (movedFrom && movedAt && Date.now() - movedAt < 7 * 86400000) {
+    show('ok', `El Panel dejó de contestar en ${movedFrom} y la extensión cambió sola a ${cfg.baseUrl}.`);
+    browser.storage.local.remove(['movedFrom', 'movedAt']);
+  }
+  (cfg.baseUrl ? $('token') : $('detect')).focus();
 }
+
+$('detect').addEventListener('click', detect);
+$('useSuggested').addEventListener('click', async () => {
+  const url = sugerida;
+  const granted = askHost(url);  // dentro del clic
+  $('baseUrl').value = url;
+  suggest('', '');
+  const cfg = formCfg();
+  if (!cfg.token) { show('error', 'Escribe el token'); return; }
+  if (!(await test('', granted))) return;
+  await browser.storage.local.set({ ...cfg, autoLogin: $('autoLogin').checked });
+  show('ok', `Guardado. La extensión entra ahora por ${url}.`);
+  browser.runtime.sendMessage({ type: 'refresh' }).catch(() => {});
+});
 
 $('test').addEventListener('click', () => test('', askHost(formCfg().baseUrl)));
 $('form').addEventListener('submit', async (e) => {

@@ -96,6 +96,10 @@ git pull
 
 Y reinícialo. La base de datos se actualiza sola al arrancar, pero conviene pulsar antes **Hacer copia ahora** en Copias.
 
+Si prefieres que el panel de diario ejecute una versión concreta y ya probada (con copia previa de las bases de datos y
+vuelta atrás en un paso), usa los despliegues: `scripts/desplegar.sh --comprobar`, `scripts/desplegar.sh` y, si algo va
+mal, `scripts/desplegar.sh --volver` ([docs/despliegue.md](docs/despliegue.md)).
+
 ## Tus datos
 
 Todo se queda en tu equipo, en estas carpetas, y ninguna se sube a git porque están en `.gitignore`:
@@ -119,6 +123,7 @@ cero, sigue [docs/recuperacion.md](docs/recuperacion.md).
 - **Captura con prefijos**, en cualquier caja de captura: `t: llamar al banco` (tarea), `i: app de recetas` (idea),
   `r: gimnasio lunes y jueves a las 19` (rutina), `e: dentista mañana 17:00` (evento), `g: 4,50 café` (gasto).
 - **`Ctrl+K`** abre la paleta para saltar a cualquier sitio y **`?`** enseña los atajos de la página en la que estás.
+- **Sonidos** cortos al completar, al recibir un aviso o si algo falla: apagados de serie, se encienden en Ajustes.
 - Los **temas de color** se cambian en los ajustes del panel: Catppuccin, Nord, Dracula, Gruvbox, Tokyo Night, Rosé Pine, Kanagawa, Everforest, Solarized, Papel, Alto contraste y más.
 
 ## Extras opcionales
@@ -129,8 +134,8 @@ El panel funciona completo sin nada de esto.
 |---|---|---|
 | **Calendario de iCloud** | Sincronización en las dos direcciones | Rellena `ICLOUD_USERNAME` e `ICLOUD_APP_PASSWORD` en `.env`, con una [contraseña de aplicación](https://account.apple.com) |
 | **Extensión de Firefox** | Guardar páginas y tareas desde el navegador | [EXTENSION PANEL/README.md](EXTENSION%20PANEL/README.md) |
-| **Reloj ESP32** | Pantalla de escritorio con reloj, música, calendario, pomodoro y repaso | [esp32_deskclock/README.md](esp32_deskclock/README.md) y `ESP32_HOST` en `.env` |
-| **Escritorio Linux** | Captura con un atajo (con `@asignatura` y `#proyecto`) y agenda en la Waybar | [docs/escritorio.md](docs/escritorio.md) |
+| **Reloj ESP32** | Pantalla de escritorio con reloj, música, calendario, pomodoro y repaso | [esp32_deskclock/README.md](esp32_deskclock/README.md) y `ESP32_HOST=auto` en `.env`: el panel la encuentra sola ([docs/red.md](docs/red.md)) |
+| **Escritorio Linux** | Captura con un atajo (con `@asignatura` y `#proyecto`), centro de mando en rofi, avisos con botones, agenda en la Waybar y calendario `.ics` por enlace | [docs/escritorio.md](docs/escritorio.md) |
 | **Abrir carpetas** | Botones «Abrir carpeta» de Universidad y Proyectos (esquema `panelmaestro://`) | `scripts/desktop/abrir/instalar.sh` en el equipo con las carpetas ([docs/contextos.md](docs/contextos.md#abrir-carpetas)) |
 | **Dotfiles** | Subir tu configuración a GitHub desde Copias | [docs/dotfiles.md](docs/dotfiles.md) |
 | **IA de Rendimiento** | Auditoría diaria y semanal con modelos gratuitos y respaldo automático | Una clave en `.env` ([docs/rendimiento.md](docs/rendimiento.md)) |
@@ -146,6 +151,7 @@ Después de cambiar `.env`, reinicia el panel. Todas las opciones están explica
 | El puerto 8000 está ocupado | `PORT=9000 ./start.sh` |
 | He olvidado la contraseña | `venv/bin/python -m scripts.set_password` y reinicia |
 | No abre desde el móvil | Revisa que estén en la misma red y que el cortafuegos permita el puerto 8000 |
+| El reloj ESP32 no conecta | Ajustes → «Red y dispositivos» → Redetectar, o `venv/bin/python -m scripts.red --redetectar` ([docs/red.md](docs/red.md)) |
 | Algo no funciona como debería | Mira `logs/panel.log` |
 
 ## Desarrollo
@@ -157,6 +163,7 @@ venv/bin/ruff check . && venv/bin/ruff format .   # lint y formato (configuraci�
 venv/bin/mypy && npx eslint .                 # tipos (de momento solo core/) y errores del JavaScript
 venv/bin/python -m pytest --ignore=tests/e2e --cov --cov-report=term   # unitarios con cobertura
 venv/bin/python -m pytest tests/e2e           # navegador (~10 min); nunca tocan tus datos: directorio temporal
+npm test                                      # lógica pura del JavaScript con node --test (sin navegador)
 scripts/revisar_dependencias.sh               # una vez al mes: vulnerabilidades y versiones nuevas (solo informa)
 venv/bin/uvicorn main:app --reload            # con recarga automática
 venv/bin/python -m scripts.demo --capturas    # rehace las capturas de este README

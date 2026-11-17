@@ -4,7 +4,20 @@
 .vault-controls { display: flex; flex-direction: column; gap: var(--sp-3); margin-bottom: var(--sp-6); }
 .vault-controls > .segmented { align-self: flex-start; }
 .filter-bar { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; }
+.filter-bar .cat-bar { flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--sp-2); }
 .filter-bar .chips { flex: 1; min-width: 0; }
+.cat-bar > .btn { flex-shrink: 0; color: var(--text-2); }
+
+/* Ordenar categorías (vault.js:renderCatOrder) */
+.cat-order { max-height: min(60vh, 480px); overflow-y: auto; overscroll-behavior: contain; }
+.cat-order-row { gap: var(--sp-2); cursor: grab; touch-action: pan-y; }
+.cat-order-row:hover { background: var(--fill); }
+.cat-order-row:active { cursor: grabbing; }
+.cat-order-row .dot { width: 9px; height: 9px; border-radius: 3px; flex-shrink: 0; }
+.cat-order-row .count { color: var(--text-3); font-size: var(--fs-13); font-variant-numeric: tabular-nums; }
+.cat-order-grip { display: grid; place-items: center; color: var(--text-3); }
+.cat-order-row .row-trail { gap: 0; }
+.cat-order-row .btn:disabled { opacity: 0.35; }
 .main-tab .badge { height: 18px; min-width: 18px; font-size: 12px; margin-left: 2px; background: var(--fill); }  /* sobre el fondo del selector, fill-strong bajaba de AA en Everforest y Dawn */
 
 .vault-section + .vault-section { margin-top: var(--sp-10); }

@@ -11,6 +11,7 @@ sys.path.insert(0, str(ROOT / "scripts/desktop"))
 spec = importlib.util.spec_from_file_location("panel_agenda", ROOT / "scripts/desktop/panel_agenda.py")
 pa = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(pa)
+import panel_mando as mando  # noqa: E402
 
 NOW = datetime(2026, 10, 24, 16, 30)
 
@@ -38,7 +39,9 @@ def test_estados():
     s = pa.status({"entries": [ev("Clase", "2026-10-24T16:00", "2026-10-24T17:00")]}, NOW)
     assert s["class"] == "ahora" and "hasta 17:00" in s["text"]
     s = pa.status({"entries": [ev("Cena", "2026-10-24T21:00", "2026-10-24T22:00")]}, NOW)
-    assert s["class"] == "con-eventos" and "21:00 Cena" in s["text"]
+    assert s["class"] == "con-eventos" and "en 4 h 30 Cena" in s["text"]  # hoy y en menos de 6 h: cuenta atrás
+    s = pa.status({"entries": [ev("Cine", "2026-10-24T23:00", "2026-10-24T23:30")]}, NOW)
+    assert s["class"] == "con-eventos" and "23:00 Cine" in s["text"]
     s = pa.status(
         {"entries": [ev("Leer", "2026-10-24T15:00", "2026-10-24T15:30", kind="routine", type_="rutina")]}, NOW
     )
@@ -103,8 +106,8 @@ def test_barra_tooltip_y_menu_nuevos():
         and "Viaje" in t
         and "Atrasadas · 1" in t
     )
-    rows, what, heads, late, sel = pa.menu_rows(data, NOW.date(), NOW)
-    assert what[:3] == ["new-event", "capture", "open-cal"]
+    rows, what, heads, late, sel = mando.rows_hoy(data, NOW.date(), NOW, None)
+    assert what[:2] == ["capture", "new-event"]
     assert late and what[late[0]]["title"] == "Pagar luz" and what[late[0]]["overdue"]
     assert all(what[h] is None for h in heads) and "HOY" in rows[heads[1]]
     assert what[sel]["title"] == "Dentista"  # se abre sobre lo siguiente de hoy
@@ -147,7 +150,7 @@ def test_aviso_de_copias_clase_tooltip_y_una_notificacion_al_dia(tmp_path, monke
     avisos = []
     monkeypatch.setattr(pa.pc, "request", req)
     monkeypatch.setattr(pa.pc, "queued", lambda: 0)
-    monkeypatch.setattr(pa, "notify", lambda *a, avisos=avisos: avisos.append(a))
+    monkeypatch.setattr(pa, "notify", lambda *a, avisos=avisos, **k: avisos.append(a))
     for name, value in (
         ("AGENDA", tmp_path / "agenda.json"),
         ("MONTH", tmp_path / "mes"),
@@ -231,7 +234,7 @@ def test_cada_boton_llama_a_la_api(tmp_path, monkeypatch):
         monkeypatch.setenv("PANEL_NOTIFY", str(script))
         enviados, avisos = [], []
         monkeypatch.setattr(pa.pc, "request", lambda m, p, b=None, enviados=enviados: enviados.append((m, p, b)) or {})
-        monkeypatch.setattr(pa, "notify", lambda *a, avisos=avisos: avisos.append(a))
+        monkeypatch.setattr(pa, "notify", lambda *a, avisos=avisos, **k: avisos.append(a))
         assert pa.late_notification(ATRASADA)
         assert enviados == [("POST", "/api/items/atrasadas/accion", body)]
         args = json.loads(log.read_text())

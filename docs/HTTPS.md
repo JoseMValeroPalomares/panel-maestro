@@ -36,7 +36,18 @@ systemctl --user restart panel-maestro
 # 3. Publicarlo en la tailnet (se queda configurado tras reiniciar)
 sudo tailscale serve --bg 8000
 tailscale serve status                              # muestra https://<equipo>.<tailnet>.ts.net
+
+# 4. (Opcional) Que http://<equipo>.<tailnet>.ts.net lleve solo a https://
+sudo tailscale serve --bg --http=80 8000
 ```
+
+`tailscale serve` no sabe redirigir: el paso 4 manda también el puerto 80 al panel, y el panel
+(`core/errors.HttpsRedirectMiddleware`) contesta 308 a la misma dirección en `https://` cuando la petición llegó por HTTP a
+través de Tailscale (sin `X-Forwarded-Proto`, que Tailscale solo pone por TLS, y con un nombre `*.ts.net`; el nombre corto
+de MagicDNS, `http://<equipo>`, va al completo, que es el del certificado), antes de pedir la contraseña. El acceso local
+`http://127.0.0.1:8000` (Waybar, scripts del escritorio) no se redirige. Comprobarlo:
+`curl -sI http://<equipo>.<tailnet>.ts.net/hoy | grep -i -E '^(HTTP|location)'` → `308` y `location: https://…/hoy`.
+Quitar solo el paso 4: `sudo tailscale serve --http=80 off`.
 
 En el móvil: la app de Tailscale con la misma cuenta, y el panel en `https://<equipo>.<tailnet>.ts.net`.
 

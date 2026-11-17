@@ -7,6 +7,7 @@ ejecuta un **commit concreto**, ya probado, en su propia carpeta; los datos no s
 ```bash
 scripts/desplegar.sh                  # despliega HEAD (solo lo que está en el commit; avisa si hay cambios sin commit)
 scripts/desplegar.sh v2026.11         # o una etiqueta, rama o commit
+scripts/desplegar.sh --comprobar      # solo las comprobaciones previas: no prepara, no para ni cambia nada
 scripts/desplegar.sh --estado         # versión en marcha, la anterior, las guardadas y los últimos despliegues
 scripts/desplegar.sh --volver         # vuelve a la anterior (las BDs no se tocan)
 scripts/desplegar.sh --unidad-propuesta   # la unidad de systemd que hace falta y su diferencia con la instalada
@@ -18,6 +19,12 @@ Opciones: `--raiz DIR` (o `PANEL_DEPLOY_ROOT`; por defecto `~/.local/share/panel
 
 ## Qué hace
 
+0. **Comprobaciones previas** (también sueltas con `--comprobar`, que solo mira): herramientas (git, python3, curl,
+   flock, systemctl), que la versión exista, que la unidad arranque `actual/start.sh` y cargue `panel.env`, que se pueda
+   leer el `.env` de los secretos, que las dos BDs estén (disco de datos montado) y su carpeta admita escritura, que se
+   pueda escribir la copia previa y que queden al menos 300 MB libres. Si algo falla, lo dice con una ✗ y no toca nada.
+   **Se puede repetir sin miedo**: desplegar la versión que ya está en marcha no hace nada y sale bien; si esa
+   versión estaba parada o no respondía, la arranca y espera (sin tocar las BDs).
 1. **Prepara la versión**: `git worktree add --detach` en `<raíz>/releases/<fecha>-<commit>` (una carpeta por commit;
    si ya existe se reutiliza) y le enlaza su entorno de Python.
 2. **Tests** de esa versión (unitarios), con sus dependencias y un entorno limpio (`env -i`): ninguna `PANEL_*` del
@@ -27,7 +34,7 @@ Opciones: `--raiz DIR` (o `PANEL_DEPLOY_ROOT`; por defecto `~/.local/share/panel
    `PANEL_BACKUPS_DIR/pre-despliegue/<versión>-<hora>/` con un `manifest.json` (huella sha256 del volcado SQL de cada BD).
    Se copia con el servicio **parado**: así nada de lo que se escriba antes se pierde si luego hay que restaurar.
 4. **Cambia el enlace** `<raíz>/actual` (cambio atómico) y arranca.
-5. **Espera a `/healthz`** (las dos BDs responden). Bien: `anterior` pasa a ser la que había, se apunta en
+5. **Espera a `/healthz`** (las dos BDs responden; si la unidad queda en «failed» no agota la espera). Bien: `anterior` pasa a ser la que había, se apunta en
    `<raíz>/historial.log` y se borran las versiones y entornos que ya no hacen falta (se guardan 3, más actual y anterior,
    y las 5 últimas copias previas).
 6. **Si no responde**: para, restaura BDs y estado del calendario desde la copia (comprobando que la huella es la misma),

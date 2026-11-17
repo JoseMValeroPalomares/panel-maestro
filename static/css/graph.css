@@ -17,6 +17,9 @@
 .graph-stage { flex: 1; min-height: 0; position: relative; overflow: hidden; background: var(--bg); }
 #graph-container { position: absolute; inset: 0; }
 #graph-container:focus-visible { outline-offset: -3px; }
+/* «Encuadrar todo» (graph.js:fitAll): flotante sobre el lienzo, abajo a la derecha */
+.graph-fit { position: absolute; right: var(--sp-4); bottom: var(--sp-4); z-index: 2; background: var(--bg-elev); color: var(--text-2); box-shadow: var(--shadow-2), 0 0 0 0.5px var(--separator); }
+.graph-fit:hover { color: var(--text); }
 
 .node-tooltip {
   position: absolute; z-index: 20; max-width: 260px; pointer-events: none;

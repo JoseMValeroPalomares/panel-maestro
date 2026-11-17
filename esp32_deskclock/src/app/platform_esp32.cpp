@@ -5,6 +5,7 @@
 #include <SD.h>
 #include <SPI.h>
 #include <WiFi.h>
+#include <esp_system.h>
 #include <stdarg.h>
 
 #include "../../config.h"
@@ -178,8 +179,27 @@ void prefSet(const char* key, int32_t value) {
 // ─────────────────────────────────────────────
 // Estado del sistema
 // ─────────────────────────────────────────────
+static const char* resetReasonEs() {
+  switch (esp_reset_reason()) {
+    case ESP_RST_POWERON: return "encendido";
+    case ESP_RST_SW: return "reinicio";
+    case ESP_RST_PANIC: return "error";
+    case ESP_RST_INT_WDT:
+    case ESP_RST_TASK_WDT:
+    case ESP_RST_WDT: return "vigilante";
+    case ESP_RST_BROWNOUT: return "tension";
+    case ESP_RST_EXT: return "boton";
+    case ESP_RST_DEEPSLEEP: return "reposo";
+    default: return "desconocido";
+  }
+}
+
 void sysInfo(SysInfo& o) {
   memset(&o, 0, sizeof o);
+  strlcpy(o.mac, WiFi.macAddress().c_str(), sizeof o.mac);
+  for (char* c = o.mac; *c; c++) *c = (char)tolower((unsigned char)*c);
+  strlcpy(o.fw, FW_VERSION, sizeof o.fw);
+  strlcpy(o.resetReason, resetReasonEs(), sizeof o.resetReason);
   o.wifi = WiFi.status() == WL_CONNECTED;
   o.rssi = o.wifi ? WiFi.RSSI() : 0;
   strlcpy(o.ip, o.wifi ? WiFi.localIP().toString().c_str() : "", sizeof o.ip);

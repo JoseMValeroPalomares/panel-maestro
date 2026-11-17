@@ -13,6 +13,9 @@ from fastapi.testclient import TestClient
 
 from tests.conftest import TEST_API_TOKEN
 
+# P-12: permisos Unix (600, ejecutables): en NTFS no existen y conftest lo salta allí
+pytestmark = pytest.mark.permisos_unix
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/desktop/quick_capture.sh"
 
@@ -42,6 +45,12 @@ def panel(app, client, tmp_path):  # client: arranca el Panel (BD creada)
 
         def do_POST(self):
             self._go("POST")
+
+        def do_PATCH(self):
+            self._go("PATCH")
+
+        def do_DELETE(self):
+            self._go("DELETE")
 
         def log_message(self, *a):
             pass
