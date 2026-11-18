@@ -1,12 +1,15 @@
 {%- macro nav_link(key, label, href, ic) -%}
 <li><a class="nav-item" href="{{ href }}" data-section="{{ key }}" {% if key == section %}aria-current="page"{% endif %} title="{{ label }}">
+  {%- if key == section %}<span class="nav-pill" aria-hidden="true"></span>{% endif %}
   <span class="tile" data-section="{{ key }}">{{ icon(ic) }}</span><span class="nav-label">{{ label }}</span>
   {%- if key == 'inbox' %}<span class="nav-count" data-inbox-count hidden></span>{% endif %}
 </a></li>
 {%- endmacro -%}
 {%- from "_items.html" import capture_form -%}
+{#- Posición de la sección en el menú: con ella theme-init.js sabe si se avanza o se retrocede al cambiar de sección -#}
+{%- set sec = namespace(i=-1) -%}{%- for key, label, href, ic in nav_all() -%}{%- if key == section -%}{%- set sec.i = loop.index0 -%}{%- endif -%}{%- endfor -%}
 <!DOCTYPE html>
-<html lang="es" data-icons="{{ asset('/static/icons.svg') }}" data-ills="{{ asset('/static/ilustraciones.svg') }}">
+<html lang="es" data-sec="{{ sec.i }}" data-icons="{{ asset('/static/icons.svg') }}" data-ills="{{ asset('/static/ilustraciones.svg') }}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -79,6 +82,7 @@
   {# Todas las secciones; se ven las elegidas en Ajustes (o las de por defecto) gracias a tabbar-init.js #}
   {% for key, label, href, ic in nav_all() %}{% set pos = tabbar_default.index(key) if key in tabbar_default else -1 %}
   <a class="tab" href="{{ href }}" data-section="{{ key }}" {% if pos >= 0 %}data-default style="order: {{ pos }}"{% else %}hidden{% endif %} {% if key == section %}aria-current="page"{% endif %}>
+    {%- if key == section %}<span class="tab-pill" aria-hidden="true"></span>{% endif %}
     <span class="tab-icon">{{ icon(ic) }}{% if key == 'inbox' %}<span class="tab-badge" data-inbox-count hidden></span>{% endif %}</span>{{ label }}
   </a>
   {% endfor %}

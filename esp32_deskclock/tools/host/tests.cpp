@@ -489,6 +489,38 @@ static void testHeartbeat() {
   CHECK(host::sent.size() == 1);
 }
 
+// La lista de notas llega por partes (entera no cabía en memoria): la parte 0 empieza, las demás añaden y solo la
+// última la da por buena; una parte fuera de orden se descarta y se vuelve a pedir; la lista entera de antes sigue valiendo
+static void testNotesParts() {
+  static HostCanvas canvas;
+  ui::begin(&canvas);
+  ui::goTo(ui::CLOCK);
+  ui::key(ui::K_0);
+  CHECK(notes::listState() == notes::LOADING);
+  send(R"({"type":"notes_list","part":0,"parts":3,"notes":[{"id":"a","title":"Uno","category":"X"},{"id":"b","title":"Dos","category":"X"}]})");
+  CHECK(notes::count() == 2 && notes::listState() == notes::LOADING);
+  send(R"({"type":"notes_list","part":1,"parts":3,"notes":[{"id":"c","title":"Tres","category":"Y"}]})");
+  CHECK(notes::count() == 3 && notes::listState() == notes::LOADING);
+  send(R"({"type":"notes_list","part":2,"parts":3,"notes":[{"id":"d","title":"Cuatro","category":"Z"}]})");
+  CHECK(notes::count() == 4 && notes::listState() == notes::READY && !strcmp(notes::at(3).id, "d"));
+  // Otra vuelta: la parte 0 la empieza de nuevo
+  send(R"({"type":"notes_list","part":0,"parts":2,"notes":[{"id":"e","title":"Cinco","category":"X"}]})");
+  CHECK(notes::count() == 1);
+  // Fuera de orden (falta la 1): se descarta y se vuelve a pedir enseguida
+  host::sent.clear();
+  send(R"({"type":"notes_list","part":2,"parts":3,"notes":[{"id":"f","title":"Seis","category":"X"}]})");
+  CHECK(notes::count() == 1);
+  ui::tick();
+  CHECK(sentHas("notes_list_request"));
+  // Panel antiguo: una lista entera sin «part»
+  send(R"({"type":"notes_list","notes":[{"id":"g","title":"Siete","category":"X"},{"id":"h","title":"Ocho","category":"X"}]})");
+  CHECK(notes::count() == 2 && notes::listState() == notes::READY);
+  // El latido lo anuncia
+  host::sent.clear();
+  send(R"({"type":"heartbeat_get"})");
+  CHECK(sentHas("\"notes_parts\":1"));
+}
+
 int main() {
   setenv("HOST_QUIET", "1", 1);
   testText();
@@ -499,6 +531,7 @@ int main() {
   testPomodoro();
   testReview();
   testNotes();
+  testNotesParts();
   testReviewToggle();
   testPartialRedraw();
   testProtocolRobust();

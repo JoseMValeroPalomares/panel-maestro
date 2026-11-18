@@ -5,7 +5,7 @@
 // Credenciales en secrets.h (no se sube a git; plantilla en secrets.example.h)
 #include "secrets.h"
 #define HOSTNAME      "panel-estudio"   // nombre mDNS: el panel la busca como panel-estudio.local (core/red.py)
-#define FW_VERSION    "2026.11"         // va en el latido y en el TXT de mDNS; súbela con cada cambio del firmware
+#define FW_VERSION    "2026.11.1"       // va en el latido y en el TXT de mDNS; súbela con cada cambio del firmware
 
 // El táctil no está cableado: el firmware se maneja con el mando IR.
 

@@ -47,6 +47,14 @@
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1); /* ease-out exponencial, sin rebote */
   --dur-fast: 120ms; --dur: 180ms; --dur-slow: 260ms;
+  /* Muelles (linear(): un muelle amortiguado muestreado). --spring se pasa un 8 % y vuelve; --spring-bote, un 20 %;
+     --spring-suave, un 2 % */
+  --spring: cubic-bezier(0.34, 1.3, 0.64, 1);
+  --spring: linear(0, 0.057, 0.194, 0.366, 0.543, 0.704, 0.837, 0.94, 1.011, 1.055, 1.078, 1.084, 1.078, 1.067, 1.052, 1.038, 1.024, 1.013, 1.005, 0.999, 0.995, 0.993, 0.993, 0.993, 0.994, 0.996, 1);
+  --spring-suave: cubic-bezier(0.3, 1.1, 0.5, 1); /* apenas se pasa (2 %): para lo que viaja lejos */
+  --spring-suave: linear(0.0, 0.081, 0.253, 0.443, 0.616, 0.755, 0.857, 0.927, 0.972, 0.997, 1.01, 1.015, 1.015, 1.013, 1.01, 1.007, 1.005, 1.003, 1.002, 1.001, 1.0, 1.0, 1);
+  --spring-bote: cubic-bezier(0.34, 1.7, 0.64, 1);
+  --spring-bote: linear(0, 0.078, 0.267, 0.503, 0.737, 0.936, 1.081, 1.169, 1.203, 1.197, 1.164, 1.118, 1.069, 1.025, 0.991, 0.97, 0.959, 0.958, 0.964, 0.973, 0.983, 0.992, 1, 1.005, 1.008, 1.009, 1);
 
   /* Tamaños de shell */
   --sidebar-w: 232px;
@@ -203,6 +211,12 @@ button.sidebar-group-label:hover { color: var(--text-2); }
 .nav-item:hover { background: var(--hover); text-decoration: none; }
 .nav-item:active { background: var(--press); }
 .nav-item[aria-current="page"] { background: var(--fill-strong); font-weight: 600; }
+/* El fondo de la sección actual es una píldora propia: al cambiar de sección viaja de un elemento al otro (ds.css,
+   view-transition «nav-pill») */
+.nav-item { position: relative; isolation: isolate; }
+.nav-item[aria-current="page"]:has(> .nav-pill) { background: transparent; }
+.nav-item[aria-current="page"]:has(> .nav-pill):hover { background: var(--hover); }
+.nav-pill { position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: var(--fill-strong); pointer-events: none; }
 .nav-item .nav-count {
   margin-left: auto; font-size: var(--fs-12); font-weight: 600; color: var(--text-2);
   font-variant-numeric: tabular-nums;
@@ -296,6 +310,12 @@ button.sidebar-group-label:hover { color: var(--text-2); }
     background: var(--accent-fill); color: var(--text-on-accent); font-size: 12px; line-height: 18px; text-align: center;
   }
   .tab-icon { position: relative; display: grid; place-items: center; }
+  /* Píldora de la pestaña actual, del color de su sección; salta de una pestaña a otra al cambiar (view-transition) */
+  .tab { position: relative; isolation: isolate; }
+  .tab-pill {
+    position: absolute; inset: 5px max(6px, 12%); z-index: -1; border-radius: 16px; pointer-events: none;
+    background: color-mix(in srgb, var(--tile) 16%, transparent);
+  }
   .tab-more { order: 9; }
   /* «Más» se marca si la sección actual no está en la barra, y lleva la insignia del Inbox si el Inbox no está */
   .tabbar:not(:has(a.tab[aria-current]:not([hidden]))) .tab-more { color: color-mix(in srgb, var(--tile) 40%, var(--text)); }
@@ -612,14 +632,21 @@ dialog.modal.modal-pick { width: min(560px, calc(100vw - 32px)); }
 @media (max-width: 767px) {
   /* En móvil el modal es una hoja inferior que respeta el teclado (visualViewport) */
   dialog.modal, dialog.modal.modal-sm, dialog.modal.modal-lg, dialog.modal.modal-xl, dialog.modal.modal-pick {
-    /* Anclada abajo como la barra de pestañas y subida solo lo que tape el teclado (--kb, ui.js). Antes iba con
-       bottom: calc(100dvh - var(--vvh)): en Safari los dos valores no siempre coinciden y la hoja salía de la pantalla */
-    width: 100vw; max-width: 100vw; margin: 0;
-    inset: auto 0 var(--kb, 0px) 0;
-    max-height: min(calc(100dvh - env(safe-area-inset-top) - 12px), calc(var(--vvh) - env(safe-area-inset-top) - 12px));
+    /* Anclada abajo con propiedades sueltas y valores fijos (sin var() ni 100dvh/visualViewport): en el Safari de
+       iOS 26 la barra flotante cambia esas medidas a destiempo y la hoja quedaba casi entera bajo la pantalla.
+       El alto máximo es el del bloque contenedor (la ventana): nunca puede salirse por arriba ni por abajo. */
+    width: 100%; max-width: 100%; margin: 0;
+    top: auto; right: 0; bottom: 0; left: 0;
+    max-height: calc(100% - env(safe-area-inset-top) - 12px);
     border-radius: var(--r-xl) var(--r-xl) 0 0;
   }
-  dialog.modal[open] { animation: sheet-in var(--dur-slow) var(--ease-out); }
+  /* Con el teclado abierto (ui.js pone .kb-open y --kb) sube lo que tape y cabe en la vista visual */
+  html.kb-open dialog.modal { bottom: var(--kb); max-height: calc(var(--vvh) - env(safe-area-inset-top) - 12px); }
+  /* Lo último de la hoja no queda bajo la barra de Safari ni la raya de inicio */
+  dialog.modal:not(:has(.modal-footer)) .modal-body { padding-bottom: calc(var(--sp-4) + env(safe-area-inset-bottom)); }
+  /* La hoja sube con un muelle suave (se pasa un 2 %: una hoja alta no puede asomar por arriba); una sombra opaca
+     rellena por debajo lo que se separa al rebotar. El rebote vivo lo pone lo de dentro, que entra en cascada */
+  dialog.modal[open] { animation: sheet-in 460ms var(--spring-suave); box-shadow: 0 140px 0 0 var(--bg-elev), var(--shadow-3), 0 0 0 0.5px var(--separator-strong); }
   dialog.modal.modal-full { height: calc(var(--vvh) - env(safe-area-inset-top)); border-radius: 0; }
   .modal-header { padding: var(--sp-4) var(--sp-4) var(--sp-2); }
   .modal-header::before {
@@ -854,24 +881,83 @@ dialog.modal.modal-pick { width: min(560px, calc(100vw - 32px)); }
 @media (prefers-reduced-motion: reduce) { .theme-option { transition: none; } }
 
 /* ---------- Transiciones entre secciones y al cambiar de tema (View Transitions) ----------
-   Entre secciones solo se anima la zona de la página (`.main`: su cabecera y su contenido): la anterior se va en 90 ms
-   y la nueva sube 10 px mientras aparece (240 ms). El marco (barra lateral, pestañas, fondo) cambia sin fundido: fundir
-   la página entera superponía dos capturas casi iguales (se veía doble y no se notaba el cambio). Al cambiar de tema,
-   fundido de todo. Navegadores sin soporte navegan sin más. Con «reducir movimiento», nada. */
+   Entre secciones el marco (barra lateral, pestañas, fondo) no se funde: solo se mueve la zona de la página (`.main`).
+   theme-init.js sabe si la sección nueva está más abajo o más arriba en el menú (nav-adelante / nav-atras):
+   - la página anterior se va hacia un lado y, cuando ya casi no se ve (sin doble imagen), la nueva entra desde el otro
+     con un muelle (recortada a su zona);
+   - el título rueda como un contador (el viejo sube y sale, el nuevo entra desde abajo) y el icono de la sección gira
+     y rebota;
+   - la píldora de la sección actual (barra lateral y pestañas) viaja de la sección de antes a la nueva;
+   - al llegar, los bloques del contenido suben en cascada y el icono de la pestaña da dos saltitos.
+   Dentro de una misma sección (una nota desde la lista), solo el fundido corto de siempre. Al cambiar de tema, fundido
+   de todo. Navegadores sin @view-transition (Firefox): lo mismo hecho a mano con clases (ui.js / theme-init.js).
+   Con «reducir movimiento», nada. */
 @view-transition { navigation: auto; }
 .app > .sidebar { view-transition-name: sidebar; }
 .tabbar { view-transition-name: tabbar; }
 .app > .main { view-transition-name: page; }
+.main > .page-header .page-title h1 { view-transition-name: page-title; }
+.main > .page-header .page-title .tile-lg { view-transition-name: page-tile; }
+.nav-pill { view-transition-name: nav-pill; }
+.tab-pill { view-transition-name: tab-pill; }
 ::view-transition-old(root), ::view-transition-new(root) { animation: none; }
 ::view-transition-group(sidebar), ::view-transition-group(tabbar), ::view-transition-group(page) { animation-duration: 0s; }
 ::view-transition-old(sidebar), ::view-transition-new(sidebar), ::view-transition-old(tabbar), ::view-transition-new(tabbar) { animation: none; }
+::view-transition-image-pair(page) { overflow: clip; }
 ::view-transition-old(page) { animation: vt-page-out 90ms var(--ease-out) both; }
 ::view-transition-new(page) { animation: vt-page-in 240ms var(--ease-out-expo) both; }
 @keyframes vt-page-out { to { opacity: 0; } }
 @keyframes vt-page-in { from { opacity: 0; transform: translateY(10px); } }
+/* Con dirección: sale hacia un lado, entra desde el otro */
+html.nav-adelante::view-transition-old(page) { animation: vt-sale-izq 140ms cubic-bezier(0.4, 0, 1, 1) both; }
+html.nav-adelante::view-transition-new(page) { animation: vt-entra-der 560ms var(--spring) 50ms both, vt-aparece 200ms var(--ease-out) 90ms both; }
+html.nav-atras::view-transition-old(page) { animation: vt-sale-der 140ms cubic-bezier(0.4, 0, 1, 1) both; }
+html.nav-atras::view-transition-new(page) { animation: vt-entra-izq 560ms var(--spring) 50ms both, vt-aparece 200ms var(--ease-out) 90ms both; }
+@keyframes vt-sale-izq { to { opacity: 0; transform: translateX(-32px) scale(0.985); } }
+@keyframes vt-sale-der { to { opacity: 0; transform: translateX(32px) scale(0.985); } }
+@keyframes vt-entra-der { from { transform: translateX(48px); } }
+@keyframes vt-entra-izq { from { transform: translateX(-48px); } }
+@keyframes vt-aparece { from { opacity: 0; } }
+/* El título rueda dentro de su ventana; el icono de la sección gira y rebota */
+::view-transition-group(page-title), ::view-transition-group(page-tile) { animation-duration: 0s; }
+::view-transition-image-pair(page-title) { overflow: clip; }
+::view-transition-old(page-title), ::view-transition-new(page-title) { inline-size: auto; block-size: 100%; }
+html.nav-cambia::view-transition-old(page-title) { animation: vt-titulo-sale 200ms cubic-bezier(0.4, 0, 1, 1) both; }
+html.nav-cambia::view-transition-new(page-title) { animation: vt-titulo-entra 560ms var(--spring-bote) 60ms both; }
+@keyframes vt-titulo-sale { to { transform: translateY(-105%); opacity: 0; } }
+@keyframes vt-titulo-entra { from { transform: translateY(105%); opacity: 0; } 30% { opacity: 1; } }
+html.nav-cambia::view-transition-old(page-tile) { animation: vt-icono-sale 180ms cubic-bezier(0.4, 0, 1, 1) both; }
+html.nav-cambia::view-transition-new(page-tile) { animation: vt-icono-entra 620ms var(--spring-bote) 40ms both; }
+@keyframes vt-icono-sale { to { transform: scale(0.5) rotate(-30deg); opacity: 0; } }
+@keyframes vt-icono-entra { from { transform: scale(0.35) rotate(40deg); opacity: 0; } 25% { opacity: 1; } }
+/* La píldora de la sección actual viaja con un muelle */
+::view-transition-group(nav-pill), ::view-transition-group(tab-pill) { animation-duration: 480ms; animation-timing-function: var(--spring-suave); }
+/* Llegada a otra sección (también sin @view-transition) */
+.page-body > * { --i: 7; }
+.page-body > :nth-child(1) { --i: 0; } .page-body > :nth-child(2) { --i: 1; } .page-body > :nth-child(3) { --i: 2; }
+.page-body > :nth-child(4) { --i: 3; } .page-body > :nth-child(5) { --i: 4; } .page-body > :nth-child(6) { --i: 5; }
+.page-body > :nth-child(7) { --i: 6; }
+@media (prefers-reduced-motion: no-preference) {
+  html.nav-cambia .main > .page-body > * { animation: sube 560ms var(--spring) calc(90ms + var(--i) * 45ms) backwards; }
+  html.nav-cambia .tab[aria-current] .tab-icon { animation: salto 640ms linear 140ms; }
+  html.nav-cambia .nav-item[aria-current] .tile { animation: icono-pop 620ms var(--spring-bote) 120ms backwards; }
+}
+@keyframes sube { from { opacity: 0; transform: translateY(16px); } }
+@keyframes icono-pop { from { transform: scale(0.6) rotate(-14deg); } }
+/* Dos saltitos, el segundo más bajo, cayendo con gravedad */
+@keyframes salto {
+  0% { transform: none; animation-timing-function: cubic-bezier(0.2, 0.7, 0.4, 1); }
+  28% { transform: translateY(-8px); animation-timing-function: cubic-bezier(0.6, 0, 0.8, 0.3); }
+  52% { transform: translateY(0) scale(1.06, 0.92); animation-timing-function: cubic-bezier(0.2, 0.7, 0.4, 1); }
+  70% { transform: translateY(-3px); animation-timing-function: cubic-bezier(0.6, 0, 0.8, 0.3); }
+  86% { transform: translateY(0) scale(1.02, 0.97); }
+  100% { transform: none; }
+}
 /* Sin @view-transition entre páginas (Firefox): lo mismo a mano (ui.js marca la salida; theme-init.js, la llegada) */
 html.nav-saliendo .app > .main { animation: vt-page-out 90ms var(--ease-out) both; }
 html.nav-entrando .app > .main { animation: vt-page-in 240ms var(--ease-out-expo) both; }
+html.nav-entrando.nav-adelante .app > .main { animation: vt-entra-der 560ms var(--spring) both, vt-aparece 220ms var(--ease-out) both; }
+html.nav-entrando.nav-atras .app > .main { animation: vt-entra-izq 560ms var(--spring) both, vt-aparece 220ms var(--ease-out) both; }
 @media (prefers-reduced-motion: reduce) { html.nav-saliendo .app > .main, html.nav-entrando .app > .main { animation: none; } }
 /* Cambio de tema: todo funde a la vez */
 html.theme-switching::view-transition-group(*) { animation-duration: 0s; }
@@ -982,7 +1068,7 @@ dialog.modal.palette { width: min(640px, calc(100vw - 32px)); margin: 12vh auto 
 .palette-keys { display: inline-flex; gap: 3px; flex-shrink: 0; }
 .palette-empty { padding: var(--sp-4) var(--sp-3); }
 .palette-foot { padding: var(--sp-2) var(--sp-4); border-top: 1px solid var(--separator); }
-@media (max-width: 767px) { dialog.modal.palette { width: 100vw; margin: 0; inset: auto 0 var(--kb, 0px) 0; max-height: min(calc(100dvh - 40px), calc(var(--vvh) - 40px)); border-radius: var(--r-xl) var(--r-xl) 0 0; } .palette-input { font-size: 16px; } }
+@media (max-width: 767px) { dialog.modal.palette { width: 100%; margin: 0; top: auto; right: 0; bottom: 0; left: 0; max-height: calc(100% - 40px); border-radius: var(--r-xl) var(--r-xl) 0 0; } html.kb-open dialog.modal.palette { bottom: var(--kb); max-height: calc(var(--vvh) - 40px); } .palette-input { font-size: 16px; } }
 
 /* Rutinas (static/js/routines.js): plantillas y «paso a paso». Globales: se abren desde Inbox, Tareas y Hoy */
 .rt-dialog { width: min(560px, calc(100vw - 32px)); }
@@ -1305,3 +1391,40 @@ a.run-title:hover { color: var(--accent-text); }
 .tg-grid[aria-labelledby$="-dia"] .tg-thumb, .tg-grid[aria-labelledby$="-rutina"] .tg-thumb { background: var(--bg-elev-2); }
 @media (pointer: coarse) { .tg-more { min-width: var(--touch); min-height: var(--touch); } }
 @media (prefers-reduced-motion: reduce) { .tg .tg-card { transition: none; } }
+
+/* ---------- Hoja «Más»: lo de dentro entra en cascada al abrirla ---------- */
+.more-sheet .modal-body > * { --i: 6; }
+.more-sheet .modal-body > :nth-child(1) { --i: 0; } .more-sheet .modal-body > :nth-child(2) { --i: 1; }
+.more-sheet .modal-body > :nth-child(3) { --i: 2; } .more-sheet .modal-body > :nth-child(4) { --i: 3; }
+.more-sheet .modal-body > :nth-child(5) { --i: 4; }
+.more-sheet .list > li { --j: 10; }
+.more-sheet .list > li:nth-child(1) { --j: 0; } .more-sheet .list > li:nth-child(2) { --j: 1; } .more-sheet .list > li:nth-child(3) { --j: 2; }
+.more-sheet .list > li:nth-child(4) { --j: 3; } .more-sheet .list > li:nth-child(5) { --j: 4; } .more-sheet .list > li:nth-child(6) { --j: 5; }
+.more-sheet .list > li:nth-child(7) { --j: 6; } .more-sheet .list > li:nth-child(8) { --j: 7; } .more-sheet .list > li:nth-child(9) { --j: 8; }
+.more-sheet .list > li:nth-child(10) { --j: 9; }
+@media (prefers-reduced-motion: no-preference) {
+  .more-sheet[open] .modal-body > :not(.list) { animation: sube 520ms var(--spring) calc(70ms + var(--i) * 35ms) backwards; }
+  .more-sheet[open] .list > li { animation: sube 520ms var(--spring) calc(150ms + var(--j) * 22ms) backwards; }
+  .more-sheet[open] .list > li .tile { animation: icono-pop 560ms var(--spring-bote) calc(190ms + var(--j) * 22ms) backwards; }
+}
+
+/* ---------- Control segmentado: la píldora que viaja (ui.js) ---------- */
+.segmented { position: relative; isolation: isolate; }
+.seg-pill { position: absolute; z-index: -1; pointer-events: none; transform-origin: left center; }
+.segmented.seg-moviendo > button[aria-pressed="true"], .segmented.seg-moviendo > button[aria-selected="true"],
+.segmented.seg-moviendo > button.active { background: transparent; box-shadow: none; }
+
+/* ---------- Tirar para recargar (móvil, ui.js) ---------- */
+.ptr {
+  position: fixed; left: 50%; z-index: 40; width: 36px; height: 36px; padding: 4px; border-radius: 50%;
+  background: var(--bg-elev); box-shadow: var(--shadow-2, 0 4px 12px rgba(0, 0, 0, 0.2)), 0 0 0 0.5px var(--separator-strong);
+  pointer-events: none; opacity: 0;
+}
+.ptr svg { width: 28px; height: 28px; display: block; fill: none; }
+.ptr-pista { stroke: var(--fill-strong); stroke-width: 3; }
+.ptr-arco { stroke: var(--accent); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 0 100; }
+.ptr-flecha { stroke: var(--text-2); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; transform-origin: 20px 20px; transition: rotate 360ms var(--spring-bote); }
+.ptr.is-armado .ptr-flecha { rotate: 180deg; stroke: var(--accent); }
+.ptr.is-cargando svg { animation: spin 0.8s linear infinite; }
+.ptr.is-cargando .ptr-arco { stroke-dasharray: 30 100; transition: stroke-dasharray 300ms; }
+.ptr.is-cargando .ptr-flecha { opacity: 0; }

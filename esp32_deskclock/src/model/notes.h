@@ -19,7 +19,7 @@ enum State : uint8_t { EMPTY, LOADING, READY };
 
 // Lista
 void requestList();                       // {"type":"notes_list_request"} (como mucho cada pocos segundos)
-void receiveList(JsonArrayConst arr);     // {"type":"notes_list","notes":[{id,title,category}]}
+void receiveList(JsonArrayConst arr, int part = 0, int parts = 1);  // {"type":"notes_list","notes":[…],"part","parts"}
 State listState();
 int count();
 const Entry& at(int i);

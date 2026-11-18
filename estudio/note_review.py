@@ -12,6 +12,7 @@ import asyncio
 import json
 import random
 import re
+import time
 import webbrowser
 
 import aiohttp
@@ -32,6 +33,8 @@ class NoteReviewBridge:
         self.session = session
         self.esp32_ws_url = esp32_ws_url
         self._last_note_id = None
+        self._por_partes = False  # hasta que el latido de la placa diga «notes_parts»
+        self._ultima_nota = float("-inf")  # el repaso va cada 15 min aunque la conexión se corte y vuelva
 
     async def run_forever(self):
         # Reintentos con espera creciente y pausa comunes a todos los puentes (esp32_link.py)
@@ -41,7 +44,12 @@ class NoteReviewBridge:
         await atender(self._sender_loop(ws), self._receiver_loop(ws))
 
     async def _sender_loop(self, ws: aiohttp.ClientWebSocketResponse):
+        # Una nota cada 15 minutos aunque la conexión se corte y vuelva: antes salía una nueva en cada reconexión
+        espera = self._ultima_nota + REVIEW_INTERVAL_SEC - time.monotonic()
+        if espera > 0:
+            await asyncio.sleep(espera)
         while not ws.closed:
+            self._ultima_nota = time.monotonic()
             snippet = await asyncio.to_thread(_pick_random_consolidated_snippet)
             if snippet is not None:
                 self._last_note_id = snippet["id"]
@@ -65,9 +73,12 @@ class NoteReviewBridge:
                 if note_id is not None:
                     await asyncio.to_thread(self._open_note_in_browser, note_id)
             # Pantalla «Notas» del ESP32: pide la lista y, al abrir una, su texto
+            elif kind == "heartbeat":  # el latido dice si la placa sabe juntar la lista por partes
+                self._por_partes = bool(data.get("notes_parts"))
             elif kind == "notes_list_request":
-                notes = await asyncio.to_thread(list_notes_for_esp32)
-                await ws.send_str(json.dumps({"type": "notes_list", "notes": notes}, ensure_ascii=False))
+                for m in await asyncio.to_thread(notes_list_messages, self._por_partes):
+                    await ws.send_str(m)
+                    await asyncio.sleep(0.05)  # la placa procesa cada parte en su bucle: sin atascarle la cola
             elif kind == "note_request":
                 content = await asyncio.to_thread(note_content_for_esp32, str(data.get("note_id", "")))
                 if content is not None:
@@ -184,12 +195,19 @@ def _clean_category(category) -> str:
     return re.sub(r"\s*-\s*$", "", category or "").strip() or "General"
 
 
-def list_notes_for_esp32() -> list[dict]:
+# La placa no puede analizar la lista entera de golpe (140 notas = 15 KB de JSON: la descartaba en silencio y, con
+# poca memoria libre, acababa en pánico y se reiniciaba). Con el firmware 2026.11.1 (anuncia «notes_parts» en su
+# latido) va por partes pequeñas; con uno anterior, solo las más recientes hasta un tamaño que sí cabe.
+PARTE_BYTES = 1800
+SIN_PARTES_BYTES = 3500  # medido: 6,5 KB se procesan recién arrancada; 9 KB ya no; con horas encendida, bastante menos
+
+
+def list_notes_for_esp32(recientes_primero: bool = False) -> list[dict]:
     from app.database import get_db
 
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT id, title, category FROM notes "
+            "SELECT id, title, category, last_modified FROM notes "
             "WHERE COALESCE(encrypted, 0) = 0 AND COALESCE(status, '') != 'indice'"
         ).fetchall()
     notes = [
@@ -197,11 +215,48 @@ def list_notes_for_esp32() -> list[dict]:
             "id": r["id"],
             "title": _fit_bytes(r["title"] or "(sin título)", 70),
             "category": _fit_bytes(_clean_category(r["category"]), 46),
+            "_ts": r["last_modified"] or "",
         }
         for r in rows
     ]
-    notes.sort(key=lambda n: (n["category"].casefold(), n["title"].casefold()))
+    if recientes_primero:
+        notes.sort(key=lambda n: str(n["_ts"]), reverse=True)
+    else:
+        notes.sort(key=lambda n: (n["category"].casefold(), n["title"].casefold()))
+    for n in notes:
+        del n["_ts"]
     return notes[:NOTES_LIST_MAX]
+
+
+def _bytes(obj) -> int:
+    return len(json.dumps(obj, ensure_ascii=False).encode())
+
+
+def notes_list_messages(por_partes: bool) -> list[str]:
+    """Los mensajes «notes_list» para la placa: por partes si sabe juntarlas; si no, uno que quepa."""
+    orden = lambda n: (n["category"].casefold(), n["title"].casefold())  # noqa: E731
+    if not por_partes:
+        elegidas, total = [], 60
+        for n in list_notes_for_esp32(recientes_primero=True):
+            if total + _bytes(n) + 1 > SIN_PARTES_BYTES:
+                break
+            elegidas.append(n)
+            total += _bytes(n) + 1
+        elegidas.sort(key=orden)
+        return [json.dumps({"type": "notes_list", "notes": elegidas}, ensure_ascii=False)]
+    partes: list[list[dict]] = [[]]
+    tam = 0
+    for n in list_notes_for_esp32():
+        b = _bytes(n) + 1
+        if partes[-1] and tam + b > PARTE_BYTES:
+            partes.append([])
+            tam = 0
+        partes[-1].append(n)
+        tam += b
+    return [
+        json.dumps({"type": "notes_list", "part": i, "parts": len(partes), "notes": p}, ensure_ascii=False)
+        for i, p in enumerate(partes)
+    ]
 
 
 def note_content_for_esp32(note_id: str):

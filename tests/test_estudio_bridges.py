@@ -7,6 +7,7 @@ import struct
 from concurrent.futures import ThreadPoolExecutor
 
 import aiohttp
+import pytest
 from PIL import Image
 
 from estudio import icloud_sync, note_review
@@ -281,3 +282,96 @@ def test_el_puente_responde_a_las_peticiones_del_esp32(client):
     _run(note_review.NoteReviewBridge(None, "ws://esp32/ws")._receiver_loop(ws))
     assert [m["type"] for m in ws.sent] == ["notes_list", "note_content"]
     assert ws.sent[1]["text"] == "Hola desde el panel."
+
+
+# ── Lista de notas para la placa: por partes o, si no sabe juntarlas, lo que cabe ─────
+@pytest.fixture()
+def muchas_notas(client):
+    """60 notas para que la lista no quepa entera; se borran al acabar (otros tests, como los de la IA, cuentan los
+    títulos de todas las notas y con estas no les cabría la petición)."""
+    from app.database import get_db
+
+    ids = [f"esp-mucha-{i:03d}" for i in range(60)]
+    for i, nid in enumerate(ids):
+        _nota_db(
+            nid,
+            title=f"Nota con un título bastante largo número {i:03d}",
+            category=f"Categoría {i % 5} - Sub",
+            last_modified=f"2026-11-{1 + i % 28:02d}T10:{i % 60:02d}:00",
+        )
+    yield ids
+    with get_db() as conn:
+        conn.executemany("DELETE FROM notes WHERE id = ?", [(i,) for i in ids])
+
+
+def test_la_lista_va_por_partes_pequenas_y_completa(client, muchas_notas):
+    partes = [json.loads(m) for m in note_review.notes_list_messages(por_partes=True)]
+    assert len(partes) > 1
+    assert [p["part"] for p in partes] == list(range(len(partes))) and {p["parts"] for p in partes} == {len(partes)}
+    assert all(len(json.dumps(p, ensure_ascii=False).encode()) < note_review.PARTE_BYTES + 200 for p in partes)
+    juntas = [n for p in partes for n in p["notes"]]
+    assert juntas == note_review.list_notes_for_esp32()  # nada se pierde ni se repite, y en el orden de siempre
+
+
+def test_sin_partes_solo_lo_que_cabe_y_lo_mas_reciente(client, muchas_notas):
+    (m,) = note_review.notes_list_messages(por_partes=False)
+    assert len(m.encode()) <= note_review.SIN_PARTES_BYTES
+    notas = json.loads(m)["notes"]
+    assert "part" not in json.loads(m) and 0 < len(notas) < len(note_review.list_notes_for_esp32())
+    recientes = [n["id"] for n in note_review.list_notes_for_esp32(recientes_primero=True)][: len(notas)]
+    assert sorted(n["id"] for n in notas) == sorted(recientes)
+    claves = [(n["category"].casefold(), n["title"].casefold()) for n in notas]
+    assert claves == sorted(claves)  # en la placa, por categoría como siempre
+
+
+def test_tras_el_latido_contesta_por_partes(client, muchas_notas):
+
+    class WS:
+        def __init__(self):
+            self.sent = []
+
+        async def send_str(self, s):
+            self.sent.append(json.loads(s))
+
+        def __aiter__(self):
+            async def gen():
+                yield _Msg({"type": "heartbeat", "fw": "2026.11.1", "notes_parts": 1})
+                yield _Msg({"type": "notes_list_request"})
+
+            return gen()
+
+    ws = WS()
+    _run(note_review.NoteReviewBridge(None, "ws://esp32/ws")._receiver_loop(ws))
+    assert len(ws.sent) > 1 and all(m["type"] == "notes_list" and "part" in m for m in ws.sent)
+
+
+def test_el_repaso_no_se_repite_al_reconectar(client, monkeypatch):
+    """Una nota cada 15 minutos aunque la conexión se corte y vuelva (antes salía una en cada reconexión)."""
+    monkeypatch.setattr(
+        note_review,
+        "_pick_random_consolidated_snippet",
+        lambda: {"id": "a", "title": "A", "category": "C", "snippet": "x"},
+    )
+    monkeypatch.setattr(note_review, "REVIEW_INTERVAL_SEC", 5)  # el de verdad son 15 min
+    bridge = note_review.NoteReviewBridge(None, "ws://esp32/ws")
+
+    class WS:
+        def __init__(self):
+            self.sent, self.closed = [], False
+
+        async def send_str(self, s):
+            self.sent.append(s)
+
+    async def un_rato(ws):
+        try:
+            await asyncio.wait_for(bridge._sender_loop(ws), timeout=0.3)
+        except TimeoutError:
+            pass  # se queda esperando su turno: bien
+
+    async def dos_conexiones():
+        primera, segunda = WS(), WS()
+        await un_rato(primera)  # conecta, manda su nota y se corta
+        await un_rato(segunda)  # reconecta enseguida: no toca otra todavía
+        return len(primera.sent), len(segunda.sent)
+
+    assert _run(dos_conexiones()) == (1, 0)

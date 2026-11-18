@@ -22,3 +22,17 @@ try {
   sessionStorage.removeItem('panel.nav-anim');
   if (va && Date.now() - va < 4000 && !('CSSViewTransitionRule' in window)) document.documentElement.classList.add('nav-entrando');
 } catch (e) {}
+// Hacia dónde se cambia de sección: la página anterior apunta su posición en el menú al irse (ui.js, pagehide) y esta
+// la compara con la suya (data-sec). nav-adelante / nav-atras eligen hacia qué lado entra la página y nav-cambia
+// enciende las llegadas (píldora, título que rueda, contenido en cascada; ds.css). Se quitan cuando ya han pasado.
+try {
+  var de = String(sessionStorage.getItem('panel.sec') || '').split('|');
+  sessionStorage.removeItem('panel.sec');
+  var aqui = Number(document.documentElement.getAttribute('data-sec'));
+  var antes = Number(de[0]);
+  if (de.length === 2 && aqui >= 0 && antes >= 0 && antes !== aqui && Date.now() - Number(de[1]) < 4000) {
+    var cl = document.documentElement.classList;
+    cl.add('nav-cambia', aqui > antes ? 'nav-adelante' : 'nav-atras');
+    setTimeout(function () { cl.remove('nav-cambia', 'nav-adelante', 'nav-atras'); }, 1600);
+  }
+} catch (e) {}

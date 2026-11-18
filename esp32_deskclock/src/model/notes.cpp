@@ -36,13 +36,30 @@ void requestList() {
   listAskedMs = nowMs();
 }
 
-void receiveList(JsonArrayConst arr) {
+// La lista llega por partes (part 0..parts-1, de ~2 KB): entera eran 15 KB de JSON y la placa no tenía memoria para
+// analizarla (la descartaba en silencio y, con poca memoria libre, acababa en pánico). La parte 0 empieza la lista,
+// las demás añaden, y solo la última la da por buena. Sin «part» (panel antiguo) es una lista entera, como antes.
+static char keepId[sizeof(Entry::id)] = "";
+static int nextPart = 0;
+
+void receiveList(JsonArrayConst arr, int part, int parts) {
   if (!entries) entries = (Entry*)malloc(sizeof(Entry) * MAX_NOTES);
   if (!entries) { logf("notas: sin memoria para la lista"); listSt = EMPTY; return; }
-  // Si la nota abierta sigue en la lista nueva, se conserva su posición
-  char keep[sizeof(Entry::id)] = "";
-  if (current >= 0 && current < n) copyStr(keep, entries[current].id, sizeof keep);
-  n = 0;
+  if (parts < 1) parts = 1;
+  if (part == 0) {
+    // Si la nota abierta sigue en la lista nueva, se conserva su posición
+    keepId[0] = 0;
+    if (current >= 0 && current < n) copyStr(keepId, entries[current].id, sizeof keepId);
+    n = 0;
+    if (parts > 1) listSt = LOADING;  // las partes llegan seguidas: «cargando» solo un instante
+  } else if (part != nextPart) {
+    if (listSt != LOADING) return;  // una parte suelta con la lista ya completa: nada que hacer
+    logf("notas: parte %d fuera de orden (esperaba %d): se vuelve a pedir", part, nextPart);
+    nextPart = 0;
+    listAskedMs = 0;  // la pantalla la vuelve a pedir enseguida
+    return;
+  }
+  nextPart = part + 1;
   for (JsonObjectConst o : arr) {
     if (n >= MAX_NOTES) break;
     const char* id = o["id"] | "";
@@ -52,11 +69,13 @@ void receiveList(JsonArrayConst arr) {
     copyStr(entries[n].category, o["category"] | "", sizeof entries[n].category);
     n++;
   }
+  if (part < parts - 1) return;  // faltan partes: sigue «cargando»
+  nextPart = 0;
   listSt = READY;
   if (current >= 0) {
     current = -1;
     for (int i = 0; i < n; i++)
-      if (!strcmp(entries[i].id, keep)) { current = i; break; }
+      if (!strcmp(entries[i].id, keepId)) { current = i; break; }
   }
 }
 

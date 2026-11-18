@@ -43,6 +43,7 @@ void sendHeartbeat() {
   doc["clients"] = s.clients;
   doc["sd"] = s.sd;
   doc["reset"] = s.resetReason;
+  doc["notes_parts"] = 1;  // sabe recibir la lista de notas por partes (el panel la manda así solo si lo ve)
   char buf[320];
   const size_t len = serializeJson(doc, buf, sizeof buf);
   if (len < sizeof buf) netBroadcast(buf, len);
@@ -60,7 +61,7 @@ void handleText(const char* json, size_t len) {
   // Lo que manda el panel (puentes de estudio/): música, calendario de iCloud, repaso
   if (is(type, "nowplaying")) { lastPanelMs = nowMs(); music::update(m); return; }
   if (is(type, "review_note")) { lastPanelMs = nowMs(); review::receive(m); return; }
-  if (is(type, "notes_list")) { lastPanelMs = nowMs(); notes::receiveList(m["notes"].as<JsonArrayConst>()); return; }
+  if (is(type, "notes_list")) { lastPanelMs = nowMs(); notes::receiveList(m["notes"].as<JsonArrayConst>(), m["part"] | 0, m["parts"] | 1); return; }
   if (is(type, "note_content")) { lastPanelMs = nowMs(); notes::receiveContent(m); return; }
   if (is(type, "calendar_sync_full")) { lastPanelMs = nowMs(); calendar::replaceAll(m["events"].as<JsonArrayConst>()); return; }
 

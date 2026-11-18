@@ -547,7 +547,12 @@
     // Al volver con Atrás desde la caché, la página no puede seguir desvanecida
     window.addEventListener('pageshow', () => document.documentElement.classList.remove('nav-saliendo'));
     document.documentElement.addEventListener('animationend', (e) => {
-      if (e.animationName === 'vt-page-in') document.documentElement.classList.remove('nav-entrando');
+      if (/^vt-(page-in|entra-)/.test(e.animationName)) document.documentElement.classList.remove('nav-entrando');
+    });
+    // Al irse, la posición de esta sección en el menú: la página nueva sabe así hacia qué lado entrar (theme-init.js)
+    window.addEventListener('pagehide', () => {
+      const i = document.documentElement.dataset.sec;
+      try { if (i != null && Number(i) >= 0) sessionStorage.setItem('panel.sec', `${i}|${Date.now()}`); } catch {}
     });
     // Pedir por adelantado lo que se va a abrir (menú, pestañas, hoja «Más»)
     const pedidas = new Set();
@@ -569,6 +574,143 @@
       espera = setTimeout(() => adelantar(a), 80);  // pasar por encima sin pararse no pide nada
     });
     document.addEventListener('pointerdown', (e) => adelantar(e.target.closest?.(NAV)), { passive: true });
+  })();
+
+  /* ---------- Control segmentado con píldora que se desliza ----------
+     Al pulsar otra opción de un .segmented, el fondo de la elegida viaja desde la anterior con un muelle (una copia
+     del fondo que se anima de un sitio a otro y desaparece; el control no guarda estado y sirve aunque la pantalla
+     lo repinte al momento). */
+  (() => {
+    if (!Element.prototype.animate) return;
+    const MUELLE = getComputedStyle(document.documentElement).getPropertyValue('--spring').trim() || 'cubic-bezier(0.34, 1.36, 0.64, 1)';
+    const ACTIVA = 'button[aria-pressed="true"], button[aria-selected="true"], button.active';
+    document.addEventListener('click', (e) => {
+      const b = e.target.closest?.('.segmented > button');
+      if (!b || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      const seg = b.parentElement;
+      const antes = seg.querySelector(`:scope > :is(${ACTIVA})`);
+      if (!antes || antes === b) return;
+      const ra = antes.getBoundingClientRect();
+      const indice = [...seg.children].indexOf(b);
+      requestAnimationFrame(() => {
+        // La pantalla pudo repintar el control: se busca el nuevo en el mismo sitio
+        const ahora = seg.isConnected ? seg : document.elementFromPoint(ra.left + 2, ra.top + 2)?.closest('.segmented');
+        const nueva = ahora?.querySelector(`:scope > :is(${ACTIVA})`);
+        if (!ahora || !nueva || ahora.children[indice] !== nueva) return;
+        const rn = nueva.getBoundingClientRect(), rs = ahora.getBoundingClientRect();
+        if (!rn.width) return;
+        const cs = getComputedStyle(nueva);
+        const pil = document.createElement('span');
+        pil.className = 'seg-pill';
+        pil.setAttribute('aria-hidden', 'true');
+        Object.assign(pil.style, {
+          left: `${rn.left - rs.left}px`, top: `${rn.top - rs.top}px`, width: `${rn.width}px`, height: `${rn.height}px`,
+          background: cs.backgroundColor, boxShadow: cs.boxShadow, borderRadius: cs.borderRadius,
+        });
+        ahora.classList.add('seg-moviendo');
+        ahora.prepend(pil);
+        const dx = ra.left - rn.left, ex = ra.width / rn.width;
+        const a = pil.animate([
+          { transform: `translateX(${dx}px) scaleX(${ex})` },
+          { transform: 'none' },
+        ], { duration: 460, easing: MUELLE });
+        a.onfinish = a.oncancel = () => { pil.remove(); ahora.classList.remove('seg-moviendo'); };
+      });
+    }, true);
+  })();
+
+  /* ---------- Tirar para recargar (móvil) ----------
+     En el móvil la página se desplaza dentro de .main, así que Safari no tiene su «tirar para recargar». Arrastrando
+     hacia abajo desde arriba del todo, el contenido sigue al dedo como una goma (cada vez más dura) y un anillo se
+     llena; pasada la marca la flecha se da la vuelta y al soltar se recarga la página. Antes de la marca, todo
+     vuelve a su sitio con un muelle. No se activa dentro de diálogos, campos, lienzos ni zonas que se arrastran. */
+  (() => {
+    if (!matchMedia('(pointer: coarse)').matches || !Element.prototype.animate) return;
+    const MARCA = 76, TOPE = 150;
+    const EVITAR = 'dialog, input, textarea, select, [contenteditable="true"], canvas, svg.graph, [draggable="true"], .board, .board-canvas, .sortable-handle, [data-no-ptr]';
+    let ini = null, tirado = 0, armado = false, ind = null, cuerpo = null;
+    const goma = (d) => TOPE * (1 - Math.exp(-Math.max(0, d) / TOPE));
+    const indicador = () => {
+      if (ind) return ind;
+      ind = document.createElement('div');
+      ind.className = 'ptr';
+      ind.setAttribute('aria-hidden', 'true');
+      ind.innerHTML = '<svg viewBox="0 0 40 40"><circle class="ptr-pista" cx="20" cy="20" r="15"/><circle class="ptr-arco" cx="20" cy="20" r="15" pathLength="100" transform="rotate(-90 20 20)"/><path class="ptr-flecha" d="M20 13v14M15 22l5 5 5-5"/></svg>';
+      const pb = main.querySelector(':scope > .page-body');
+      ind.style.top = `${Math.round(pb ? pb.getBoundingClientRect().top : 56)}px`;
+      document.body.appendChild(ind);
+      return ind;
+    };
+    const pintar = (v) => {
+      const p = Math.min(1, v / MARCA);
+      const el = indicador();
+      el.style.opacity = String(Math.min(1, v / 24));
+      el.style.transform = `translate(-50%, ${Math.round(v * 0.55 - 44)}px) scale(${(0.6 + 0.4 * p).toFixed(3)})`;
+      el.querySelector('.ptr-arco').style.strokeDasharray = `${(p * 100).toFixed(1)} 100`;
+      if (cuerpo) cuerpo.style.transform = `translateY(${v.toFixed(1)}px)`;
+    };
+    const main = document.querySelector('.app > .main');
+    if (!main) return;
+    // Lo que se desplaza es el .page-body (las pantallas sin él, el propio .main)
+    const scroller = () => main.querySelector(':scope > .page-body') || main;
+    main.addEventListener('touchstart', (e) => {
+      ini = null;
+      if (e.touches.length !== 1 || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      if (e.target.closest?.(EVITAR) || document.querySelector('dialog[open]')) return;
+      // Un contenedor propio desplazado por dentro (una lista) tampoco
+      for (let n = e.target; n && n !== main; n = n.parentElement) {
+        if (n.scrollTop > 0) return;
+      }
+      if (scroller().scrollTop > 0) return;
+      ini = { x: e.touches[0].clientX, y: e.touches[0].clientY, activo: false };
+    }, { passive: true });
+    main.addEventListener('touchmove', (e) => {
+      if (!ini) return;
+      const dx = e.touches[0].clientX - ini.x, dy = e.touches[0].clientY - ini.y;
+      if (!ini.activo) {
+        if (dy < 8 || Math.abs(dx) > dy || scroller().scrollTop > 0) { if (Math.abs(dx) > 8 || dy < -4) ini = null; return; }
+        ini.activo = true;
+        ini.y += 8;
+        cuerpo = main.querySelector(':scope > .page-body') || main;
+        cuerpo.style.willChange = 'transform';
+      }
+      e.preventDefault();
+      tirado = goma(e.touches[0].clientY - ini.y);
+      const pasa = tirado >= MARCA;
+      if (pasa !== armado) {
+        armado = pasa;
+        indicador().classList.toggle('is-armado', pasa);
+        if (pasa) navigator.vibrate?.(8);
+      }
+      pintar(tirado);
+    }, { passive: false });
+    const soltar = () => {
+      if (!ini?.activo) { ini = null; return; }
+      ini = null;
+      const el = indicador();
+      const c = cuerpo;
+      if (armado) {
+        el.classList.add('is-cargando');
+        const hasta = 48;
+        c.animate([{ transform: `translateY(${tirado}px)` }, { transform: `translateY(${hasta}px)` }], { duration: 220, easing: 'ease-out', fill: 'forwards' });
+        pintar(hasta);
+        c.style.transform = `translateY(${hasta}px)`;
+        setTimeout(() => location.reload(), 380);
+        return;
+      }
+      const v0 = tirado;
+      const a = c.animate([{ transform: `translateY(${v0}px)` }, { transform: 'none' }], {
+        duration: 520, easing: getComputedStyle(document.documentElement).getPropertyValue('--spring').trim() || 'ease-out',
+      });
+      c.style.transform = '';
+      el.animate([{ opacity: el.style.opacity }, { opacity: 0 }], { duration: 160, fill: 'forwards' }).onfinish = () => {
+        el.remove(); ind = null;
+      };
+      a.onfinish = a.oncancel = () => { c.style.willChange = ''; };
+      tirado = 0; armado = false;
+    };
+    main.addEventListener('touchend', soltar);
+    main.addEventListener('touchcancel', soltar);
   })();
 
   /* ---------- Plegables y <details> animados ----------
@@ -789,8 +931,13 @@
     // Lo que tapa el teclado por abajo (0 sin teclado): las hojas inferiores suben solo eso. En iOS el teclado no
     // encoge la ventana (innerHeight), solo la vista visual; calcularlo así no depende de 100dvh, que Safari actualiza
     // a otro ritmo que visualViewport (la hoja «Más» podía quedar fuera de la pantalla).
-    const kb = vv ? Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) : 0;
+    let kb = vv ? Math.round(window.innerHeight - vv.height - vv.offsetTop) : 0;
+    if (!Number.isFinite(kb) || kb < 0) kb = 0;
     document.documentElement.style.setProperty('--kb', kb + 'px');
+    // Solo con un teclado de verdad (> 120 px) las hojas usan --kb/--vvh; sin él van ancladas con valores fijos
+    // (en iOS 26 la barra flotante de Safari mueve esas medidas y dejaba la hoja «Más» fuera de la pantalla)
+    const conTeclado = kb > 120 && !!document.activeElement?.matches?.('input, textarea, select, [contenteditable="true"]');
+    document.documentElement.classList.toggle('kb-open', conTeclado);
   }
   // En táctil, el campo que recibe el foco dentro de un diálogo se centra cuando el teclado
   // ya ha encogido la hoja: así ni el campo ni el botón de guardar del pie quedan tapados
@@ -807,9 +954,21 @@
     try {
       const c = await api('/api/items/counts', { quiet: true });
       const n = c.inbox?.pendientes ?? c.pendientes;  // solo lo que está por procesar en el Inbox
+      const txt = n > 99 ? '99+' : String(n);
       document.querySelectorAll('[data-inbox-count]').forEach((el) => {
-        el.textContent = n > 99 ? '99+' : String(n);
+        const antes = el.hidden ? null : el.textContent;
+        el.textContent = txt;
         el.hidden = n === 0;
+        // El número nuevo salta: llega desde abajo si sube y desde arriba si baja, con un rebote (con scale y
+        // translate sueltos: la insignia de las pestañas ya usa transform para colocarse)
+        if (antes != null && antes !== '' && antes !== txt && !el.hidden && el.animate
+            && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          const sube = (parseInt(txt, 10) || 0) > (parseInt(antes, 10) || 0);
+          el.animate([
+            { scale: '0.55', translate: `0 ${sube ? 7 : -7}px` },
+            { scale: '1', translate: '0 0' },
+          ], { duration: 460, easing: 'cubic-bezier(0.34, 1.7, 0.64, 1)' });
+        }
       });
     } catch {}
   }
