@@ -59,8 +59,9 @@ function Invoke-Datos([string[]]$Orden) {
 if ($Estado) { exit (Invoke-Datos @('estado')) }
 
 if ($Parar) {
+    # Primero la tarea: si no, su bucle ve que uvicorn ha muerto y lo relanza a los 5 s mientras «seguir» cierra los datos
+    Stop-ScheduledTask -TaskName $script:Tarea -ErrorAction SilentlyContinue
     $ids = Get-ProcesosPanel $dataDir $puerto
-    if (-not $ids) { Write-Host 'El panel no está en marcha.'; exit 0 }
     $ids | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
     Start-Sleep -Seconds 2
     # Parado a la fuerza: «seguir» comprueba las BDs, pasa el WAL al .db y deja el cerrojo cerrado

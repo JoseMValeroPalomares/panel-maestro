@@ -260,15 +260,18 @@ git archive --format=zip -o /mnt/datos/panel-codigo.zip HEAD    # el código del
 cp .env /mnt/datos/linux.env                                     # TEMPORAL: lleva secretos; se borra tras instalar
 ```
 
-En Windows, PowerShell **normal** (pedirá administrador solo para la exclusión del antivirus):
+(O descarga el zip de GitHub: es el mismo código.) En Windows, descomprime el zip y haz **doble clic en
+`instalar.cmd`**. Busca solo la carpeta de datos (la única unidad con `panel-maestro\data\brain.db`) y el `linux.env`
+de al lado, instala, arranca y abre el navegador; pedirá administrador una vez, para la exclusión del antivirus. Luego
+borra los secretos: `Remove-Item D:\linux.env` (o en Linux `rm /mnt/datos/linux.env`). Equivale a:
 
 ```powershell
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned      # una vez, para poder ejecutar scripts locales
-Expand-Archive D:\panel-codigo.zip $HOME\panel-codigo
-cd $HOME\panel-codigo
-.\install.ps1 -Datos D:\panel-maestro -Secretos D:\linux.env
-Remove-Item D:\linux.env                                 # y en Linux: rm /mnt/datos/linux.env si no lo borraste aquí
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Datos D:\panel-maestro -Secretos D:\linux.env
 ```
+
+`-ExecutionPolicy Bypass` hace falta porque lo descargado de Internet lleva una marca que `RemoteSigned` no deja
+ejecutar. **No lo ejecutes desde una app empaquetada** (MSIX, como la terminal de la app de Claude): Windows desvía `%LOCALAPPDATA%` a la carpeta del paquete y la tarea programada no encuentra la
+instalación (falla con `0x8007010B`). Usa el doble clic o una PowerShell abierta desde Inicio.
 
 `install.ps1`:
 1. **Se niega** si el inicio rápido (`HiberbootEnabled`) o la hibernación están activos (y dice el comando), si la
@@ -282,10 +285,14 @@ Remove-Item D:\linux.env                                 # y en Linux: rm /mnt/d
    `%LOCALAPPDATA%`, `PANEL_PLATFORM=windows`, `PANEL_HOST=127.0.0.1`, la universidad (`-Universidad`, o `X:\Uja` si
    existe) y, de `-Secretos`, la contraseña, el secreto y la generación de sesión, el token de la extensión, iCloud y
    las claves de IA. Sin `-Secretos` pide una contraseña (`scripts.set_password`).
-5. Exclusión de Microsoft Defender para la carpeta de datos (UAC; `-SinDefender` lo salta).
+5. Exclusión de Microsoft Defender para la carpeta de datos (UAC; `-SinDefender` lo salta). Solo la primera vez: al
+   actualizar no la vuelve a pedir.
 6. Tarea programada «Panel Maestro» al iniciar sesión (solo tu usuario, oculta) que lanza `start.ps1`.
-7. Accesos directos «Panel Maestro» en el escritorio y en Inicio a `http://127.0.0.1:8000/`. Arranca y enseña el
-   estado de los datos.
+7. Accesos directos «Panel Maestro» (a `http://127.0.0.1:8000/`) y «Actualizar Panel Maestro», en el escritorio y en
+   Inicio. Arranca y enseña el estado de los datos.
+
+Si ya estaba instalado, antes de copiar el código para el panel con `start.ps1 -Parar` (de la versión nueva): con el
+panel en marcha la tarea no se relanza y seguiría el código viejo hasta el siguiente inicio de sesión.
 
 `start.ps1` (lo lanza la tarea): comprueba otra vez inicio rápido e hibernación (si están activos: aviso y no
 arranca), escribe `windows-estado.json`, arranca el panel en modo UTF-8 y, si se niega a arrancar, enseña el motivo en
@@ -294,11 +301,17 @@ otra cosa. Más:
 
 ```powershell
 & "$env:LOCALAPPDATA\PanelMaestro\app\start.ps1" -Estado    # cerrojo, WAL, integrity_check y recuentos
-& "$env:LOCALAPPDATA\PanelMaestro\app\start.ps1" -Parar     # para el panel y deja los datos cerrados
+& "$env:LOCALAPPDATA\PanelMaestro\app\start.ps1" -Parar     # para la tarea y el panel y deja los datos cerrados
 & "$env:LOCALAPPDATA\PanelMaestro\app\start.ps1" -Seguir    # confirma un cierre sucio de Linux y arranca
 ```
 
-**Actualizar** el código en Windows: vuelve a ejecutar `install.ps1` con la versión nueva (respeta el `.env`).
+`-Parar` detiene primero la tarea: si no, su bucle relanzaría el panel a los 5 s mientras `seguir` cierra los datos.
+
+**Actualizar** en Windows: **doble clic en «Actualizar Panel Maestro»** (escritorio o Inicio). Descarga la última
+versión de `main` en GitHub (`scripts/windows/actualizar.ps1`), ejecuta su `install.ps1` con los datos del `.env`, y al
+terminar abre el panel; solo se queda esperando si algo falla. Lo publicado en GitHub tiene que ser la versión que ya
+corre en Linux (`scripts/desplegar.sh`): si Windows llevara migraciones que Linux no tiene, el panel de Linux se
+encontraría una BD más nueva que su código. Desde una carpeta con el código, `instalar.cmd` hace lo mismo.
 
 **Desinstalar**: `.\install.ps1 -Desinstalar` para el panel (y cierra los datos), quita la tarea, los accesos directos
 y la exclusión, y pregunta antes de borrar `%LOCALAPPDATA%\PanelMaestro` (código, venv, `.env`, logs **y las copias

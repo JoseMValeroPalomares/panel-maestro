@@ -4,12 +4,16 @@
     Solo la web: sin captura rápida, avisos del sistema ni Waybar.
 
 .EXAMPLE
+    instalar.cmd                                                  # doble clic: lo mismo que .\install.ps1 sin argumentos
+    .\install.ps1                                                 # busca X:\panel-maestro y X:\linux.env; actualizando, usa el .env
     .\install.ps1 -Datos D:\panel-maestro                         # con los datos que movió Linux (scripts.datos_compartidos mover)
     .\install.ps1 -Datos D:\panel-maestro -Secretos E:\linux.env  # copia la contraseña y los tokens del .env de Linux
     .\install.ps1 -Desinstalar                                    # quita todo menos la carpeta de datos
 
-.PARAMETER Datos      Carpeta compartida (la de /mnt/datos/panel-maestro en Linux).
-.PARAMETER Secretos   Un .env de Linux del que copiar la contraseña, los tokens e iCloud. Sin él, pide una contraseña.
+.PARAMETER Datos      Carpeta compartida (la de /mnt/datos/panel-maestro en Linux). Sin ella: la del .env si ya está
+                      instalado o, si no, la única unidad con panel-maestro\data\brain.db.
+.PARAMETER Secretos   Un .env de Linux del que copiar la contraseña, los tokens e iCloud. Sin él: X:\linux.env junto a
+                      los datos si existe y el .env aún no tiene contraseña; si no, pide una contraseña.
 .PARAMETER Nueva      Admite una carpeta de datos sin panel (empezar de cero). Sin esto se niega, para no crear datos
                       vacíos por una letra de unidad equivocada.
 .PARAMETER Universidad  Carpeta de la universidad en Windows (p. ej. D:\Uja): manda sobre la ruta de Linux de la BD.
@@ -37,10 +41,14 @@ function Falla([string]$t) { Write-Host "ERROR: $t" -ForegroundColor Red; exit 1
 $app = Join-Path $script:Base 'app'
 $venv = Join-Path $script:Base 'venv'
 $envFile = Join-Path $script:Base '.env'
-$tarea = 'Panel Maestro'
+$tarea = $script:Tarea
 $accesos = @(
     (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Panel Maestro.url'),
     (Join-Path ([Environment]::GetFolderPath('Programs')) 'Panel Maestro.url')
+)
+$accesosActualizar = @(
+    (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Actualizar Panel Maestro.lnk'),
+    (Join-Path ([Environment]::GetFolderPath('Programs')) 'Actualizar Panel Maestro.lnk')
 )
 
 function Invoke-Admin([string]$Orden) {
@@ -59,7 +67,7 @@ if ($Desinstalar) {
     }
     Paso "Quitando la tarea «$tarea» y los accesos directos"
     Unregister-ScheduledTask -TaskName $tarea -Confirm:$false -ErrorAction SilentlyContinue
-    $accesos | ForEach-Object { Remove-Item $_ -Force -ErrorAction SilentlyContinue }
+    $accesos + $accesosActualizar | ForEach-Object { Remove-Item $_ -Force -ErrorAction SilentlyContinue }
     if ($dataDir -and -not $SinDefender) {
         $carpeta = Split-Path $dataDir -Parent
         Paso "Quitando la exclusión del antivirus de $carpeta (pide administrador)"
@@ -78,8 +86,22 @@ if ($Desinstalar) {
 }
 
 # ─────────────────────────── Comprobaciones ───────────────────────────
-if (-not $Datos) { Falla 'Falta -Datos <carpeta compartida> (p. ej. D:\panel-maestro)' }
-$Datos = [System.IO.Path]::GetFullPath($Datos.TrimEnd('\'))
+$yaInstalado = Test-Path $envFile
+$previo = Read-Env $envFile
+if (-not $Datos -and $previo['PANEL_DATA_DIR']) { $Datos = Split-Path $previo['PANEL_DATA_DIR'] -Parent }
+if (-not $Datos) {
+    $hallados = @(Get-PSDrive -PSProvider FileSystem | ForEach-Object { Join-Path $_.Root 'panel-maestro' } |
+            Where-Object { Test-Path (Join-Path $_ 'data\brain.db') })
+    if ($hallados.Count -gt 1) { Falla "Hay datos del panel en varias unidades ($($hallados -join ', ')): elige con -Datos" }
+    if ($hallados.Count -eq 1) { $Datos = $hallados[0] }
+}
+if (-not $Datos) { Falla 'No encuentro la carpeta de datos (X:\panel-maestro\data\brain.db): indícala con -Datos' }
+$Datos = [System.IO.Path]::GetFullPath($Datos.TrimEnd('\', '/'))
+Write-Host "   Datos: $Datos"
+if (-not $Secretos -and -not $previo['PANEL_PASSWORD_HASH']) {
+    $junto = Join-Path (Split-Path $Datos -Qualifier) 'linux.env'
+    if (Test-Path $junto) { $Secretos = $junto }
+}
 Paso 'Comprobando Windows'
 $energia = Get-EstadoEnergia
 $texto = Get-TextoEnergia $energia
@@ -135,6 +157,13 @@ if (-not $py) {
 Write-Host "   $py ($(& $py --version))"
 
 # ─────────────────────────── Código y venv ───────────────────────────
+if (Test-Path (Join-Path $app 'start.ps1')) {
+    # Con el panel en marcha la tarea no se relanza (IgnoreNew) y seguiría el código viejo. El start.ps1 nuevo (de
+    # $origen) para la tarea antes que el proceso, aunque el instalado sea de una versión que no lo hacía.
+    Paso 'Parando el panel y cerrando los datos'
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $origen 'start.ps1') -Parar
+    if ($LASTEXITCODE -ne 0) { Falla 'No se pudieron cerrar los datos: el panel queda parado y sin actualizar. Mira docs\recuperacion.md.' }
+}
 Paso "Copiando el código a $app"
 New-Item -ItemType Directory -Force -Path $script:Base | Out-Null
 $fuera = @('.git', 'venv', 'node_modules', 'data', 'backups', 'logs', 'dist', '__pycache__', '.pytest_cache',
@@ -189,7 +218,8 @@ if ($Secretos) {
             'GEMINI_API_KEY')) {
         if ($linux.Contains($k)) { $cambios[$k] = $linux[$k] }
     }
-    Write-Host "   Secretos copiados de $Secretos (bórralo de donde lo dejaras si era una copia temporal)."
+    Write-Host "   Secretos copiados de $Secretos."
+    Aviso "Borra $Secretos cuando termine: lleva tus secretos en claro (docs/windows.md §7)."
 }
 Write-Env $envFile $cambios
 if (-not (Read-Env $envFile)['PANEL_PASSWORD_HASH']) {
@@ -201,7 +231,8 @@ if (-not (Read-Env $envFile)['PANEL_PASSWORD_HASH']) {
 }
 
 # ─────────────────────────── Antivirus ───────────────────────────
-if (-not $SinDefender) {
+# Solo al instalar: actualizar no vuelve a pedir administrador (la exclusión ya está)
+if (-not $SinDefender -and -not $yaInstalado) {
     Paso "Exclusión de Microsoft Defender para $Datos (pide administrador)"
     try {
         $c = Invoke-Admin "Add-MpPreference -ExclusionPath '$Datos'"
@@ -226,6 +257,15 @@ foreach ($a in $accesos) {
     New-Item -ItemType Directory -Force -Path (Split-Path $a) | Out-Null
     [System.IO.File]::WriteAllText($a, "[InternetShortcut]`r`nURL=http://127.0.0.1:$Puerto/`r`n", [System.Text.Encoding]::ASCII)
 }
+$shell = New-Object -ComObject WScript.Shell
+foreach ($a in $accesosActualizar) {
+    $l = $shell.CreateShortcut($a)
+    $l.TargetPath = 'powershell.exe'
+    $l.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $app 'scripts\windows\actualizar.ps1')`""
+    $l.WorkingDirectory = $script:Base
+    $l.Description = 'Descarga la última versión del panel, la instala y la arranca'
+    $l.Save()
+}
 
 Paso 'Arrancando'
 Start-ScheduledTask -TaskName $tarea
@@ -240,6 +280,7 @@ foreach ($i in 1..60) {
 if ($listo) {
     Write-Host "Hecho: http://127.0.0.1:$Puerto/ (y el acceso directo «Panel Maestro»)." -ForegroundColor Green
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $app 'start.ps1') -Estado
-} else {
-    Aviso "El panel no responde todavía. Mira $base/logs/panel.log o ejecuta: & '$app\start.ps1'"
+    exit 0
 }
+Aviso "El panel no responde todavía. Mira $base/logs/panel.log o ejecuta: & '$app\start.ps1'"
+exit 1

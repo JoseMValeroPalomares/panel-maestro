@@ -3,6 +3,7 @@
 
 $script:Base = Join-Path $env:LOCALAPPDATA 'PanelMaestro'
 $script:Utf8SinBom = New-Object System.Text.UTF8Encoding $false
+$script:Tarea = 'Panel Maestro'   # tarea programada que lanza start.ps1 al iniciar sesión
 
 function Get-RegistroDword([string]$Ruta, [string]$Nombre) {
     try {
