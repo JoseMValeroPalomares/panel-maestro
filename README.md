@@ -48,9 +48,10 @@ Y en el móvil, donde todo se maneja con el pulgar:
 
 Las capturas usan datos inventados.
 
-## Instalación
+## Instalación en Linux
 
 Necesitas Linux, `git` y Python 3.12 o superior. No hace falta Node ni base de datos: todo viene incluido.
+¿Usas Windows? Ve a [Instalación en Windows](#instalación-en-windows).
 
 ```bash
 git clone https://github.com/JoseMValeroPalomares/panel-maestro.git
@@ -100,6 +101,108 @@ Si prefieres que el panel de diario ejecute una versión concreta y ya probada (
 vuelta atrás en un paso), usa los despliegues: `scripts/desplegar.sh --comprobar`, `scripts/desplegar.sh` y, si algo va
 mal, `scripts/desplegar.sh --volver` ([docs/despliegue.md](docs/despliegue.md)).
 
+## Instalación en Windows
+
+Funciona en Windows 11 con la web completa. Lo que es propio del escritorio Linux (captura con un atajo, avisos del
+sistema, Waybar) no está. El instalador lo prepara todo: Python si no lo tienes, arranque automático al iniciar sesión
+y accesos directos. No hace falta `git`.
+
+### 1. Prepara Windows (una vez)
+
+El instalador **se niega** si el inicio rápido o la hibernación de Windows están activos: con ellos, Windows puede dejar
+la carpeta de datos a medio escribir al apagar. Clic derecho en Inicio → **Terminal (Administrador)** y ejecuta:
+
+```powershell
+powercfg /h off
+reg add "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Power" /v HiberbootEnabled /t REG_DWORD /d 0 /f
+```
+
+La primera línea quita la hibernación y, con ella, el inicio rápido; la segunda lo asegura. Si en el mismo equipo
+arrancas también Linux, pon además el reloj en UTC para que no vaya una hora mal al cambiar de sistema:
+
+```powershell
+reg add "HKLM\SYSTEM\CurrentControlSet\Control\TimeZoneInformation" /v RealTimeIsUniversal /t REG_DWORD /d 1 /f
+```
+
+### 2. Elige la carpeta de datos
+
+Crea una carpeta vacía para tus datos, **fuera de OneDrive**, por ejemplo `D:\panel-maestro` (o `C:\panel-maestro`
+si solo tienes un disco). Ahí irán tus notas y bases de datos; el programa se instala aparte.
+
+Si ya usas el panel en Linux con arranque dual, no crees nada: mueve los datos a la partición compartida desde Linux
+como explica [docs/windows.md §6](docs/windows.md#6-mover-los-datos-de-linux-a-la-partición-fase-3) y los dos
+sistemas usarán la misma carpeta.
+
+### 3. Descarga el código
+
+En esta página, **Code → Download ZIP** (o [este enlace](https://github.com/JoseMValeroPalomares/panel-maestro/archive/refs/heads/main.zip)).
+Clic derecho en el zip → **Extraer todo**. La carpeta extraída solo sirve para instalar: el panel se copia a
+`%LOCALAPPDATA%\PanelMaestro` y después puedes borrarla.
+
+### 4. Instala
+
+**Si empiezas de cero**, abre la carpeta extraída, escribe `cmd` en la barra de direcciones del Explorador, pulsa
+Intro y ejecuta (con la carpeta del paso 2):
+
+```bat
+instalar.cmd -Datos D:\panel-maestro -Nueva
+```
+
+`-Nueva` confirma que la carpeta está vacía a propósito; sin él, el instalador se niega, para no crear un panel vacío
+por una letra de unidad equivocada.
+
+**Si ya tienes los datos** del panel en una unidad (`X:\panel-maestro`, movidos desde Linux), basta con **doble clic en
+`instalar.cmd`**: encuentra la carpeta solo. Si al lado dejaste una copia del `.env` de Linux llamada `linux.env`, copia
+de ella la contraseña y las credenciales; **bórrala después**, porque lleva tus secretos en claro.
+
+Si Windows avisa de que el archivo viene de Internet («Windows protegió tu PC»), pulsa **Más información → Ejecutar de
+todas formas**: el instalador no está firmado. Ejecútalo con doble clic o desde una consola abierta desde Inicio, no
+desde la terminal integrada de una app de la Tienda: ahí Windows desvía las carpetas y el arranque automático no
+encuentra la instalación.
+
+El instalador:
+
+1. Comprueba Windows (inicio rápido, hibernación, OneDrive) y, si falta algo, te dice el comando.
+2. Instala Python 3.14 con `winget` si no tienes 3.12, 3.13 o 3.14, y prepara su entorno.
+3. Copia el programa a `%LOCALAPPDATA%\PanelMaestro`, con su `.env`, sus copias de seguridad y sus logs.
+4. Te pide la contraseña del panel (salvo que venga de `linux.env`).
+5. Pide permiso de administrador **una sola vez**, para que Microsoft Defender no analice la carpeta de datos mientras
+   el panel escribe en ella.
+6. Crea una tarea que arranca el panel al iniciar sesión y los accesos directos **Panel Maestro** y **Actualizar Panel
+   Maestro**, en el escritorio y en Inicio.
+7. Arranca el panel y abre <http://127.0.0.1:8000>.
+
+### Uso diario
+
+- El panel arranca solo al iniciar sesión: ábrelo con el acceso directo **Panel Maestro**. Solo escucha en el propio
+  equipo (`127.0.0.1`).
+- **Actualizar**: doble clic en **Actualizar Panel Maestro**. Descarga la última versión de GitHub, para el panel
+  cerrando bien los datos, la instala y lo vuelve a abrir. Respeta tus datos, el `.env` y las copias, y no vuelve a
+  pedir administrador.
+- **Comprobar o parar**, en PowerShell:
+
+  ```powershell
+  & "$env:LOCALAPPDATA\PanelMaestro\app\start.ps1" -Estado   # estado de los datos y de las bases de datos
+  & "$env:LOCALAPPDATA\PanelMaestro\app\start.ps1" -Parar    # para el panel y deja los datos cerrados
+  ```
+
+- **Desinstalar** quita la tarea, los accesos directos y la exclusión del antivirus, y pregunta antes de borrar
+  `%LOCALAPPDATA%\PanelMaestro` (programa, `.env`, logs y las copias de Windows). **Nunca** toca la carpeta de datos:
+
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\PanelMaestro\app\install.ps1" -Desinstalar
+  ```
+
+| Problema en Windows | Solución |
+|---|---|
+| Se niega por el inicio rápido o la hibernación | Repite el paso 1 y reinicia |
+| `no tiene datos del panel (falta data\brain.db)` | Comprueba la letra de la unidad, o añade `-Nueva` si empiezas de cero |
+| `Hay datos del panel en varias unidades` | Indica cuál: `instalar.cmd -Datos D:\panel-maestro` |
+| El panel no responde | Mira `%LOCALAPPDATA%\PanelMaestro\logs\panel.log` |
+
+La guía completa, con los riesgos de compartir datos entre Linux y Windows y cómo los evita el panel, está en
+[docs/windows.md](docs/windows.md).
+
 ## Tus datos
 
 Todo se queda en tu equipo, en estas carpetas, y ninguna se sube a git porque están en `.gitignore`:
@@ -112,6 +215,9 @@ Todo se queda en tu equipo, en estas carpetas, y ninguna se sube a git porque es
 | Imágenes subidas | `static/uploads/` |
 | Copias de seguridad | `backups/` |
 | Contraseña y credenciales | `.env` |
+
+En Windows, los datos están en la carpeta que elegiste al instalar (`data\`, `comidas\` y `uploads\`), y el `.env`, las
+copias y los logs, en `%LOCALAPPDATA%\PanelMaestro`.
 
 Cada noche, a las 03:30, se hace una copia completa en `backups/`. Guarda esa carpeta también fuera del equipo: si se
 estropea el disco, se pierde con él. `PANEL_BACKUP_MIRROR` deja una segunda copia, comprobada, en otra unidad o en una
