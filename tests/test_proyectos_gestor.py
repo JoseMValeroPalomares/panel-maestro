@@ -194,3 +194,27 @@ def test_migracion_27_se_deshace_sin_perder_nada(tmp_path):
     assert tuple(p) == ("alta", "2026-12-01", '["a"]')
     assert conn.execute("SELECT titulo FROM versiones").fetchone()[0] == "Tablero"
     assert conn.execute("SELECT texto FROM item_comentarios").fetchone()[0] == "c"
+
+
+def test_historial_de_hechas(client):
+    p = _proy(client)
+    tid = _tarea(client, p["id"], "Hecha para el historial")
+    paso = client.post("/api/items", json={"text": "su paso", "type": "tarea", "parent_id": tid}).json()["id"]
+    # Lo pendiente no va al historial; un paso tampoco por su cuenta
+    assert client.patch(f"/api/items/{tid}", json={"archivada": True}).status_code == 422
+    client.patch(f"/api/items/{tid}", json={"done": True})
+    assert client.patch(f"/api/items/{paso}", json={"archivada": True}).status_code == 422
+    assert client.patch(f"/api/items/{tid}", json={"archivada": True}).status_code == 200
+    items = {i["id"]: i for i in client.get("/api/items").json()["items"]}
+    assert items[tid]["archivada"] and items[paso]["archivada"]  # el paso va con su tarea
+    # Volver a pendiente la saca del historial
+    client.patch(f"/api/items/{tid}", json={"done": False})
+    assert not {i["id"]: i for i in client.get("/api/items").json()["items"]}[tid]["archivada"]
+    # En lote: solo lo hecho entra; lo demás se cuenta como error
+    otra = _tarea(client, p["id"], "Otra")
+    client.patch(f"/api/items/{tid}", json={"done": True})
+    r = client.post("/api/items/bulk", json={"ids": [tid, otra, paso], "action": "archivar"}).json()
+    assert r["count"] == 1 and [e["id"] for e in r["errors"]] == [otra]
+    r = client.post("/api/items/bulk", json={"ids": [tid], "action": "desarchivar"}).json()
+    assert r["count"] == 1
+    assert not {i["id"]: i for i in client.get("/api/items").json()["items"]}[tid]["archivada"]

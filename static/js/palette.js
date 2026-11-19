@@ -142,20 +142,26 @@
     wireAllDialogs();
     const input = dlg.querySelector('input'), list = dlg.querySelector('ul');
     let all = candidates(null), shown = [], active = 0;
+    // La selección viaja entre filas (Mov.glide) en vez de saltar
+    const pill = window.Mov ? Mov.glide(list, { className: 'glide-pill pick-pill' }) : null;
+    if (pill) list.classList.add('has-glide');
     const paint = () => {
       shown = search(all, input.value);
       active = Math.min(active, Math.max(0, shown.length - 1));
       let last = '';
-      list.innerHTML = shown.length ? shown.map((c, i) => {
+      const pintar = () => { list.innerHTML = shown.length ? shown.map((c, i) => {
         const head = c.group !== last ? `<li class="palette-group" role="presentation">${escapeHtml(c.group)}</li>` : '';
         last = c.group;
-        return `${head}<li role="option" id="pal-${i}" class="palette-row" data-i="${i}" aria-selected="${i === active}">
+        return `${head}<li role="option" id="pal-${i}" class="palette-row" data-i="${i}" data-key="${escapeHtml(c.group + '|' + c.label)}" aria-selected="${i === active}">
           <span class="palette-icon" aria-hidden="true">${icon(c.icon, 'icon-sm')}</span>
           <span class="row-main"><span class="row-title">${escapeHtml(c.label)}</span>${c.subHtml ? `<span class="row-sub">${c.subHtml}</span>` : c.sub && c.group !== 'Acciones' ? `<span class="row-sub">${escapeHtml(c.sub)}</span>` : ''}</span>
           ${c.keys ? `<span class="palette-keys">${kbd(c.keys)}</span>` : ''}</li>`;
-      }).join('') : `<li class="palette-empty small muted">Nada coincide con «${escapeHtml(input.value)}»</li>`;
+      }).join('') : `<li class="palette-empty small muted">Nada coincide con «${escapeHtml(input.value)}»</li>`; };
+      // Al escribir, lo que sigue coincidiendo viaja a su sitio nuevo y lo que entra sube (Mov.flipList)
+      if (window.Mov) Mov.flipList(list, '.palette-row', (el) => el.dataset.key, pintar); else pintar();
       input.setAttribute('aria-activedescendant', shown.length ? `pal-${active}` : '');
       list.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
+      pill?.to(list.querySelector('[aria-selected="true"]'));
     };
     const run = (i) => { const c = shown[i]; if (!c) return; closeModal(dlg); setTimeout(() => c.run(), 0); };
     input.addEventListener('input', () => { active = 0; paint(); fetchFts(input.value, () => { if (dlg) paint(); }); });
@@ -179,7 +185,8 @@
   /* ---------- «?»: ayuda de atajos (los de siempre y los de la página) ---------- */
   const k = (...keys) => keys.map((x) => `<kbd>${x}</kbd>`).join(' ');
   const LIST_KEYS = [[k('Intro'), 'Editar la tarjeta con el foco'], [k('E'), 'Añadir un paso (con el ratón encima)'],
-    [k('X'), 'Seleccionar'], [`${k('Alt')} + flechas`, 'Mover, meter como paso o sacar']];
+    [k('X'), 'Seleccionar (Ctrl + clic, Mayús + clic para un tramo)'], [`${k('Ctrl')} ${k('A')}`, 'Seleccionar todo con sus pasos'],
+    [`${k('Ctrl')} ${k('C')}`, 'Copiar la selección en orden'], [`${k('Alt')} + flechas`, 'Mover, meter como paso o sacar']];
   const PAGE_KEYS = {
     'page-calendario': ['Calendario', [[`${k('←')} ${k('→')}`, 'Anterior / siguiente'], [k('T'), 'Volver a hoy'],
       [`${k('D')} ${k('3')} ${k('S')} ${k('M')} ${k('A')}`, 'Día, 3 días, semana, mes, agenda'], [k('N'), 'Nuevo evento escribiendo'],
@@ -192,8 +199,13 @@
     'page-rutinas': ['Rutinas', [[`${k('Ctrl')} ${k('Intro')}`, 'Guardar el formulario']]],
     'page-notas': ['Notas', [[k('/'), 'Buscar una nota'], [k('Esc'), 'Salir de la edición']]],
     'page-proyectos': ['Proyectos', [[k('N'), 'Nuevo proyecto (o nueva tarea dentro de uno)'], [k('/'), 'Buscar y filtrar'],
-      [k('V'), 'Cambiar de vista: tarjetas, tablero, cronología (o lista, dentro de un proyecto)'], [`${k('1')}…${k('7')}`, 'Pestañas de un proyecto'],
-      [k('Esc'), 'Cerrar la ficha de una tarea']]],
+      [k('V'), 'Cambiar de vista: tarjetas, tablero, cronología (o lista, dentro de un proyecto)'], [`${k('1')}…${k('8')}`, 'Pestañas de un proyecto'],
+      [`${k('↑')} ${k('↓')}`, 'Moverse por las tareas (desde la búsqueda, ↓ entra en la lista)'], [k('Intro'), 'Abrir la ficha de la tarea'],
+      [k('Espacio'), 'Marcar hecha o pendiente'], [k('E'), 'Añadir una subtarea'], [k('C'), 'Copiar el texto (Ctrl + C: con sus subtareas)'],
+      [k('H'), 'Mandar al historial una tarea hecha (o devolverla)'], [`${k('Mayús')} ${k('H')}`, 'Todas las hechas al historial'],
+      [k('Supr'), 'Borrar la tarea (se puede deshacer)'], [`${k('Ctrl')} ${k('V')}`, 'Pegar una lista: una tarea por línea'],
+      [k('X'), 'Seleccionar la tarea (y luego clic, Mayús + clic para un tramo)'], [`${k('Ctrl')} ${k('A')}`, 'Seleccionar todas con sus subtareas'],
+      [`${k('Alt')} + flechas`, 'Mover la tarea (con el foco en su asa)'], [k('Esc'), 'Cerrar la ficha o terminar la selección']]],
   };
   function help() {
     if (document.querySelector('dialog[open]')) return;

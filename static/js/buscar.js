@@ -73,7 +73,8 @@
       const key = Object.keys(GROUPS).find((k) => GROUPS[k].kind === c.dataset.count);
       const n = !data ? null : key ? data[key].length : data.total;
       // con un tipo elegido, los demás no se han buscado: sin número
-      c.textContent = n == null || (kind && c.dataset.count !== kind && c.dataset.count !== '') ? '' : ` ${n}`;
+      const txt = n == null || (kind && c.dataset.count !== kind && c.dataset.count !== '') ? '' : ` ${n}`;
+      if (window.Mov && txt && c.textContent) Mov.roll(c, txt); else c.textContent = txt;
     });
     $('noteTools').hidden = Boolean(kind && kind !== 'nota');
   }
@@ -113,12 +114,17 @@
       return;
     }
     const order = Object.keys(GROUPS).filter((k) => data[k]?.length);  // siempre el mismo orden: notas, tareas, Baúl, eventos
-    $('results').innerHTML = order.map((k) => {
-      const g = GROUPS[k];
-      return `<section class="result-group" aria-labelledby="rg-${k}">
-        <h2 class="section-title result-group-title" id="rg-${k}">${tile(g.section, g.icon)}${g.title} <span class="section-sub tabular">${data[k].length}</span></h2>
-        <ul class="list result-list">${data[k].map((x) => RENDER[k](x, marks)).join('')}</ul></section>`;
-    }).join('');
+    const pintar = () => {
+      $('results').innerHTML = order.map((k) => {
+        const g = GROUPS[k];
+        return `<section class="result-group" aria-labelledby="rg-${k}">
+          <h2 class="section-title result-group-title" id="rg-${k}">${tile(g.section, g.icon)}${g.title} <span class="section-sub tabular" data-roll-k="${k}">${data[k].length}</span></h2>
+          <ul class="list result-list">${data[k].map((x) => RENDER[k](x, marks)).join('')}</ul></section>`;
+      }).join('');
+    };
+    // Al afinar la búsqueda, los resultados que siguen viajan a su sitio, los nuevos suben y los contadores ruedan
+    if (window.Mov) Mov.keepRoll($('results'), '[data-roll-k]', 'data-roll-k', () => Mov.flipList($('results'), '.result-list > li', (el) => el.firstElementChild?.getAttribute('href'), pintar));
+    else pintar();
     remember(p.q);
   }
   $('kindChips').addEventListener('click', (e) => {

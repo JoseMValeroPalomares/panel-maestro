@@ -246,8 +246,11 @@
       // Con el filtro de tipo, solo los grupos que pueden tener ese tipo (en una nota solo hay tareas)
       const groups = ['inbox', 'nota', 'ideas', 'rutinas'].filter((g) => this.filters.type === 'all' || TYPE_GROUPS[this.filters.type]?.includes(g));
       if (this.filters.type === 'all' && this.filters.status !== 'done' && !this.filters.q && !this.filters.category) groups.push('calendario');
-      this.root.innerHTML = groups.map((g) => (g === 'calendario' ? this.eventsHTML() : this.groupHTML(g))).join('')
-        + `<datalist id="il-cats-${this.variant}">${this.categories().map((c) => `<option value="${esc(c)}">`).join('')}</datalist>`;
+      const pintar = () => {
+        this.root.innerHTML = groups.map((g) => (g === 'calendario' ? this.eventsHTML() : this.groupHTML(g))).join('')
+          + `<datalist id="il-cats-${this.variant}">${this.categories().map((c) => `<option value="${esc(c)}">`).join('')}</datalist>`;
+      };
+      if (window.Mov) Mov.keepRoll(this.root, '[data-count]', 'data-count', pintar); else pintar();
       this.root.classList.toggle('is-selecting', this.selectMode);
       this.wireSortables();
       scroller.scrollTop = top;
@@ -257,6 +260,7 @@
       }
       this.markOverflow();
       this.renderBar();
+      this.mountHabits();
       this.onRender?.(this);
       // Después de onRender: la cuadrícula da a las tarjetas su tamaño ahí, y sin él no hay a dónde desplazarse
       if (this.onRender) scroller.scrollTop = top;
@@ -490,6 +494,22 @@
         aria-label="${esc(GROUP_META[target].title)}">${items.map((it) => this.itemHTML(it)).join('')}</ul>`;
     }
 
+    // Mapas de hábito de las rutinas (Mov.heatmap): la ola de entrada solo la primera vez que se ve cada uno
+    mountHabits() {
+      if (!window.Mov) return;
+      this.habitsSeen ||= new Set();
+      this.root.querySelectorAll('.il-habit .habit-grid').forEach((g) => {
+        const id = g.closest('.il-item')?.dataset.id;
+        const cells = [...g.querySelectorAll('.habit-cell')].filter((c) => c.dataset.state !== 'future');
+        Mov.heatmap(g, { cells, fila: (i) => i % 7, col: (i) => Math.floor(i / 7), on: (c) => c.dataset.state === 'done', entrada: !this.habitsSeen.has(id) });
+        this.habitsSeen.add(id);
+      });
+    }
+
+    stepIndex(it) {
+      return Math.max(0, (Items.children?.(it.parent_id) || []).findIndex((x) => x.id === it.id));
+    }
+
     itemHTML(it, child = false) {
       const kids = child ? [] : Items.children(it.id);
       const fkey = `i:${it.id}`;
@@ -538,9 +558,14 @@
       if (it.origin !== 'nota' && !child && this.variant === 'sidebar') meta.push(`<time class="il-when" datetime="${new Date(it.created_at * 1000).toISOString()}">${timeAgo(it.created_at)}</time>`);
 
       // Recién completada o creada (Items.recent): la animación retoma su punto si la lista se repinta
-      const rec = Items.recent?.(it.id);
+      // Un paso marcado a la vez que su tarea (rutina con pasos) se marca en cascada, uno tras otro
+      let rec = Items.recent?.(it.id);
+      if (!rec && child && it.done && Items.recent?.(it.parent_id)?.kind === 'done') {
+        const padre = Items.recent(it.parent_id), i = Math.min(this.stepIndex(it), 8);
+        rec = { kind: 'done', ms: padre.ms - 90 - i * 70 };
+      }
       const sale = !child && this.saliendo(it) ? ' is-leaving' : '';
-      const anim = rec && (rec.kind === 'new' || it.done) ? ` is-just-${rec.kind === 'new' ? 'added' : 'done'}${sale}" style="--anim-t:-${rec.ms}ms` : '';
+      const anim = rec && (rec.kind === 'new' || it.done) ? ` is-just-${rec.kind === 'new' ? 'added' : 'done'}${sale}" style="--anim-t:${-rec.ms}ms` : '';
       return `<li class="il-item${child ? ' il-child' : ''}${it.done ? ' is-done' : ''}${sel ? ' is-selected' : ''}${this.flashId === it.id ? ' is-flash' : ''}${anim}" data-id="${it.id}" data-type="${it.type}" data-origin="${it.origin}"
           aria-label="${esc(label)}${it.done ? ' (hecha)' : ''}">
         <div class="il-row">
@@ -551,7 +576,7 @@
             aria-label="${it.done ? 'Volver a pendiente' : ({ idea: 'Marcar como procesada', rutina: 'Hecha hoy' }[it.type] || 'Marcar como hecha')}: ${esc(label)}">${icon('check', 'icon-sm')}</button>
           <button type="button" class="il-copy" data-act="copy" aria-label="Copiar «${esc(label)}»" title="Copiar el texto">${icon('copy', 'icon-sm')}</button>
           <div class="il-body">
-            ${editing ? this.editorHTML(it, kids.length) : `<p class="il-text" data-act="edit-text">${linkify(esc(it.text))}</p>
+            ${editing ? this.editorHTML(it, kids.length) : `<p class="il-text" data-act="edit-text"><span class="il-strike">${linkify(esc(it.text))}</span></p>
             ${meta.length ? `<div class="il-meta">${meta.join('')}</div>` : ''}
             ${showDet && it.type === 'rutina' && !isStep ? habitHTML(it) : ''}
             ${showDet && it.details ? this.detailsHTML(it) : ''}`}
@@ -868,6 +893,35 @@
       this.render();
     }
 
+    // «Todo»: lo que se ve y, de cada tarea, también sus pasos aunque estén plegados (copiar, completar o borrar llega a todo)
+    selectAll() {
+      this.root.querySelectorAll('.il-item').forEach((li) => {
+        const id = Number(li.dataset.id);
+        this.selected.add(id);
+        Items.children(id).forEach((k) => this.selected.add(k.id));
+      });
+      this.selectMode = true;
+      this.render();
+    }
+
+    // Menú «Más» de la selección: prioridad, fecha y volver a pendiente
+    moreMenu(ids, anchor) {
+      const iso = (d) => d.toLocaleDateString('sv-SE');
+      const day = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return iso(d); };
+      const due = (v) => Items.bulk(ids, 'due', { value: v });
+      openMenu(anchor, [
+        ...Object.entries(Items.PRIO).map(([k, v]) => ({ label: v, icon: 'flag', onClick: () => Items.bulk(ids, 'priority', { value: k }) })),
+        { label: 'Sin prioridad', icon: 'flag-off', onClick: () => Items.bulk(ids, 'priority', { value: '' }) },
+        { separator: true },
+        { label: 'Fecha: hoy', icon: 'calendar', onClick: () => due(day(0)) },
+        { label: 'Fecha: mañana', icon: 'calendar', onClick: () => due(day(1)) },
+        { label: 'Fecha: en una semana', icon: 'calendar-range', onClick: () => due(day(7)) },
+        { label: 'Quitar la fecha', icon: 'calendar-x', onClick: () => due('') },
+        { separator: true },
+        { label: 'Volver a pendiente', icon: 'rotate-ccw', onClick: async () => { await Items.bulk(ids, 'reopen'); this.clearSelection(); } },
+      ]);
+    }
+
     clearSelection() {
       this.selected.clear();
       this.selectMode = false;
@@ -879,7 +933,7 @@
       this.bar.hidden = !this.selectMode && !n;
       if (this.bar.hidden) return;
       this.bar.innerHTML = `<span class="il-bulk-count tabular" aria-live="polite">${n ? `${n} seleccionad${n === 1 ? 'o' : 'os'}` : 'Toca para seleccionar'}</span>
-        <button type="button" class="btn btn-ghost btn-sm" data-bulk="all" title="Seleccionar todo lo que se ve">${icon('list-checks', 'icon-sm')}<span class="hide-mobile">Todo</span><span class="sr-only show-mobile">Seleccionar todo</span></button>
+        <button type="button" class="btn btn-ghost btn-sm" data-bulk="all" title="Seleccionar todo lo que se ve, con sus pasos (Ctrl + A)">${icon('list-checks', 'icon-sm')}<span class="hide-mobile">Todo</span><span class="sr-only show-mobile">Seleccionar todo</span></button>
         <span class="grow"></span>
         <button type="button" class="btn btn-sm btn-tinted" data-bulk="copy" ${n ? '' : 'disabled'}>${icon('copy', 'icon-sm')}<span class="hide-mobile">Copiar</span><span class="sr-only show-mobile">Copiar</span></button>
         <button type="button" class="btn btn-sm" data-bulk="done" ${n ? '' : 'disabled'}>${icon('check', 'icon-sm')}<span class="hide-mobile">Completar</span><span class="sr-only show-mobile">Completar</span></button>
@@ -896,7 +950,7 @@
       const ids = [...this.selected];
       const act = b.dataset.bulk;
       if (act === 'close') return this.clearSelection();
-      if (act === 'all') { this.selectWhere('.il-item'); return; }
+      if (act === 'all') { this.selectAll(); return; }
       if (!ids.length) return;
       if (act === 'copy') { ItemCopy.open(ids, [...this.root.querySelectorAll('.il-item')].map((li) => Number(li.dataset.id))); return; }
       if (act === 'done') { await Items.bulk(ids, ids.every((i) => Items.get(i)?.done) ? 'reopen' : 'done'); this.clearSelection(); }
@@ -906,7 +960,7 @@
         if (value === null) return;
         await Items.bulk(ids, 'category', { value: value.trim() });
       }
-      if (act === 'more') this.priorityMenu(ids, b, null);
+      if (act === 'more') this.moreMenu(ids, b);
       if (act === 'move') {
         openMenu(b, [
           { label: 'Al Inbox', icon: 'inbox', onClick: async () => { await Items.bulk(ids, 'move', { target: 'inbox' }); this.clearSelection(); } },
@@ -992,7 +1046,8 @@
       if (e.shiftKey && this.selectMode) { this.selectRange(it.id); return; }
       if (act === 'done') { li.classList.toggle('is-done', !it.done); Items.setDone(it.id, !it.done); }
       if (act === 'copy') {
-        copyText(it.text).then((ok) => toast(ok ? 'Copiado' : 'No se pudo copiar', { type: ok ? 'success' : 'error', duration: 1400 }));
+        const b = e.target.closest('[data-act="copy"]');
+        copyText(it.text).then((ok) => (ok ? copied(b) : toast('No se pudo copiar', { type: 'error', duration: 1400 })));
         return;
       }
       if (act === 'add-step') { this.stepFor(it); return; }
@@ -1081,6 +1136,11 @@
       else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); Items.remove(it.id); }
       else if (e.key === 'e' || e.key === 'E') { e.preventDefault(); this.stepFor(it); }
       else if (e.key === 'x' || e.key === 'X') { e.preventDefault(); this.lastSelected = it.id; this.selectMode = true; this.toggleSelect(it.id); }
+      else if ((e.key === 'a' || e.key === 'A') && (e.ctrlKey || e.metaKey)) { e.preventDefault(); this.selectAll(); }
+      else if ((e.key === 'c' || e.key === 'C') && (e.ctrlKey || e.metaKey) && this.selected.size && !String(getSelection())) {
+        e.preventDefault();
+        ItemCopy.open([...this.selected], [...this.root.querySelectorAll('.il-item')].map((x) => Number(x.dataset.id)));
+      }
       else if (e.key === 'Escape' && this.selectMode) { e.preventDefault(); this.clearSelection(); }
       else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
@@ -1165,7 +1225,9 @@
       if (!Items.state.loaded) return;
       const top = Items.state.items.filter((it) => !it.parent_id && it.type !== 'rutina' && (!window.Ctx || Ctx.match(it, view.filters.contexto)));
       const c = { pendientes: top.filter((it) => !it.done).length, hechas: top.filter((it) => it.done).length };
-      box.querySelectorAll('[data-status-count]').forEach((el) => { el.textContent = c[el.dataset.statusCount]; });
+      box.querySelectorAll('[data-status-count]').forEach((el) => {
+        if (window.Mov) Mov.roll(el, String(c[el.dataset.statusCount])); else el.textContent = c[el.dataset.statusCount];
+      });
     };
     document.addEventListener('contexto:changed', () => setTimeout(paint));
     btns.forEach((b) => b.addEventListener('click', () => {

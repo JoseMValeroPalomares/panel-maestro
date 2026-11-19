@@ -24,6 +24,7 @@ el orden de las líneas.
 import json
 import os
 import re
+import time
 from datetime import date, timedelta
 
 import frontmatter
@@ -197,6 +198,7 @@ class ItemPatch(BaseModel):
     nota: float | None = Field(default=None, ge=-1, le=10)  # -1 la quita
     temas: list[int] | None = Field(default=None, max_length=200)
     en_curso: bool | None = None
+    archivada: bool | None = None  # tarea hecha de un proyecto: al historial (True) o de vuelta a la vista (False)
 
     @field_validator("uni_tipo")
     @classmethod
@@ -243,7 +245,9 @@ class MoveIn(BaseModel):
 
 class BulkIn(BaseModel):
     ids: list[int] = Field(min_length=1, max_length=500)
-    action: str = Field(max_length=20)  # done | reopen | delete | category | priority | move | contexto | due
+    action: str = Field(
+        max_length=20
+    )  # done | reopen | delete | category | priority | move | contexto | due | (des)archivar
     value: str | None = Field(default=None, max_length=60)
     target: str | None = Field(default=None, max_length=10)
     note_id: str | None = Field(default=None, max_length=200)
@@ -324,6 +328,7 @@ def ctx_fields(r, conts: dict | None) -> dict:
         nota=_col(r, "nota"),
         temas=temas,
         en_curso=bool(_col(r, "en_curso")),
+        archivada=_col(r, "archivada"),
     )
     return out
 
@@ -750,6 +755,9 @@ def set_done(item_id: int, done: bool, day: str | None = None) -> None:
             row
         ) != "nota":  # las de notas las anota la sincronía del .md
             routines.log(conn, row, "done" if done else "reopen")
+    if not done:  # lo que vuelve a pendiente sale del historial de su proyecto
+        with get_db() as conn:
+            conn.execute("UPDATE inbox SET archivada=NULL WHERE id=? AND archivada IS NOT NULL", (item_id,))
     if origin(row) == "nota":
         docs = Docs()
         t = docs.task(row)
@@ -904,6 +912,21 @@ def update(item_id: int, data: ItemPatch) -> None:
         if data.done and data.en_curso is None:
             with get_db() as conn:
                 conn.execute("UPDATE inbox SET en_curso=0 WHERE id=?", (item_id,))
+    if data.archivada is not None:
+        archivar(item_id, data.archivada)
+
+
+def archivar(item_id: int, on: bool) -> None:
+    """Historial de un proyecto: una tarea HECHA sale de la vista (con sus pasos) o vuelve. Nada más cambia."""
+    with get_db() as conn:
+        row = _get(conn, item_id)
+        if row["parent_id"] is not None:
+            raise HTTPException(status_code=422, detail="Un paso va con su tarea: manda al historial la tarea entera")
+        if on and row["status"] != "processed":
+            raise HTTPException(status_code=422, detail="Solo lo hecho va al historial")
+        conn.execute(
+            "UPDATE inbox SET archivada=? WHERE id=? OR parent_id=?", (time.time() if on else None, item_id, item_id)
+        )
 
 
 def _destino(item, parent, data: MoveIn) -> tuple[str, str | None]:
@@ -1096,7 +1119,18 @@ def restore(token: str) -> int:
     return n
 
 
-BULK_ACTIONS = ("done", "reopen", "delete", "category", "priority", "move", "contexto", "due")
+BULK_ACTIONS = (
+    "done",
+    "reopen",
+    "delete",
+    "category",
+    "priority",
+    "move",
+    "contexto",
+    "due",
+    "archivar",
+    "desarchivar",
+)
 
 
 def bulk(data: BulkIn) -> dict:
@@ -1123,6 +1157,10 @@ def bulk(data: BulkIn) -> dict:
         try:
             if data.action in ("done", "reopen"):
                 set_done(i, data.action == "done")
+            elif data.action in ("archivar", "desarchivar"):
+                if r["parent_id"] is not None:
+                    continue  # va con su tarea
+                archivar(i, data.action == "archivar")
             elif data.action == "category":
                 if origin(r) == "nota":
                     raise HTTPException(status_code=422, detail="Una tarea de una nota lleva la categoría de su nota")

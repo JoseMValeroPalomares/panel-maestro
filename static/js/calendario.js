@@ -8,6 +8,11 @@
   'use strict';
   const $ = (id) => document.getElementById(id);
   const params = new URLSearchParams(location.search);
+  // C-7 (abajo): en el móvil el minicalendario se pliega a una semana
+  const mqMovil = matchMedia('(max-width: 767px)');
+  const FOLD_KEY = 'calendario.mini-mes';
+  const miniFolded = () => mqMovil.matches && !Prefs.get(FOLD_KEY, false);
+  const fold = { dragged: false };
   const saved = Prefs.get('calendar-view', null);
   // Rejilla del minicalendario (6 semanas desde el lunes de antes del día 1): contiene el día, los 3 días o la semana a
   // la vista, así que se pide antes de montar y el calendario saca su rango de ella sin otra petición (V-2). Sin
@@ -126,10 +131,52 @@
       cells += `<button type="button" class="cal-mini-day tabular ${cls}" data-mini="${k}" aria-label="${escapeHtml(d.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' }))}${miniDots.days.has(k) ? ', con cosas' : ''}"${k === today ? ' aria-current="date"' : ''}>${d.getDate()}</button>`;
     }
     const m = MONTHS(mini);
+    const antes = paintMini.key;
+    paintMini.key = key;
+    const folded = miniFolded();
     $('calMini').innerHTML = `<div class="cal-mini-head"><span class="cal-mini-title">${m.charAt(0).toUpperCase() + m.slice(1)}</span>
-        <button type="button" class="btn btn-ghost btn-icon btn-sm" data-mini-go="-1" aria-label="Mes anterior">${icon('chevron-left', 'icon-sm')}</button>
-        <button type="button" class="btn btn-ghost btn-icon btn-sm" data-mini-go="1" aria-label="Mes siguiente">${icon('chevron-right', 'icon-sm')}</button></div>
-      <div class="cal-mini-grid">${['L', 'M', 'X', 'J', 'V', 'S', 'D'].map((d) => `<span class="cal-mini-dow" aria-hidden="true">${d}</span>`).join('')}${cells}</div>`;
+        <button type="button" class="btn btn-ghost btn-icon btn-sm" data-mini-go="-1" aria-label="${folded ? 'Semana anterior' : 'Mes anterior'}">${icon('chevron-left', 'icon-sm')}</button>
+        <button type="button" class="btn btn-ghost btn-icon btn-sm" data-mini-go="1" aria-label="${folded ? 'Semana siguiente' : 'Mes siguiente'}">${icon('chevron-right', 'icon-sm')}</button></div>
+      <div class="cal-mini-grid${folded ? ' is-folded' : ''}" id="calMiniGrid">${['L', 'M', 'X', 'J', 'V', 'S', 'D'].map((d) => `<span class="cal-mini-dow" aria-hidden="true">${d}</span>`).join('')}${cells}</div>
+      ${mqMovil.matches ? `<button type="button" class="cal-mini-handle" data-mini-fold aria-expanded="${!folded}" aria-controls="calMiniGrid" aria-label="${folded ? 'Ver el mes entero' : 'Ver solo la semana'}"><span aria-hidden="true"></span></button>` : ''}`;
+    markWeek();
+    miniBand(antes === key);
+    // Otro mes: los días llegan en ola diagonal desde el lado hacia el que se va
+    if (antes && antes !== key && window.Mov && !Mov.reduce()) {
+      const dir = key > antes ? 1 : -1;
+      $('calMini').querySelectorAll('.cal-mini-day').forEach((b, i) => {
+        const paso = dir > 0 ? Math.floor(i / 7) + (i % 7) : (5 - Math.floor(i / 7)) + (6 - (i % 7));
+        b.animate([{ opacity: 0, transform: `translate(${dir * 8}px, ${dir * 4}px)` }, { opacity: 1, transform: 'none' }],
+          { duration: 320, easing: 'cubic-bezier(0.16, 1, 0.3, 1)', delay: paso * 12, fill: 'backwards' });
+      });
+    }
+  }
+  /* C-3 · Lo que se ve (el día, los 3 días o la semana) se marca con una sola píldora que viaja con muelle de un sitio a
+     otro, estirándose en la dirección del viaje, en vez de saltar. Si el rango parte en dos filas, cada día se marca solo. */
+  let bandPrev = null;
+  function miniBand(sameMonth) {
+    const grid = $('calMini').querySelector('.cal-mini-grid');
+    const shown = [...grid.querySelectorAll('.cal-mini-day.is-shown')];
+    const rows = new Set(shown.map((b) => b.offsetTop));
+    if (!shown.length || rows.size > 1) { bandPrev = null; return; }
+    grid.classList.add('has-band');
+    const a = shown[0], b = shown[shown.length - 1];
+    const r = { x: a.offsetLeft, y: a.offsetTop, w: b.offsetLeft + b.offsetWidth - a.offsetLeft, h: a.offsetHeight };
+    const band = document.createElement('span');
+    band.className = 'cal-mini-band';
+    band.setAttribute('aria-hidden', 'true');
+    Object.assign(band.style, { left: `${r.x}px`, top: `${r.y}px`, width: `${r.w}px`, height: `${r.h}px` });
+    grid.prepend(band);
+    const p = bandPrev;
+    bandPrev = r;
+    if (!p || !sameMonth || (p.x === r.x && p.y === r.y && p.w === r.w) || !window.Mov || Mov.reduce()) return;
+    const dx = p.x - r.x, dy = p.y - r.y, sx = p.w / r.w;
+    const stretch = 1 + Math.min(0.25, Math.abs(dx) / Math.max(r.w, 1) * 0.08 + Math.abs(dy) / 200);
+    band.animate([
+      { transform: `translate(${dx}px, ${dy}px) scaleX(${sx})` },
+      { transform: `translate(${dx * 0.25}px, ${dy * 0.25}px) scale(${Math.abs(dx) >= Math.abs(dy) ? stretch : 1}, ${Math.abs(dy) > Math.abs(dx) ? stretch : 1})`, offset: 0.55 },
+      { transform: 'none' },
+    ], { duration: 460, easing: 'cubic-bezier(0.34, 1.3, 0.64, 1)' });
   }
   async function loadDots(first, key) {
     miniDots = { key, days: new Set() };
@@ -143,11 +190,70 @@
     if (miniDots.key === key) paintMini();
   }
   $('calMini').addEventListener('click', (e) => {
+    if (e.target.closest('[data-mini-fold]')) { if (!fold.dragged) setFolded(!miniFolded()); fold.dragged = false; return; }
     const go = e.target.closest('[data-mini-go]');
+    if (go && miniFolded()) { cal.goTo(Calendar.iso(Calendar.addDays(cal.date, 7 * Number(go.dataset.miniGo)))); return; }  // plegado: de semana en semana
     if (go) { mini = new Date(mini.getFullYear(), mini.getMonth() + Number(go.dataset.miniGo), 1); paintMini(); return; }
     const d = e.target.closest('[data-mini]');
     if (d) cal.goTo(d.dataset.mini);
   });
+
+  /* ---------- C-7 · En el móvil, «Ir a un día» va arriba y enseña una semana; tirando hacia abajo de su asa (o
+     tocándola) se despliega el mes entero con un plegado (alto + un leve giro de cada semana). Se recuerda en Prefs. ---------- */
+  // La semana que se ve plegada: la del día que enseña el calendario (o la de hoy, o la primera)
+  function markWeek() {
+    const grid = $('calMiniGrid');
+    if (!grid) return;
+    const days = [...grid.querySelectorAll('.cal-mini-day')];
+    let i = days.findIndex((b) => b.dataset.mini === Calendar.iso(cal.date));
+    if (i < 0) i = days.findIndex((b) => b.classList.contains('is-today'));
+    const row = Math.floor(Math.max(0, i) / 7);
+    days.forEach((b, k) => b.classList.toggle('is-week', Math.floor(k / 7) === row));
+  }
+  function setFolded(folded, animar = true) {
+    Prefs.set(FOLD_KEY, !folded);
+    const grid = $('calMiniGrid');
+    const antes = grid?.offsetHeight || 0;
+    paintMini();
+    const g = $('calMiniGrid');
+    if (!animar || !g || !window.Mov || Mov.reduce()) return;
+    const despues = g.offsetHeight;
+    g.animate([{ height: `${antes}px` }, { height: `${despues}px` }], { duration: 420, easing: 'cubic-bezier(0.34, 1.2, 0.64, 1)' });
+    if (!folded) {  // al abrir, cada semana se despliega desde la de arriba, escalonada
+      const rows = [...g.querySelectorAll('.cal-mini-day')];
+      rows.forEach((b, i) => {
+        if (b.classList.contains('is-week')) return;
+        b.animate([{ opacity: 0, transform: 'perspective(400px) rotateX(-65deg)' }, { opacity: 1, transform: 'none' }],
+          { duration: 360, delay: Math.floor(i / 7) * 35, easing: 'cubic-bezier(0.16, 1, 0.3, 1)', fill: 'backwards' });
+      });
+    }
+  }
+  // Arrastrar el asa: hacia abajo abre, hacia arriba cierra (solo el asa: el resto de la página se desplaza como siempre)
+  $('calMini').addEventListener('pointerdown', (e) => {
+    const h = e.target.closest('[data-mini-fold]');
+    if (!h) return;
+    const y0 = e.clientY;
+    fold.dragged = false;
+    const mover = (ev) => { if (Math.abs(ev.clientY - y0) > 8) fold.dragged = true; };
+    const soltar = (ev) => {
+      window.removeEventListener('pointermove', mover);
+      window.removeEventListener('pointerup', soltar);
+      const dy = ev.clientY - y0;
+      if (fold.dragged && Math.abs(dy) > 24) setFolded(dy < 0);
+    };
+    window.addEventListener('pointermove', mover);
+    window.addEventListener('pointerup', soltar);
+  });
+  // En el móvil, el panel va arriba (antes de la rejilla); en pantallas grandes, en el lateral de siempre
+  const miniPanel = $('calMini').closest('section');
+  const aside = document.querySelector('.cal-side');
+  const colocar = () => {
+    if (mqMovil.matches && miniPanel.parentElement === aside) document.querySelector('.cal-main').before(miniPanel);
+    else if (!mqMovil.matches && miniPanel.parentElement !== aside) aside.querySelector('.ctx-bar').after(miniPanel);
+    miniPanel.classList.toggle('cal-mini-top', mqMovil.matches);
+  };
+  colocar();
+  mqMovil.addEventListener?.('change', () => { colocar(); paintMini(); });
 
   /* ---------- Horario visible (Día, 3 días y Semana): se guarda en el servidor ---------- */
   function paintHours(c = cal) {
@@ -223,7 +329,7 @@
       body.innerHTML = `${intro}
         <label class="field"><span class="field-label">Dirección (cópiala ahora: no se vuelve a enseñar)</span>
           <span class="row"><input class="input grow" id="icsUrl" readonly value="${escapeHtml(url)}" spellcheck="false" translate="no" autocomplete="off">
-          <button type="button" class="btn btn-primary" data-ics="copiar">${icon('clipboard-copy')} Copiar</button></span></label>
+          <button type="button" class="btn btn-primary" data-ics="copiar">${icon('clipboard-copy')}<span>Copiar</span></button></span></label>
         <label class="row small"><input type="checkbox" class="checkbox" id="icsTareas"> Incluir las tareas con fecha sin hacer</label>`;
       const input = body.querySelector('#icsUrl');
       body.querySelector('#icsTareas').addEventListener('change', (e) => { input.value = url + (e.target.checked ? '?tareas=1' : ''); });
@@ -237,7 +343,8 @@
       try {
         if (b.dataset.ics === 'copiar') {
           const ok = await copyText(body.querySelector('#icsUrl').value);
-          toast(ok ? 'Dirección copiada' : 'No se pudo copiar: selecciónala y cópiala a mano', { type: ok ? 'success' : 'info' });
+          if (ok) copied(b, true, 'Dirección copiada');
+          else toast('No se pudo copiar: selecciónala y cópiala a mano', { type: 'info' });
         } else if (b.dataset.ics === 'crear') {
           if (foot.querySelector('[data-ics=revocar]') && !await uiConfirm('¿Crear otro enlace?', 'El actual dejará de funcionar: tendrás que cambiarlo en las aplicaciones que ya lo usan.', { confirmLabel: 'Crear otro' })) return;
           showUrl((await api('/api/calendar/ics-enlace', { method: 'POST' })).url);

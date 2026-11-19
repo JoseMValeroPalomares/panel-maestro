@@ -1162,24 +1162,35 @@ async function loadShoppingList() {
   loadEsenciales();
   try { data = await api(`${API}/shopping-list`, { quiet: true }); } catch { return; }
   const pend = data.items.filter(i => !i.comprado), done = data.items.filter(i => i.comprado);
-  $('shopCountLabel').textContent = data.items.length ? `${pend.length} por comprar · ${done.length} en el carro` : '';
+  const etiqueta = data.items.length ? `${pend.length} por comprar · ${done.length} en el carro` : '';
+  if (window.Mov && etiqueta && $('shopCountLabel').textContent) Mov.roll($('shopCountLabel'), etiqueta); else $('shopCountLabel').textContent = etiqueta;
   if (!data.items.length) {
     $('shopLists').innerHTML = emptyState({ iconName: 'shopping-cart', title: 'La lista está vacía', text: 'Genera la lista desde el plan de la semana o añade productos sueltos.', actionLabel: 'Desde el plan', action: 'plan' });
     $('shopLists').querySelector('[data-empty-action]')?.addEventListener('click', generateWeekShoppingList);
     return;
   }
-  const row = (i) => `<li class="list-row shop-row${i.comprado ? ' is-done' : ''}">
+  const row = (i) => `<li class="list-row shop-row${i.comprado ? ' is-done' : ''}" data-id="${i.id}">
     <label class="check-hit"><input type="checkbox" class="checkbox" data-shop-check="${i.id}" ${i.comprado ? 'checked' : ''} aria-label="${escapeHtml(i.ingredient_nombre || i.nombre_libre)}"></label>
-    <span class="row-main"><span class="row-title">${escapeHtml(i.ingredient_nombre || i.nombre_libre)}</span>
+    <span class="row-main"><span class="row-title"><span class="shop-strike">${escapeHtml(i.ingredient_nombre || i.nombre_libre)}</span></span>
       <span class="row-sub">${SOURCE_LABEL[i.source] || i.source}${i.gramos_por_unidad ? ` · ≈ ${num(i.cantidad_gramos / i.gramos_por_unidad, 1)} ${escapeHtml(i.unidad_nombre || 'ud.')}` : ''}${i.plan_semana ? ` · semana del ${new Date(i.plan_semana + 'T00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}` : ''}</span></span>
     <label class="grams-input"><span class="sr-only">Cantidad</span><input type="number" class="input input-sm tabular" min="0" step="10" value="${Math.round(i.cantidad_gramos)}" data-shop-qty="${i.id}"><span>g</span></label>
     <button type="button" class="btn btn-ghost btn-icon btn-sm" data-shop-del="${i.id}" aria-label="Quitar">${icon('x', 'icon-sm')}</button></li>`;
-  $('shopLists').innerHTML = `
-    <section><h3 class="shop-h">Por comprar <span class="badge">${pend.length}</span></h3>
-      ${pend.length ? `<ul class="list">${pend.map(row).join('')}</ul>` : '<p class="small muted">Todo en el carro.</p>'}</section>
-    ${done.length ? `<section><h3 class="shop-h">En el carro <span class="badge">${done.length}</span></h3><ul class="list">${done.map(row).join('')}</ul></section>` : ''}`;
+  const pintar = () => {
+    $('shopLists').innerHTML = `
+      <section><h3 class="shop-h">Por comprar <span class="badge tabular" data-roll="pend">${pend.length}</span></h3>
+        ${pend.length ? `<ul class="list">${pend.map(row).join('')}</ul>` : '<p class="small muted">Todo en el carro.</p>'}</section>
+      ${done.length ? `<section><h3 class="shop-h">En el carro <span class="badge tabular" data-roll="done">${done.length}</span></h3><ul class="list">${done.map(row).join('')}</ul></section>` : ''}`;
+  };
+  // Lo que se marca viaja al carro (y lo que se desmarca vuelve) desde su sitio; los contadores ruedan
+  if (window.Mov) Mov.keepRoll($('shopLists'), '[data-roll]', 'data-roll', () => Mov.flipList($('shopLists'), '.shop-row', (el) => el.dataset.id, pintar));
+  else pintar();
   $('shopLists').querySelectorAll('[data-shop-check]').forEach(c => c.addEventListener('change', async () => {
+    // Al marcar, la raya cruza el nombre y la cantidad se aparta antes de que la fila se vaya al carro
+    const li = c.closest('.shop-row');
+    li?.classList.toggle('is-checking', c.checked);
+    const espera = c.checked && window.Mov && !Mov.reduce() ? new Promise((r) => setTimeout(r, 420)) : null;
     await api(`${API}/shopping-list/${c.dataset.shopCheck}`, { method: 'PATCH', body: { comprado: c.checked } });
+    await espera;
     loadShoppingList();
   }));
   $('shopLists').querySelectorAll('[data-shop-qty]').forEach(inp => inp.addEventListener('change', () =>

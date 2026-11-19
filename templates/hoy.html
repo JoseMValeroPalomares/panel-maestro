@@ -18,9 +18,9 @@
   <div class="hoy-grid">
     <section class="panel hoy-card" aria-labelledby="hAgenda"><div class="panel-header"><h2 id="hAgenda">{{ icon('calendar', 'icon-sm') }}Agenda</h2><span class="grow"></span><a class="tiny" href="/calendario?vista=day">Ver el día</a></div>
       <div class="panel-body" id="hoyAgenda"><span class="skeleton skeleton-card"></span></div></section>
-    <section class="panel hoy-card" aria-labelledby="hRutinas"><div class="panel-header"><h2 id="hRutinas">{{ icon('repeat', 'icon-sm') }}Rutinas</h2><span class="grow"></span><span class="tiny muted tabular" id="hoyRutinasCount"></span><a class="tiny" href="/rutinas">Ver el día</a></div>
+    <section class="panel hoy-card" aria-labelledby="hRutinas"><div class="panel-header"><h2 id="hRutinas">{{ icon('repeat', 'icon-sm') }}Rutinas</h2><span class="grow"></span><span class="tiny muted tabular hoy-count" id="hoyRutinasCount"></span><a class="tiny" href="/rutinas">Ver el día</a></div>
       <div class="panel-body" id="hoyRutinas"></div></section>
-    <section class="panel hoy-card" aria-labelledby="hTareas"><div class="panel-header"><h2 id="hTareas">{{ icon('list-todo', 'icon-sm') }}Tareas</h2><span class="grow"></span><a class="tiny" href="/tareas">Todas</a></div>
+    <section class="panel hoy-card" aria-labelledby="hTareas"><div class="panel-header"><h2 id="hTareas">{{ icon('list-todo', 'icon-sm') }}Tareas</h2><span class="grow"></span><span class="tiny muted tabular hoy-count" id="hoyTareasCount"></span><a class="tiny" href="/tareas">Todas</a></div>
       <div class="panel-body" id="hoyTareas"></div></section>
     <section class="panel hoy-card" aria-labelledby="hComida"><div class="panel-header"><h2 id="hComida">{{ icon('utensils-crossed', 'icon-sm') }}Comida del día</h2><span class="grow"></span><a class="tiny" href="/comidas/">Plan</a></div>
       <div class="panel-body" id="hoyComida"></div></section>

@@ -1,5 +1,5 @@
 {% extends "_layout.html" %}
-{% block head %}<link rel="stylesheet" href="{{ asset('/static/css/hoy.css') }}"><link rel="stylesheet" href="{{ asset('/static/css/economia.css') }}">{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ asset('/static/css/hoy.css') }}"><link rel="stylesheet" href="{{ asset('/static/css/economia.css') }}"><link rel="stylesheet" href="{{ asset('/static/css/pdf-visor.css') }}">{% endblock %}
 {% block body_class %}page-economia{% endblock %}
 {% block title_icon %}{{ icon('wallet') }}{% endblock %}
 {% block actions %}
@@ -46,6 +46,18 @@
     </section>
     </div>
   </div>
+  {# Facturas: PDF o fotos guardadas para verlas o descargarlas cuando haga falta (app/facturas.py) #}
+  <section class="panel ec-movs ec-facturas" aria-labelledby="ecFacH">
+    <div class="panel-header"><h2 id="ecFacH">{{ icon('file-text', 'icon-sm') }}Facturas<span class="count tabular" id="ecFacN"></span></h2><span class="grow"></span>
+      <label class="sr-only" for="ecFacYear">Año</label><select id="ecFacYear" class="select input-sm"><option value="">Todos los años</option></select>
+      <label class="search ec-search">{{ icon('search') }}<span class="sr-only">Buscar facturas</span>
+        <input id="ecFacQ" class="input input-sm" type="search" placeholder="Buscar facturas" autocomplete="off"></label>
+      <label class="btn btn-tinted btn-sm ec-fac-up">{{ icon('file-up', 'icon-sm') }}<span>Subir</span><input type="file" class="sr-only" id="ecFacFile" multiple accept="application/pdf,image/*,.pdf"></label></div>
+    <div class="panel-body">
+      <label class="ec-fac-drop" data-drop for="ecFacFile" id="ecFacDrop">{{ icon('file-up', 'icon-sm') }}<span class="hide-mobile">Arrastra aquí el PDF de una factura o <u>elígelo</u> · se guarda para verlo o descargarlo cuando quieras (hasta 25 MB)</span><span class="show-mobile">Toca para guardar el PDF o la foto de una factura</span></label>
+      <div id="ecFacList"><span class="skeleton skeleton-card"></span></div>
+    </div>
+  </section>
   <section class="panel ec-movs" aria-labelledby="ecMovH">
     <div class="panel-header"><h2 id="ecMovH">Movimientos</h2><span class="grow"></span>
       <a class="btn btn-ghost btn-sm" id="ecExport" href="/api/finance/export.csv" download title="Descargar los movimientos del mes en CSV (hoja de cálculo)">{{ icon('download', 'icon-sm') }}<span class="hide-mobile">CSV</span></a>
@@ -58,4 +70,4 @@
   </section>
 </div>
 {% endblock %}
-{% block scripts %}<script src="{{ asset('/static/js/economia.js') }}"></script>{% endblock %}
+{% block scripts %}<script src="{{ asset('/static/js/pdf-visor.js') }}"></script><script src="{{ asset('/static/js/economia.js') }}"></script><script src="{{ asset('/static/js/facturas.js') }}"></script>{% endblock %}

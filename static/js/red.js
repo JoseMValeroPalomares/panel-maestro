@@ -183,7 +183,7 @@
         const r = e.target.closest('[data-redetectar]');
         if (r) return void redetectar(r);
         const c = e.target.closest('[data-copiar]');
-        if (c) copyText(c.dataset.copiar).then(() => toast('Dirección copiada', { type: 'info' }));
+        if (c) copyText(c.dataset.copiar).then((ok) => (ok ? copied(c, true, 'Dirección copiada') : toast('No se pudo copiar', { type: 'error' })));
       });
       dlg.addEventListener('submit', (e) => { if (e.target.id === 'redForm') { e.preventDefault(); guardar(e.target); } });
       dlg.addEventListener('close', () => { clearInterval(timer); timer = null; });

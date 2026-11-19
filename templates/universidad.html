@@ -1,6 +1,6 @@
 {% extends "_layout.html" %}
 {% from "_items.html" import note_dialog %}
-{% block head %}<link rel="stylesheet" href="{{ asset('/static/css/vault.css') }}"><link rel="stylesheet" href="{{ asset('/static/css/items.css') }}"><link rel="stylesheet" href="{{ asset('/static/css/universidad.css') }}">{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ asset('/static/css/vault.css') }}"><link rel="stylesheet" href="{{ asset('/static/css/items.css') }}"><link rel="stylesheet" href="{{ asset('/static/css/universidad.css') }}"><link rel="stylesheet" href="{{ asset('/static/css/pdf-visor.css') }}">{% endblock %}
 {% block body_class %}page-universidad{% endblock %}
 {% block title_icon %}{{ icon('school') }}{% endblock %}
 {% block heading %}<span id="uniHeading">Universidad</span>{% endblock %}
@@ -8,6 +8,7 @@
 <a class="btn btn-ghost" id="uniBack" href="/universidad" hidden>{{ icon('chevron-left') }}<span class="hide-mobile">Asignaturas</span><span class="sr-only show-mobile">Volver a las asignaturas</span></a>
 <div class="search hide-mobile vault-search">{{ icon('search') }}
   <input id="uniSearch" class="input" type="search" placeholder="Buscar…" aria-label="Buscar asignaturas, temas, documentos y ejercicios" autocomplete="off"></div>
+<button type="button" class="btn btn-ghost" id="uniPrompt" title="Copia al portapapeles el prompt de siempre para la IA (se edita en Ajustes)">{{ icon('clipboard-copy') }}<span class="hide-mobile">Prompt IA</span><span class="sr-only show-mobile">Copiar prompt para la IA</span></button>
 <button type="button" class="btn btn-ghost" id="uniSyncAll" title="Añade los temas nuevos de las carpetas; no borra nada ni toca los archivos">{{ icon('folder-sync') }}<span class="hide-mobile">Sincronizar</span><span class="sr-only show-mobile">Sincronizar con las carpetas</span></button>
 <button type="button" class="btn btn-primary" id="uniAdd">{{ icon('plus') }}<span class="hide-mobile">Asignatura</span><span class="sr-only show-mobile">Nueva asignatura</span></button>
 <button type="button" class="btn btn-ghost btn-icon" id="uniMenu" aria-label="Más acciones de Universidad" aria-haspopup="menu">{{ icon('ellipsis') }}</button>

@@ -19,14 +19,17 @@
   const PRIOS = { alta: 'Alta', media: 'Media', baja: 'Baja' };
   const PRIO_RANK = { alta: 0, media: 1, baja: 2 };
   const TABS = [['tareas', 'Tareas', 'list-todo'], ['versiones', 'Versiones', 'milestone'], ['cambios', 'Registro de cambios', 'history'],
-    ['ideas', 'Ideas', 'lightbulb'], ['esquemas', 'Esquemas', 'shapes'], ['bitacora', 'Bitácora', 'notebook-pen'], ['enlaces', 'Enlaces', 'link']];
+    ['ideas', 'Ideas', 'lightbulb'], ['esquemas', 'Esquemas', 'shapes'], ['bitacora', 'Bitácora', 'notebook-pen'], ['enlaces', 'Enlaces', 'link'],
+    ['historial', 'Historial', 'archive']];  // al final (tecla 8): las teclas 1–7 de siempre no cambian
   const LIST_VIEWS = [['tarjetas', 'Tarjetas', 'layout-grid'], ['tablero', 'Tablero', 'square-kanban'], ['cronologia', 'Cronología', 'chart-gantt']];
   const TASK_VIEWS = [['versiones', 'Por versión', 'milestone'], ['columnas', 'Tablero', 'square-kanban'], ['lista', 'Tabla', 'table-2'], ['cronologia', 'Cronología', 'chart-gantt']];
   const GROUPS = [['estado', 'Estado'], ['version', 'Versión'], ['prioridad', 'Prioridad']];
   const SORTS = [['manual', 'Orden manual'], ['nombre', 'Nombre'], ['progreso', 'Progreso'], ['fin', 'Fecha de fin'], ['prioridad', 'Prioridad'], ['recientes', 'Más recientes']];
   const VIEW_KEY = 'proyecto.vista-tareas';  // clave nueva: «Por versión» es la de por defecto también para quien ya tenía otra
   const FOLD_TASKS = 'proyecto.subtareas-abiertas';  // { id: true/false }: por defecto, a la vista salvo en las tareas hechas
-  const FOLD_VERS = 'proyecto.versiones-plegadas';  // { "v12" | "none": true/false }: las cerradas empiezan plegadas
+  const FOLD_VERS = 'proyecto.versiones-plegadas';
+  const WIP_KEY = 'proyecto.wip';  // { proyecto_id: máximo de tareas «En curso» a la vez } (0 = sin límite)
+  const wip = () => Number((pref(WIP_KEY, {}) || {})[P?.id]) || 0;  // { "v12" | "none": true/false }: las cerradas empiezan plegadas
   const fmtDay = (iso, year = true) => (iso ? new Date(iso + 'T00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'short', ...(year ? { year: 'numeric' } : {}) }) : '');
   const todayIso = () => PjVistas.isoOf(new Date());
   const daysTo = (iso) => Math.round((new Date(iso + 'T00:00') - new Date(todayIso() + 'T00:00')) / 86400000);
@@ -158,12 +161,14 @@
       return;
     }
     if (vista === 'tablero') {
-      box.innerHTML = `<div class="pj-kanban pj-kanban-4">${Object.entries(ESTADOS).map(([e, l]) => {
+      const pintar = () => { box.innerHTML = `<div class="pj-kanban pj-kanban-4">${Object.entries(ESTADOS).map(([e, l]) => {
         const items = list.filter((p) => p.estado === e);
-        return `<section class="pj-col" aria-labelledby="pjb-${e}"><h2 class="pj-col-title" id="pjb-${e}">${l}<span class="count">${items.length}</span></h2>
+        return `<section class="pj-col" aria-labelledby="pjb-${e}"><h2 class="pj-col-title" id="pjb-${e}">${l}<span class="count tabular" data-roll-col="${e}">${items.length}</span></h2>
           <ul class="pj-col-list" data-estado="${e}" data-empty="Suelta aquí" aria-label="${l}">${items.map((p) => card(p, true)).join('')}</ul></section>`;
       }).join('')}</div>
-      <p class="tiny muted pj-hint">Arrastra un proyecto por su asa a otra columna para cambiar su estado (o con el teclado: Alt + flechas).</p>`;
+      <p class="tiny muted pj-hint">Arrastra un proyecto por su asa a otra columna para cambiar su estado (o con el teclado: Alt + flechas).</p>`; };
+      // Los contadores de columna ruedan al mover una tarjeta (kanban)
+      if (window.Mov) Mov.keepRoll(box, '[data-roll-col]', 'data-roll-col', pintar); else pintar();
       box.querySelectorAll('.pj-col-list').forEach((ul) => Sortable.create(ul, {
         group: 'pj-estados', items: '.pj-card', handle: '[data-drag-handle]', label: ul.getAttribute('aria-label'),
         id: (n) => Number(n.dataset.id), data: { estado: ul.dataset.estado },
@@ -253,10 +258,11 @@
     });
     root.querySelector('[data-edit-proj]')?.addEventListener('click', () => projectDialog(P));
     root.querySelector('[data-open-folder]')?.addEventListener('click', () => Ctx.openFolder('proyecto', P.id));
-    ({ tareas: renderTareas, versiones: renderVersiones, cambios: renderCambios, ideas: renderIdeas, esquemas: renderEsquemas, bitacora: renderBitacora, enlaces: renderEnlaces }[tab] || renderTareas)($('pjBody'));
+    ({ tareas: renderTareas, historial: renderHistorial, versiones: renderVersiones, cambios: renderCambios, ideas: renderIdeas, esquemas: renderEsquemas, bitacora: renderBitacora, enlaces: renderEnlaces }[tab] || renderTareas)($('pjBody'));
   }
   function setTab(k) {
     if (!TABS.some(([x]) => x === k)) return;
+    if (k !== tab) { SEL.on = false; SEL.ids.clear(); }
     tab = k;
     renderProject();
     syncUrl();
@@ -295,7 +301,13 @@
   function renderTareas(box) {
     const mode = pref(VIEW_KEY, 'versiones'), group = pref('proyecto.agrupar', 'estado');
     const vers = P.versiones;
-    box.innerHTML = `<div class="row pj-toolbar">${captureHTML('tarea')}</div>
+    box.innerHTML = `<div class="row pj-toolbar">${captureHTML('tarea')}
+        <div class="pj-tools" role="group" aria-label="Copiar, pegar e historial">
+          <button type="button" class="btn btn-ghost btn-sm" data-select-mode aria-pressed="false" title="Elegir varias tareas y subtareas para copiarlas, completarlas, moverlas o borrarlas a la vez (X, Ctrl + clic, Ctrl + A)">${icon('list-checks', 'icon-sm')}<span class="hide-mobile">Seleccionar</span><span class="sr-only show-mobile">Seleccionar varias</span></button>
+          <button type="button" class="btn btn-ghost btn-sm" data-copy-all title="Copia las tareas que se ven (con sus subtareas) como lista Markdown">${icon('copy', 'icon-sm')}<span class="hide-mobile">Copiar</span><span class="sr-only show-mobile">Copiar las tareas</span></button>
+          <button type="button" class="btn btn-ghost btn-sm" data-paste title="Pega una lista: una tarea por línea; las sangradas, subtareas (también Ctrl+V)">${icon('clipboard-paste', 'icon-sm')}<span class="hide-mobile">Pegar</span><span class="sr-only show-mobile">Pegar una lista de tareas</span></button>
+          <button type="button" class="btn btn-ghost btn-sm" data-archive-done hidden title="Manda las tareas hechas al historial (Mayús+H)">${icon('archive', 'icon-sm')}<span class="hide-mobile">Hechas al historial</span><span class="sr-only show-mobile">Mandar las hechas al historial</span><span class="count tabular" data-archive-n></span></button>
+        </div></div>
       <div class="pj-filters pj-filters-tasks" role="search" aria-label="Buscar y filtrar tareas">
         <div class="pj-search">${icon('search', 'icon-sm')}<label class="sr-only" for="pjTq">Buscar tareas</label>
           <input id="pjTq" class="input" type="search" placeholder="Buscar tareas…" autocomplete="off" value="${esc(T.q)}" aria-keyshortcuts="/"><kbd class="pj-kbd hide-mobile" aria-hidden="true">/</kbd></div>
@@ -306,8 +318,13 @@
         <div class="segmented" role="group" aria-label="Vista (V)">${TASK_VIEWS.map(([k, l, ic]) => `<button type="button" data-mode="${k}" aria-pressed="${mode === k}" title="${l} (V)">${icon(ic, 'icon-sm')}<span class="hide-mobile">${l}</span><span class="sr-only show-mobile">${l}</span></button>`).join('')}</div>
       </div>
       <p class="sr-only" id="pjTCount" role="status" aria-live="polite"></p>
-      <div id="pjTasks"></div>`;
+      <div id="pjTasks"></div>
+      <div class="il-bulkbar pj-bulkbar" id="pjBulk" role="toolbar" aria-label="Acciones con la selección" hidden></div>`;
     wireCapture(box);
+    box.querySelector('[data-copy-all]').addEventListener('click', () => ItemCopy.open(mineFiltered().filter((i) => !i.done).map((i) => i.id).concat(mineFiltered().filter((i) => i.done).map((i) => i.id))));
+    box.querySelector('[data-paste]').addEventListener('click', () => pasteDialog());
+    box.querySelector('[data-select-mode]').addEventListener('click', () => (SEL.on ? clearSel() : (SEL.on = true, paintSel())));
+    box.querySelector('[data-archive-done]').addEventListener('click', () => archiveIds(mineFiltered().filter((i) => i.done).map((i) => i.id)));
     $('pjTq').addEventListener('input', (e) => { T.q = e.target.value; paintTasks(); });
     $('pjTPrio').addEventListener('change', (e) => { T.prio = e.target.value; paintTasks(); });
     $('pjTVer')?.addEventListener('change', (e) => { T.version = e.target.value; paintTasks(); });
@@ -316,7 +333,8 @@
     Items.ready().then(paintTasks).catch(() => {});
   }
 
-  const mineAll = () => Items.state.items.filter((i) => i.proyecto_id === P.id && !i.parent_id && i.type === 'tarea');
+  const mineAll = () => Items.state.items.filter((i) => i.proyecto_id === P.id && !i.parent_id && i.type === 'tarea' && !i.archivada);
+  const mineArchived = () => Items.state.items.filter((i) => i.proyecto_id === P.id && !i.parent_id && i.type === 'tarea' && i.archivada);
   function mineFiltered() {
     const q = fold(T.q).trim();
     return mineAll().filter((i) => (!T.prio || (T.prio === '-' ? !i.priority : i.priority === T.prio))
@@ -338,6 +356,10 @@
     else if (mode === 'cronologia') taskTimeline(el, list);
     else if (mode === 'columnas') kanban(el, list);
     else byVersion(el, list);
+    const hechas = list.filter((i) => i.done).length, ab = document.querySelector('[data-archive-done]');
+    if (ab) { ab.hidden = !hechas; ab.querySelector('[data-archive-n]').textContent = hechas || ''; }
+    restoreRowFocus(el);
+    paintSel();
     if (all.length && !list.length) {
       el.insertAdjacentHTML('afterbegin', `<p class="pj-filter-note small">${icon('list-filter', 'icon-sm')}Ninguna de las ${all.length} tareas coincide con la búsqueda o los filtros. <button type="button" class="link-btn" data-clear-filters>Quitar filtros</button></p>`);
       el.querySelector('[data-clear-filters]').addEventListener('click', () => { Object.assign(T, { q: '', prio: '', version: '' }); renderTareas($('pjBody')); });
@@ -374,16 +396,25 @@
   function kanban(el, list) {
     const group = pref('proyecto.agrupar', 'estado');
     const cols = columnsFor(group, list);
-    el.innerHTML = `<div class="pj-kanban" style="--cols:${cols.length}">${cols.map(([k, l, items]) => `<section class="pj-col" data-col="${esc(k)}" aria-labelledby="pjc-${esc(k) || 'none'}">
-      <h3 class="pj-col-title" id="pjc-${esc(k) || 'none'}">${esc(l)}<span class="count">${items.length}</span>${group === 'estado' && k === 'done' && items.length ? `<span class="grow"></span><button type="button" class="btn btn-ghost btn-sm" data-clear-done title="Las cerradas siguen en el registro de su versión">${icon('trash-2', 'icon-sm')}Borrar</button>` : ''}</h3>
-      <ul class="pj-col-list" data-col="${esc(k)}" data-empty="Suelta aquí" aria-label="${esc(l)}">${withVersionSeps(items, group).map((x) => (x.sep !== undefined ? `<li class="pj-vsep" aria-hidden="true">${icon('milestone', 'icon-sm')}${esc(x.sep)}</li>` : `<li class="pj-task${x.done ? ' is-done' : ''}" data-id="${x.id}">
+    const pintar = () => { el.innerHTML = `<div class="pj-kanban" style="--cols:${cols.length}">${cols.map(([k, l, items]) => `<section class="pj-col" data-col="${esc(k)}" aria-labelledby="pjc-${esc(k) || 'none'}">
+      <h3 class="pj-col-title${k === 'doing' && group === 'estado' && wip() && items.length > wip() ? ' is-over-wip' : ''}" id="pjc-${esc(k) || 'none'}">${esc(l)}<span class="count tabular" data-roll-col="${esc(k)}">${items.length}</span>${k === 'doing' && group === 'estado' ? `<button type="button" class="btn btn-ghost btn-sm pj-wip" data-wip title="Límite de tareas en curso a la vez (WIP): tocar para cambiarlo">${wip() ? `máx. ${wip()}` : 'Sin límite'}</button>` : ''}${group === 'estado' && k === 'done' && items.length ? `<span class="grow"></span><button type="button" class="btn btn-ghost btn-sm" data-col-archive title="Quítalas de en medio: siguen en la pestaña Historial (Mayús+H)">${icon('archive', 'icon-sm')}Al historial</button><button type="button" class="btn btn-ghost btn-sm btn-icon" data-clear-done title="Borrar las hechas (las cerradas siguen en el registro de su versión)" aria-label="Borrar las tareas hechas">${icon('trash-2', 'icon-sm')}</button>` : ''}</h3>
+      <ul class="pj-col-list" data-col="${esc(k)}" data-empty="Suelta aquí" aria-label="${esc(l)}">${withVersionSeps(items, group).map((x) => (x.sep !== undefined ? `<li class="pj-vsep" aria-hidden="true">${icon('milestone', 'icon-sm')}${esc(x.sep)}</li>` : `<li class="pj-task${x.done ? ' is-done' : ''}" data-id="${x.id}" data-sel="${x.id}" data-row tabindex="-1" aria-label="${esc(x.text.split('\n')[0].slice(0, 80))}${x.done ? ' (hecha)' : ''}">
           <button type="button" class="drag-handle" data-drag-handle aria-label="Mover «${esc(x.text.slice(0, 40))}»">${icon('grip-vertical', 'icon-sm')}</button>
-          <div class="pj-task-body"><div class="pj-task-line">${foldBtn(x)}<button type="button" class="pj-task-title" data-open="${x.id}" aria-haspopup="dialog" title="Detalles: descripción, checklist, adjuntos y comentarios">${esc(x.text.split('\n')[0])}</button></div>
+          <div class="pj-task-body"><div class="pj-task-line">${foldBtn(x)}<button type="button" class="pj-task-title" data-open="${x.id}" aria-haspopup="dialog" title="Detalles: descripción, checklist, adjuntos y comentarios">${esc(x.text.split('\n')[0])}</button>${rowActs(x)}</div>
             <div class="pj-task-meta tiny">${taskMeta(x, group)}</div>${subsHTML(x)}</div>
           <input type="checkbox" class="checkbox pj-task-check" data-done="${x.id}" ${x.done ? 'checked' : ''} aria-label="Hecha: ${esc(x.text.split('\n')[0].slice(0, 60))}"></li>`)).join('')}</ul></section>`).join('')}</div>
-      <p class="tiny muted pj-hint">Arrastra por el asa entre columnas para cambiar ${group === 'version' ? 'la versión' : group === 'prioridad' ? 'la prioridad' : 'el estado'} (o con el teclado: Alt + flechas). Las subtareas se marcan aquí mismo; clic en el título abre los detalles.</p>`;
+      <p class="tiny muted pj-hint">Arrastra por el asa entre columnas para cambiar ${group === 'version' ? 'la versión' : group === 'prioridad' ? 'la prioridad' : 'el estado'} (o con el teclado: Alt + flechas). Las subtareas se marcan aquí mismo; clic en el título abre los detalles.</p>`; };
+    if (window.Mov) Mov.keepRoll(el, '[data-roll-col]', 'data-roll-col', pintar); else pintar();
     wireOpen(el);
     wireSubs(el);
+    el.querySelector('[data-wip]')?.addEventListener('click', async () => {
+      const v = await uiPrompt('Límite de tareas en curso', { value: wip() ? String(wip()) : '', message: 'Cuántas puede haber «En curso» a la vez en este proyecto (vacío o 0: sin límite). Pasarse se avisa, no se impide.', confirmLabel: 'Guardar' });
+      if (v === null) return;
+      const n = Math.max(0, Math.min(99, parseInt(v, 10) || 0));
+      setPref(WIP_KEY, { ...(pref(WIP_KEY, {}) || {}), [P.id]: n });
+      paintTasks();
+    });
+    el.querySelector('[data-col-archive]')?.addEventListener('click', () => archiveIds(cols[2][2].map((i) => i.id)));
     el.querySelector('[data-clear-done]')?.addEventListener('click', async () => {
       const ids = cols[2][2].map((i) => i.id);
       if (!(await uiConfirm(`¿Borrar ${ids.length} tareas hechas?`, 'Van a la papelera (30 días) y puedes deshacerlo ahora. Los registros de cambios de las versiones no cambian.', { confirmLabel: 'Borrar', danger: true }))) return;
@@ -399,6 +430,11 @@
         if (Items.get(id)?.origin === 'inbox' && (ctx.beforeId || !moved)) await Items.move(id, { target: 'inbox', parent_id: null, before_id: ctx.beforeId ? Number(ctx.beforeId) : null }).catch(() => {});
         if (moved) {
           const patch = group === 'version' ? { version_id: Number(to) || 0 } : group === 'prioridad' ? { priority: to } : to === 'done' ? { done: true } : { done: false, en_curso: to === 'doing' };
+          if (group === 'estado' && to === 'doing' && wip() && cols[1][2].length >= wip()) {  // se avisa, no se impide
+            toast(`Ya hay ${cols[1][2].length} en curso (máx. ${wip()}): termina alguna antes de empezar otra`, { type: 'info', duration: 2600 });
+            const h = el.querySelector('#pjc-doing');
+            if (h && window.Mov) Mov.shake?.(h);
+          }
           await Items.update(id, patch).catch(() => {});
         }
         await refresh();
@@ -421,7 +457,7 @@
     const kids = Items.children(it.id);
     const open = isOpen(it) || addingSub === it.id;
     const adding = addingSub === it.id;
-    return `${kids.length ? `<ul class="pj-subs" id="pjs-${it.id}" ${open ? '' : 'hidden'} aria-label="Subtareas de «${esc(it.text.split('\n')[0].slice(0, 60))}»">${kids.map((k) => `<li class="pj-sub${k.done ? ' is-done' : ''}">
+    return `${kids.length ? `<ul class="pj-subs" id="pjs-${it.id}" ${open ? '' : 'hidden'} aria-label="Subtareas de «${esc(it.text.split('\n')[0].slice(0, 60))}»">${kids.map((k) => `<li class="pj-sub${k.done ? ' is-done' : ''}" data-sel="${k.id}">
         <input type="checkbox" class="checkbox" data-sub-done="${k.id}" ${k.done ? 'checked' : ''} aria-label="Hecha: ${esc(k.text.split('\n')[0])}">
         <button type="button" class="pj-sub-text" data-sub-edit="${k.id}" title="Cambiar el texto">${esc(k.text.split('\n')[0])}</button>
         <button type="button" class="btn btn-ghost btn-icon btn-sm pj-sub-x" data-sub-del="${k.id}" aria-label="Borrar la subtarea «${esc(k.text.slice(0, 40))}»">${icon('x', 'icon-sm')}</button></li>`).join('')}</ul>` : ''}
@@ -508,24 +544,30 @@
           ${v?.estado === 'cerrada' ? `<span class="tag">${icon('circle-check', 'icon-sm')}Cerrada</span>` : ''}
           ${v?.fecha_objetivo ? `<span class="small ${late ? 'is-late' : 'muted'}">${icon('calendar', 'icon-sm')}${fmtDay(v.fecha_objetivo)}</span>` : ''}
           <span class="grow"></span>
+          ${hechas ? `<button type="button" class="btn btn-ghost btn-sm pj-vsec-archive" data-archive-v="${key}" title="Manda las ${hechas} hechas de ${v ? esc(v.nombre) : 'esta sección'} al historial">${icon('archive', 'icon-sm')}<span class="hide-mobile">Al historial</span><span class="sr-only show-mobile">Mandar las hechas al historial</span></button>` : ''}
           <span class="small tabular muted">${hechas}/${items.length}</span>
           <span class="pj-progress pj-vsec-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-label="Progreso de ${v ? esc(v.nombre) : 'las tareas sin versión'}"><span style="width:${pct}%"></span></span>
         </header>
         <div class="pj-vsec-body" id="pjvb-${key}" ${open ? '' : 'hidden'}>
-          <ul class="pj-vtasks-list" data-version="${v ? v.id : 0}" data-empty="Sin tareas: arrastra aquí una o créala arriba eligiendo ${v ? esc(v.nombre) : '«Sin versión»'}" aria-label="Tareas de ${v ? esc(v.nombre) : 'sin versión'}">${ordered(items).map((it) => `<li class="pj-vtask${it.done ? ' is-done' : ''}${it.en_curso && !it.done ? ' is-doing' : ''}" data-id="${it.id}">
+          <ul class="pj-vtasks-list" data-version="${v ? v.id : 0}" data-empty="Sin tareas: arrastra aquí una o créala arriba eligiendo ${v ? esc(v.nombre) : '«Sin versión»'}" aria-label="Tareas de ${v ? esc(v.nombre) : 'sin versión'}">${ordered(items).map((it) => `<li class="pj-vtask${it.done ? ' is-done' : ''}${it.en_curso && !it.done ? ' is-doing' : ''}" data-id="${it.id}" data-sel="${it.id}" data-row tabindex="-1" aria-label="${esc(it.text.split('\n')[0].slice(0, 80))}${it.done ? ' (hecha)' : ''}">
             <div class="pj-vtask-row">
               <button type="button" class="drag-handle" data-drag-handle aria-label="Mover «${esc(it.text.slice(0, 40))}»">${icon('grip-vertical', 'icon-sm')}</button>
               <input type="checkbox" class="checkbox" data-done="${it.id}" ${it.done ? 'checked' : ''} aria-label="Hecha: ${esc(it.text.split('\n')[0].slice(0, 60))}">
               ${foldBtn(it) || '<span class="pj-fold-gap" aria-hidden="true"></span>'}
               <button type="button" class="pj-task-title" data-open="${it.id}" aria-haspopup="dialog" title="Detalles: descripción, checklist, adjuntos y comentarios">${esc(it.text.split('\n')[0])}</button>
               <span class="pj-task-meta tiny">${taskMeta(it, 'version')}</span>
-              <button type="button" class="btn btn-ghost btn-icon btn-sm pj-add-sub" data-add-sub="${it.id}" aria-label="Añadir una subtarea a «${esc(it.text.split('\n')[0].slice(0, 40))}»" title="Añadir subtarea">${icon('list-plus', 'icon-sm')}</button>
+              <button type="button" class="btn btn-ghost btn-icon btn-sm pj-add-sub" data-add-sub="${it.id}" aria-label="Añadir una subtarea a «${esc(it.text.split('\n')[0].slice(0, 40))}»" title="Añadir subtarea (E)">${icon('list-plus', 'icon-sm')}</button>
+              ${rowActs(it)}
             </div>${subsHTML(it)}</li>`).join('')}</ul>
         </div></section>`;
     }).join('')}</div>
     <p class="tiny muted pj-hint">Arrastra una tarea por el asa a otra versión para cambiarla (o con el teclado: Alt + flechas). Las subtareas se ven y se marcan aquí; ${icon('list-plus', 'icon-sm')} añade una. Clic en el título abre los detalles.</p>`;
     wireOpen(el);
     wireSubs(el);
+    el.querySelectorAll('[data-archive-v]').forEach((b) => b.addEventListener('click', () => {
+      const sec = sections.find((x) => x.key === b.dataset.archiveV);
+      if (sec) archiveIds(sec.items.filter((i) => i.done).map((i) => i.id));
+    }));
     el.querySelectorAll('[data-fold-v]').forEach((b) => b.addEventListener('click', () => {
       const open = b.getAttribute('aria-expanded') !== 'true';
       setPref(FOLD_VERS, { ...(pref(FOLD_VERS, {}) || {}), [b.dataset.foldV]: open });
@@ -547,6 +589,9 @@
 
   function wireOpen(el) {
     el.querySelectorAll('[data-open]').forEach((b) => b.addEventListener('click', () => openFicha(Number(b.dataset.open))));
+    el.querySelectorAll('[data-copy-task]').forEach((b) => b.addEventListener('click', () => copyTask(Number(b.dataset.copyTask), b)));
+    el.querySelectorAll('[data-archive]').forEach((b) => b.addEventListener('click', () => archiveIds([Number(b.dataset.archive)])));
+    el.querySelectorAll('[data-unarchive]').forEach((b) => b.addEventListener('click', () => unarchiveIds([Number(b.dataset.unarchive)])));
     el.querySelectorAll('[data-done]').forEach((cb) => cb.addEventListener('change', () => Items.setDone(Number(cb.dataset.done), cb.checked).then(refresh)));
   }
   function openFicha(id) {
@@ -592,7 +637,362 @@
       onOpen: openFicha, label: `Cronología de ${P.nombre}`, empty: 'Las tareas con fecha salen aquí, desde que se crearon hasta su fecha; las versiones con fecha objetivo, como hitos.' });
   }
 
-  document.addEventListener('items:changed', () => { if (P && tab === 'tareas' && $('pjTasks') && !document.querySelector('.is-dragging')) paintTasks(); });
+  document.addEventListener('items:changed', () => {
+    if (!P || document.querySelector('.is-dragging')) return;
+    if (tab === 'tareas' && $('pjTasks')) paintTasks();
+    else if (tab === 'historial' && $('pjHist')) paintHistorial();
+  });
+
+  /* ---------- Acciones de cada fila: copiar el texto y mandar al historial (o devolverla) ---------- */
+  const line1 = (it) => it.text.split('\n')[0];
+  function rowActs(it) {
+    const name = esc(line1(it).slice(0, 40));
+    return `<span class="pj-row-acts">
+      <button type="button" class="btn btn-ghost btn-icon btn-sm pj-row-act" data-copy-task="${it.id}" aria-label="Copiar «${name}»" title="Copiar el texto (C)">${icon('copy', 'icon-sm')}</button>
+      ${it.archivada ? `<button type="button" class="btn btn-ghost btn-icon btn-sm pj-row-act" data-unarchive="${it.id}" aria-label="Devolver «${name}» a las tareas" title="Devolver a las tareas (H)">${icon('archive-restore', 'icon-sm')}</button>`
+        : it.done ? `<button type="button" class="btn btn-ghost btn-icon btn-sm pj-row-act" data-archive="${it.id}" aria-label="Mandar «${name}» al historial" title="Al historial (H)">${icon('archive', 'icon-sm')}</button>` : ''}
+    </span>`;
+  }
+  // El botón confirma él mismo («Copiado»); desde el teclado no hay botón a la vista: toast corto
+  function copyTask(id, btn = null, md = false) {
+    const it = Items.get(id);
+    if (!it) return;
+    const text = md ? ItemCopy.format(ItemCopy.collect([id], { steps: true }), { format: 'md' }) : it.text;
+    copyText(text).then((ok) => {
+      if (!ok) toast('No se pudo copiar', { type: 'error', duration: 1400 });
+      else if (btn) copied(btn);
+      else toast(md ? 'Copiada con sus subtareas' : 'Copiado', { duration: 1200 });
+    });
+  }
+  async function archiveIds(ids) {
+    ids = ids.filter((id) => Items.get(id)?.done && !Items.get(id)?.archivada);
+    if (!ids.length) { toast('Solo lo hecho va al historial', { type: 'info', duration: 1600 }); return; }
+    const res = await Items.bulk(ids, 'archivar').catch(() => null);
+    if (!res?.count) return;
+    toast(res.count === 1 ? 'Al historial' : `${res.count} tareas al historial`, {
+      action: { label: 'Deshacer', onClick: () => Items.bulk(ids, 'desarchivar') },
+    });
+  }
+  async function unarchiveIds(ids) {
+    const res = await Items.bulk(ids, 'desarchivar').catch(() => null);
+    if (res?.count) toast(res.count === 1 ? 'De vuelta en las tareas' : `${res.count} tareas de vuelta`, { action: { label: 'Deshacer', onClick: () => Items.bulk(ids, 'archivar') } });
+  }
+
+  /* ---------- Pegar una lista: una tarea por línea; lo sangrado (o «- [ ]» bajo otra), subtareas ----------
+     Acepta lo que copia «Copiar» (Markdown con casillas) y texto suelto; «[x]» entra ya hecha. */
+  function parseList(text) {
+    const out = [];
+    for (const raw of String(text).replace(/\r/g, '').split('\n')) {
+      if (!raw.trim()) continue;
+      const indent = raw.match(/^[\t ]*/)[0].replace(/\t/g, '  ').length;
+      const m = raw.trim().match(/^(?:[-*+]|\d+[.)])?\s*(?:\[([ xX])\]\s*)?(.*)$/);
+      const t = (m?.[2] || '').trim();
+      if (!t || /^>/.test(raw.trim())) continue;  // las notas («> …») de Copiar no son tareas
+      const node = { text: t.slice(0, 2000), done: /x/i.test(m?.[1] || ''), kids: [] };
+      if (indent >= 2 && out.length) out[out.length - 1].kids.push(node); else out.push(node);
+    }
+    return out;
+  }
+  async function createFromList(list) {
+    if (!list.length) return;
+    const version = Number(document.getElementById('pjCapV')?.value) || null;
+    const n = list.length + list.reduce((a, x) => a + x.kids.length, 0);
+    let made = 0;
+    for (const t of [...list].reverse()) {  // lo nuevo va arriba: al revés, para que quede en el orden pegado
+      const id = await Items.create({ text: t.text, type: 'tarea', proyecto_id: P.id, ...(version ? { version_id: version } : {}) }).catch(() => null);
+      if (!id) continue;
+      made++;
+      for (const k of t.kids) {
+        const kid = await Items.create({ text: k.text, type: 'tarea', parent_id: id }).catch(() => null);
+        if (kid) { made++; if (k.done) await Items.setDone(kid, true).catch(() => {}); }
+      }
+      if (t.done) await Items.setDone(id, true).catch(() => {});
+    }
+    await refresh();
+    toast(made === n ? `${made} tareas creadas` : `${made} de ${n} tareas creadas`, { type: made === n ? 'success' : 'info' });
+  }
+  function pasteDialog(initial = '') {
+    const dlg = document.createElement('dialog');
+    dlg.className = 'modal';
+    dlg.setAttribute('aria-labelledby', 'pjPasteT');
+    dlg.innerHTML = `<form method="dialog" class="modal-form"><div class="modal-header"><h2 id="pjPasteT">Pegar una lista de tareas</h2>
+        <button type="button" class="btn btn-ghost btn-icon modal-close" data-close aria-label="Cerrar">${icon('x')}</button></div>
+      <div class="modal-body stack">
+        <label class="field"><span class="field-label">Una tarea por línea; con sangría (o «- [ ]» debajo de otra), subtarea. «[x]» = ya hecha.</span>
+          <textarea class="textarea" id="pjPasteText" rows="9" spellcheck="false" placeholder="- [ ] Diseñar la portada&#10;  - [ ] Colores&#10;- [ ] Publicar"></textarea></label>
+        <p class="small muted" id="pjPasteSum" aria-live="polite"></p>
+      </div>
+      <div class="modal-footer"><span class="spacer"></span><button type="button" class="btn" data-close>Cancelar</button>
+        <button type="submit" class="btn btn-primary" id="pjPasteGo" disabled>${icon('clipboard-paste', 'icon-sm')}Crear</button></div></form>`;
+    document.body.appendChild(dlg);
+    const ta = dlg.querySelector('#pjPasteText'), sum = dlg.querySelector('#pjPasteSum'), go = dlg.querySelector('#pjPasteGo');
+    const upd = () => {
+      const l = parseList(ta.value), k = l.reduce((a, x) => a + x.kids.length, 0);
+      sum.textContent = l.length ? `${l.length} tareas${k ? ` y ${k} subtareas` : ''}${document.getElementById('pjCapV')?.value ? ` en ${esc(vname(Number(document.getElementById('pjCapV').value)) || '')}` : ''}` : '';
+      go.disabled = !l.length;
+      go.lastChild.textContent = l.length ? `Crear ${l.length + k}` : 'Crear';
+    };
+    ta.value = initial;
+    ta.addEventListener('input', upd);
+    dlg.querySelector('form').addEventListener('submit', (e) => { e.preventDefault(); const l = parseList(ta.value); closeModal(dlg); createFromList(l); });
+    upd();
+    wireAllDialogs?.();
+    openModal(dlg, { focus: '#pjPasteText', onClose: () => dlg.remove() });
+  }
+  // Pegar varias líneas en la captura (o Ctrl+V con el foco en la lista) abre lo mismo, ya relleno
+  document.addEventListener('paste', (e) => {
+    if (!P || tab !== 'tareas' || document.querySelector('dialog[open]')) return;
+    const t = e.target, text = e.clipboardData?.getData('text/plain') || '';
+    const inCapture = t?.id === 'pjCap-tarea', inPage = !/^(input|textarea|select)$/i.test(t?.tagName || '') && !t?.isContentEditable;
+    if (!(inCapture || inPage) || !text.trim()) return;
+    if (inCapture && !/\n\s*\S/.test(text.trim())) return;  // una sola línea: se pega en el campo como siempre
+    e.preventDefault();
+    pasteDialog(text);
+  });
+
+  /* ---------- Historial: lo hecho que se quitó de en medio, por versión ---------- */
+  let H = { q: '' };
+  function renderHistorial(box) {
+    box.innerHTML = `<div class="pj-filters pj-filters-tasks" role="search" aria-label="Buscar en el historial">
+        <div class="pj-search">${icon('search', 'icon-sm')}<label class="sr-only" for="pjHq">Buscar en el historial</label>
+          <input id="pjHq" class="input" type="search" placeholder="Buscar en el historial…" autocomplete="off" value="${esc(H.q)}" aria-keyshortcuts="/"><kbd class="pj-kbd hide-mobile" aria-hidden="true">/</kbd></div>
+        <span class="grow"></span>
+        <button type="button" class="btn btn-ghost btn-sm" data-select-mode aria-pressed="false" title="Elegir varias para devolverlas, copiarlas o borrarlas a la vez">${icon('list-checks', 'icon-sm')}<span class="hide-mobile">Seleccionar</span><span class="sr-only show-mobile">Seleccionar varias</span></button>
+        <button type="button" class="btn btn-ghost btn-sm" data-hist-copy>${icon('copy', 'icon-sm')}Copiar</button>
+      </div>
+      <p class="sr-only" id="pjHCount" role="status" aria-live="polite"></p>
+      <div id="pjHist"></div>
+      <div class="il-bulkbar pj-bulkbar" id="pjBulk" role="toolbar" aria-label="Acciones con la selección" hidden></div>`;
+    $('pjHq').addEventListener('input', (e) => { H.q = e.target.value; paintHistorial(); });
+    box.querySelector('[data-select-mode]').addEventListener('click', () => (SEL.on ? clearSel() : (SEL.on = true, paintSel())));
+    box.querySelector('[data-hist-copy]').addEventListener('click', () => { const ids = histFiltered().map((i) => i.id); if (ids.length) ItemCopy.open(ids); });
+    Items.ready().then(paintHistorial).catch(() => {});
+  }
+  function histFiltered() {
+    const q = fold(H.q).trim();
+    return mineArchived().filter((i) => !q || fold(`${i.text} ${i.details || ''} ${Items.children(i.id).map((k) => k.text).join(' ')}`).includes(q))
+      .sort((a, b) => (b.archivada || 0) - (a.archivada || 0));
+  }
+  function paintHistorial() {
+    const el = $('pjHist');
+    if (!el) return;
+    const all = mineArchived(), list = histFiltered();
+    $('pjHCount').textContent = `${list.length} en el historial`;
+    if (!all.length) {
+      el.innerHTML = emptyState({ iconName: 'archive', title: 'El historial está vacío', text: 'Lo que termines y mandes aquí (botón «Al historial», tecla H en una tarea hecha o Mayús+H para todas) deja de estorbar en Tareas, pero sigue a mano: puedes buscarlo, copiarlo o devolverlo.' });
+      return;
+    }
+    const known = new Set(P.versiones.map((v) => v.id));
+    const groups = [...P.versiones].reverse().map((v) => [v, list.filter((i) => i.version_id === v.id)])
+      .concat([[null, list.filter((i) => !i.version_id || !known.has(i.version_id))]]).filter(([, l]) => l.length);
+    const when = (t) => new Date(t * 1000).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' });
+    el.innerHTML = list.length ? `<div class="pj-vlist pj-hist">${groups.map(([v, items]) => `<section class="pj-vsec${v?.estado === 'cerrada' ? ' is-closed' : ''}" aria-label="${v ? esc(v.nombre) : 'Sin versión'}">
+        <header class="pj-vsec-head"><span class="pj-vsec-name">${icon('milestone', 'icon-sm')}${v ? esc(v.nombre) : 'Sin versión'}</span>${v?.titulo ? `<span class="pj-vsec-title">${esc(v.titulo)}</span>` : ''}
+          <span class="grow"></span><span class="small tabular muted">${items.length}</span></header>
+        <ul class="pj-vtasks-list">${items.map((it) => {
+          const kids = Items.children(it.id);
+          return `<li class="pj-vtask is-done" data-id="${it.id}" data-sel="${it.id}" data-row tabindex="-1" aria-label="${esc(line1(it).slice(0, 80))} (en el historial)">
+          <div class="pj-vtask-row">
+            <input type="checkbox" class="checkbox" data-done="${it.id}" checked aria-label="Hecha: ${esc(line1(it).slice(0, 60))} (desmarcar la devuelve a las tareas)">
+            <button type="button" class="pj-task-title" data-open="${it.id}" aria-haspopup="dialog">${esc(line1(it))}</button>
+            <span class="pj-task-meta tiny">${kids.length ? `<span class="tabular" title="Subtareas">${icon('list-todo', 'icon-sm')}${kids.filter((k) => k.done).length}/${kids.length}</span>` : ''}
+              <span class="muted" title="Mandada al historial">${icon('archive', 'icon-sm')}${when(it.archivada)}</span></span>
+            ${rowActs(it)}
+            <button type="button" class="btn btn-ghost btn-icon btn-sm pj-row-act" data-del="${it.id}" aria-label="Borrar «${esc(line1(it).slice(0, 40))}»" title="Borrar (Supr)">${icon('trash-2', 'icon-sm')}</button>
+          </div></li>`;
+        }).join('')}</ul></section>`).join('')}</div>
+      <p class="tiny muted pj-hint">«Devolver» (o desmarcarla) la pone otra vez con las tareas. Con una fila enfocada: ↑ ↓ moverse, Intro abrir, H devolver, C copiar, Supr borrar.</p>`
+      : `<p class="pj-filter-note small">${icon('list-filter', 'icon-sm')}Nada del historial coincide con «${esc(H.q)}».</p>`;
+    wireOpen(el);
+    el.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', () => Items.remove(Number(b.dataset.del), { label: 'Tarea borrada' })));
+    restoreRowFocus(el);
+    paintSel();
+  }
+
+  /* ---------- Selección de varias (tareas y subtareas) y acciones a la vez ----------
+     «Seleccionar» (o X en una fila, o Ctrl + clic) entra en el modo; clic marca, Mayús + clic marca el tramo, Ctrl + A todo lo
+     que se ve con sus subtareas, Esc sale. El orden de copiar es el de la pantalla. */
+  const SEL = { on: false, ids: new Set(), last: null };
+  const selScope = () => $('pjTasks') || $('pjHist');
+  const selOrder = () => [...(selScope()?.querySelectorAll('[data-sel]') || [])].map((x) => Number(x.dataset.sel));
+  function paintSel() {
+    const scope = selScope();
+    if (!scope) return;
+    [...SEL.ids].forEach((id) => { if (!Items.get(id)) SEL.ids.delete(id); });  // lo borrado sale de la selección
+    scope.classList.toggle('pj-selecting', SEL.on);
+    scope.querySelectorAll('[data-sel]').forEach((x) => {
+      const on = SEL.ids.has(Number(x.dataset.sel));
+      x.classList.toggle('is-selected', on);
+      // aria-selected solo vale en opciones de una lista con su rol: aquí la marca se anuncia como descripción de la fila
+      if (SEL.on && on) x.setAttribute('aria-description', 'seleccionada'); else x.removeAttribute('aria-description');
+    });
+    document.querySelectorAll('[data-select-mode]').forEach((b) => b.setAttribute('aria-pressed', String(SEL.on)));
+    const bar = $('pjBulk');
+    if (!bar) return;
+    bar.hidden = !SEL.on;
+    if (!SEL.on) return;
+    const n = SEL.ids.size, ids = [...SEL.ids], hist = tab === 'historial';
+    const allDone = n && ids.every((id) => Items.get(id)?.done);
+    const lbl = (ic, text, attrs, cls = 'btn btn-sm') => `<button type="button" class="${cls}" ${attrs} ${n ? '' : 'disabled'}>${icon(ic, 'icon-sm')}<span class="hide-mobile">${text}</span><span class="sr-only show-mobile">${text}</span></button>`;
+    bar.innerHTML = `<span class="il-bulk-count tabular" aria-live="polite">${n ? `${n} seleccionada${n === 1 ? '' : 's'}` : 'Toca las tareas o subtareas que quieras'}</span>
+      <button type="button" class="btn btn-ghost btn-sm" data-sb="all" title="Todo lo que se ve, con sus subtareas (Ctrl + A)">${icon('list-checks', 'icon-sm')}<span class="hide-mobile">Todo</span><span class="sr-only show-mobile">Seleccionar todo</span></button>
+      ${n ? `<button type="button" class="btn btn-ghost btn-sm" data-sb="none">Ninguna</button>` : ''}
+      <span class="grow"></span>
+      ${lbl('copy', 'Copiar', 'data-sb="copy"', 'btn btn-sm btn-tinted')}
+      ${hist ? lbl('archive-restore', 'Devolver', 'data-sb="unarchive"') : `${lbl(allDone ? 'rotate-ccw' : 'check', allDone ? 'Reabrir' : 'Completar', 'data-sb="done"')}
+        ${lbl('archive', 'Al historial', 'data-sb="archive"')}
+        ${lbl('ellipsis', 'Más', 'data-sb="more" aria-haspopup="menu"')}`}
+      ${lbl('trash-2', 'Borrar', 'data-sb="delete"', 'btn btn-sm btn-danger')}
+      <button type="button" class="btn btn-ghost btn-icon btn-sm" data-sb="close" aria-label="Terminar la selección (Esc)">${icon('x', 'icon-sm')}</button>`;
+  }
+  function clearSel() { SEL.on = false; SEL.ids.clear(); SEL.last = null; paintSel(); }
+  function toggleSel(id, range = false) {
+    SEL.on = true;
+    if (range && SEL.last != null) {
+      const o = selOrder(), [a, b] = [o.indexOf(SEL.last), o.indexOf(id)].sort((x, y) => x - y);
+      if (a >= 0) o.slice(a, b + 1).forEach((x) => SEL.ids.add(x));
+    } else if (SEL.ids.has(id)) SEL.ids.delete(id); else SEL.ids.add(id);
+    SEL.last = id;
+    paintSel();
+  }
+  function selectAllVisible() {
+    SEL.on = true;
+    selOrder().forEach((id) => { SEL.ids.add(id); Items.children(id).forEach((k) => SEL.ids.add(k.id)); });
+    paintSel();
+  }
+  // Solo las de primer nivel: archivar, versión y fecha van con la tarea entera (sus subtareas la siguen)
+  const topOnly = (ids) => ids.filter((id) => !Items.get(id)?.parent_id);
+  async function onSelBar(e) {
+    const b = e.target.closest('[data-sb]');
+    if (!b) return;
+    const act = b.dataset.sb, ids = selOrder().filter((id) => SEL.ids.has(id)).concat([...SEL.ids].filter((id) => !selOrder().includes(id)));
+    if (act === 'close') return clearSel();
+    if (act === 'all') return selectAllVisible();
+    if (act === 'none') { SEL.ids.clear(); paintSel(); return; }
+    if (!ids.length) return;
+    if (act === 'copy') { ItemCopy.open(ids, ids); return; }
+    if (act === 'delete') {
+      if (ids.length > 3 && !(await uiConfirm(`¿Borrar ${ids.length} tareas y subtareas?`, 'Van a la papelera (30 días) y puedes deshacerlo ahora mismo.', { confirmLabel: 'Borrar', danger: true }))) return;
+      // Una subtarea cuyo padre también se borra ya va con él
+      const del = ids.filter((id) => !SEL.ids.has(Items.get(id)?.parent_id));
+      await Items.remove(del, { label: `${ids.length === 1 ? 'Tarea borrada' : `${ids.length} borradas`}` }).catch(() => {});
+      clearSel(); await refresh(); return;
+    }
+    if (act === 'done') {
+      const allDone = ids.every((id) => Items.get(id)?.done);
+      await Items.bulk(ids, allDone ? 'reopen' : 'done').catch(() => {});
+      await refresh(); paintSel(); return;
+    }
+    if (act === 'archive') { await archiveIds(topOnly(ids)); clearSel(); return; }
+    if (act === 'unarchive') { await unarchiveIds(topOnly(ids)); clearSel(); return; }
+    if (act === 'more') {
+      const tops = topOnly(ids);
+      const iso = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toLocaleDateString('sv-SE'); };
+      const vers = P.versiones.filter((v) => v.estado !== 'cerrada');
+      const setVer = async (v) => { for (const id of tops) await Items.update(id, { version_id: v }).catch(() => {}); await refresh(); paintTasks(); };
+      openMenu(b, [
+        ...Object.entries(PRIOS).map(([k, l]) => ({ label: `Prioridad ${l.toLowerCase()}`, icon: 'flag', onClick: () => Items.bulk(ids, 'priority', { value: k }) })),
+        { label: 'Sin prioridad', icon: 'flag-off', onClick: () => Items.bulk(ids, 'priority', { value: '' }) },
+        { separator: true },
+        ...vers.map((v) => ({ label: `A la versión ${v.nombre}`, icon: 'milestone', onClick: () => setVer(v.id) })),
+        { label: 'Sin versión', icon: 'milestone', onClick: () => setVer(0) },
+        { separator: true },
+        { label: 'Fecha: hoy', icon: 'calendar', onClick: () => Items.bulk(ids, 'due', { value: iso(0) }) },
+        { label: 'Fecha: mañana', icon: 'calendar', onClick: () => Items.bulk(ids, 'due', { value: iso(1) }) },
+        { label: 'Fecha: en una semana', icon: 'calendar-range', onClick: () => Items.bulk(ids, 'due', { value: iso(7) }) },
+        { label: 'Quitar la fecha', icon: 'calendar-x', onClick: () => Items.bulk(ids, 'due', { value: '' }) },
+      ]);
+    }
+  }
+  document.addEventListener('click', (e) => { if (e.target.closest('#pjBulk')) onSelBar(e); });
+  // En modo selección, tocar una fila (o una subtarea) la marca en vez de abrirla; Ctrl/⌘ + clic entra en el modo
+  document.addEventListener('click', (e) => {
+    const row = e.target.closest('#pjTasks [data-sel], #pjHist [data-sel]');
+    if (!row || !P) return;
+    const mod = e.ctrlKey || e.metaKey;
+    if (!SEL.on && !mod) return;
+    if (e.target.closest('[data-drag-handle], input[type=checkbox], .pj-sub-add, [data-fold-task]') && !mod) return;
+    e.preventDefault();
+    e.stopPropagation();
+    toggleSel(Number(row.dataset.sel), e.shiftKey);
+  }, true);
+  document.addEventListener('keydown', (e) => {
+    if (!P || document.querySelector('dialog[open]') || !selScope()) return;
+    const t = e.target, typing = /^(input|textarea|select)$/i.test(t?.tagName || '') || t?.isContentEditable;
+    if (typing) return;
+    if (e.key === 'Escape' && SEL.on) { e.preventDefault(); clearSel(); return; }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a' && (selScope().contains(t) || SEL.on)) { e.preventDefault(); selectAllVisible(); return; }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c' && SEL.ids.size && !String(getSelection())) {
+      e.preventDefault(); const o = selOrder(); ItemCopy.open([...SEL.ids].sort((a, b) => o.indexOf(a) - o.indexOf(b)), o); return;
+    }
+    if ((e.key === 'x' || e.key === 'X') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      const li = t.closest?.('[data-row]');
+      if (li && t === li) { e.preventDefault(); e.stopPropagation(); toggleSel(Number(li.dataset.id)); }
+    }
+  }, true);
+
+  /* ---------- Teclado en las filas (como en Tareas): ↑ ↓ / J K moverse, Intro abrir, Espacio hecha, E subtarea,
+     C copiar (Ctrl+C con sus subtareas), H al historial / devolver, Supr borrar. Mayús+H: todas las hechas al historial ---------- */
+  let rowFocus = null, gAt = 0;
+  const rowsIn = (el) => [...el.querySelectorAll('[data-row]')].filter((r) => r.offsetParent);
+  function restoreRowFocus(el) {
+    const rows = [...el.querySelectorAll('[data-row]')];  // un solo punto de entrada con Tab (tabindex itinerante)
+    (rows.find((r) => Number(r.dataset.id) === rowFocus) || rows[0])?.setAttribute('tabindex', '0');
+    if (rowFocus == null) return;
+    const ae = document.activeElement;
+    if (ae && ae !== document.body && el.contains(ae)) return;
+    if (ae && ae !== document.body && !el.contains(ae)) { rowFocus = null; return; }
+    const li = el.querySelector(`[data-row][data-id="${rowFocus}"]`);
+    if (li) li.focus({ preventScroll: true });
+  }
+  function focusRow(li) {
+    if (!li) return;
+    rowsIn(li.closest('#pjTasks, #pjHist') || document).forEach((r) => r.setAttribute('tabindex', r === li ? '0' : '-1'));
+    rowFocus = Number(li.dataset.id);
+    li.focus();
+    li.scrollIntoView({ block: 'nearest' });
+  }
+  document.addEventListener('keydown', (e) => { if (e.key.toLowerCase() === 'g' && !e.ctrlKey && !e.metaKey && !e.altKey) gAt = Date.now(); }, true);
+  document.addEventListener('focusin', (e) => { const li = e.target.closest?.('[data-row]'); if (li && P) rowFocus = Number(li.dataset.id); });
+  document.addEventListener('keydown', (e) => {
+    const li = e.target.closest?.('[data-row]');
+    if (!li || e.target !== li || !P || e.defaultPrevented || e.metaKey || document.querySelector('dialog[open]')) return;
+    const id = Number(li.dataset.id), it = Items.get(id), k = e.key;
+    if (!it) return;
+    const scope = li.closest('#pjTasks, #pjHist');
+    if (e.ctrlKey) {
+      if (k.toLowerCase() === 'c' && !String(getSelection())) { e.preventDefault(); copyTask(id, null, true); }
+      return;
+    }
+    if (e.altKey || (e.shiftKey && k !== ' ')) return;  // Alt + flechas: arrastre con teclado (sortable.js); Mayús+H: todas
+    if (Date.now() - gAt < 1200 && k.toLowerCase() !== 'g') return;  // G + letra: ir a otra sección
+    const rows = rowsIn(scope), at = rows.indexOf(li);
+    const act = {
+      ArrowDown: () => focusRow(rows[at + 1]), j: () => focusRow(rows[at + 1]),
+      ArrowUp: () => focusRow(rows[at - 1]), k: () => focusRow(rows[at - 1]),
+      Home: () => focusRow(rows[0]), End: () => focusRow(rows[rows.length - 1]),
+      Enter: () => openFicha(id), o: () => openFicha(id),
+      ' ': () => Items.setDone(id, !it.done).then(refresh),
+      e: () => li.querySelector('[data-add-sub]')?.click(),
+      c: () => copyTask(id, li.querySelector('[data-copy-task]')),
+      h: () => {
+        if (!it.archivada && !it.done) { toast('Solo lo hecho va al historial', { type: 'info', duration: 1600 }); return; }
+        focusRow(rows[at + 1] || rows[at - 1]);  // la fila se va de esta vista: el foco sigue en la lista
+        if (it.archivada) unarchiveIds([id]); else archiveIds([id]);
+      },
+      Delete: () => { focusRow(rows[at + 1] || rows[at - 1]); Items.remove(id, { label: 'Tarea borrada' }); },
+    }[k.length === 1 ? k.toLowerCase() : k] || (k === 'Backspace' ? () => { focusRow(rows[at + 1] || rows[at - 1]); Items.remove(id, { label: 'Tarea borrada' }); } : null);
+    if (!act) return;
+    e.preventDefault();
+    e.stopPropagation();
+    act();
+  });
+  // Entrar en la lista con el teclado: ↓ desde la búsqueda lleva a la primera fila
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowDown' || (e.target.id !== 'pjTq' && e.target.id !== 'pjHq')) return;
+    const first = rowsIn($(e.target.id === 'pjTq' ? 'pjTasks' : 'pjHist') || document)[0];
+    if (first) { e.preventDefault(); focusRow(first); }
+  });
 
   function renderIdeas(box) {
     box.innerHTML = `${captureHTML('idea')}<div id="pjIdeas"></div>`;
@@ -849,13 +1249,13 @@
   }
 
   /* =====================================================================
-     Atajos: N nuevo, / buscar, V vista, 1–7 pestañas
+     Atajos: N nuevo, / buscar, V vista, 1–8 pestañas, Mayús+H hechas al historial (los de cada fila, arriba)
      ===================================================================== */
   const typing = (t) => /^(input|textarea|select)$/i.test(t?.tagName || '') || t?.isContentEditable;
   // «/» también es del panel (búsqueda global): aquí busca en la página, así que va antes, en captura
   document.addEventListener('keydown', (e) => {
     if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey || typing(e.target) || document.querySelector('dialog[open]')) return;
-    const input = $('pjSearch') || (tab === 'tareas' ? $('pjTq') : null);
+    const input = $('pjSearch') || (tab === 'tareas' ? $('pjTq') : tab === 'historial' ? $('pjHq') : null);
     if (!input) return;
     e.preventDefault(); e.stopPropagation();
     input.focus(); input.select();
@@ -879,11 +1279,12 @@
       renderTareas($('pjBody'));
       return;
     }
-    if (slug && /^[1-7]$/.test(e.key)) { e.preventDefault(); setTab(TABS[Number(e.key) - 1][0]); }
+    if (slug && e.key === 'H' && e.shiftKey && tab === 'tareas') { e.preventDefault(); archiveIds(mineFiltered().filter((i) => i.done).map((i) => i.id)); return; }
+    if (slug && /^[1-8]$/.test(e.key)) { e.preventDefault(); setTab(TABS[Number(e.key) - 1][0]); }
   });
   // En un campo de búsqueda, Esc lo vacía y devuelve el foco a la página
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && (e.target.id === 'pjSearch' || e.target.id === 'pjTq') && e.target.value) {
+    if (e.key === 'Escape' && ['pjSearch', 'pjTq', 'pjHq'].includes(e.target.id) && e.target.value) {
       e.preventDefault();
       e.target.value = '';
       e.target.dispatchEvent(new Event('input'));

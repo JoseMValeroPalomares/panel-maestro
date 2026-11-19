@@ -264,7 +264,7 @@ button.sidebar-group-label:hover { color: var(--text-2); }
 .page-title { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; }
 .page-title h1 { font-size: var(--fs-22); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .page-actions { display: flex; align-items: center; gap: var(--sp-2); margin-left: auto; flex-shrink: 0; }
-.page-body { flex: 1; min-height: 0; overflow: auto; padding: var(--sp-6); }
+.page-body { position: relative; flex: 1; min-height: 0; overflow: auto; padding: var(--sp-6); }  /* relative: lo absoluto sin otro ancestro (.sr-only) no alarga el documento */
 .page-body-narrow { max-width: 1120px; margin: 0 auto; width: 100%; }
 
 /* Barra de pestañas inferior (móvil) */
@@ -585,6 +585,43 @@ button.list-row:hover, a.list-row:hover { background: var(--hover); text-decorat
 .menu-sep { height: 1px; background: var(--separator); margin: 5px var(--sp-2); }
 @media (pointer: coarse) { .menu-item { min-height: var(--touch); } }
 @keyframes pop-in { from { opacity: 0; transform: scale(0.97) translateY(-4px); } to { opacity: 1; transform: none; } }
+/* El menú nace de su botón (ui.js pone transform-origin y --menu-dy) con un muelle suave, y las opciones llegan en
+   cascada (--i, tope 10) */
+@keyframes menu-in { from { opacity: 0; transform: scale(0.9) translateY(var(--menu-dy, -6px)); } 40% { opacity: 1; } }
+@keyframes menu-row-in { from { opacity: 0; transform: translateY(calc(var(--menu-dy, -6px) * 0.6)); } }
+@media (prefers-reduced-motion: no-preference) {
+  .menu:not(.is-leaving) { animation: menu-in 300ms var(--spring-suave) both; }
+  .menu:not(.is-leaving) > .menu-item { animation: menu-row-in 260ms var(--ease-out-expo) both; animation-delay: calc(30ms + var(--i, 0) * 16ms); }
+}
+/* Píldora que viaja bajo la opción (Mov.glide); con ella, las filas no se pintan solas */
+.menu-pill { background: var(--accent-soft); border-radius: 7px; }
+/* Paleta y uiPick: la fila elegida la marca la píldora que viaja; el hover queda en gris */
+.pick-pill { background: var(--accent-soft); border-radius: var(--r-md); }
+.has-glide > .palette-row[aria-selected="true"], .has-glide > .pick-row[aria-selected="true"] { background: transparent; }
+.has-glide > .pick-row:hover:not([aria-selected="true"]) { background: var(--hover); }
+.menu-pill.is-danger { background: var(--danger-soft); }
+.menu.has-glide .menu-item:hover, .menu.has-glide .menu-item:focus-visible { background: transparent; }
+.menu.has-glide .menu-item.danger:hover { color: var(--danger-text); }
+/* Cada icono hace su gesto al pasar por su opción (solo con ratón) */
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .menu-item .icon { transition: transform 360ms var(--spring-bote); }
+  .menu-item:is(:hover, :focus-visible)[data-icon="plus"] .icon,
+  .menu-item:is(:hover, :focus-visible)[data-icon$="-plus"] .icon { transform: rotate(90deg); }
+  .menu-item:is(:hover, :focus-visible)[data-icon="x"] .icon { transform: rotate(90deg); }
+  .menu-item:is(:hover, :focus-visible)[data-icon="trash-2"] .icon { transform: translateY(-1px) rotate(-10deg); }
+  .menu-item:is(:hover, :focus-visible):is([data-icon="pencil"], [data-icon="notebook-pen"], [data-icon="pen-line"]) .icon { animation: icono-escribe 520ms var(--ease-out); }
+  .menu-item:is(:hover, :focus-visible):is([data-icon="copy"], [data-icon="layers"]) .icon { transform: translate(1px, -1px); }
+  .menu-item:is(:hover, :focus-visible):is([data-icon="clock"], [data-icon="history"], [data-icon="timer"], [data-icon="rotate-ccw"], [data-icon="repeat"]) .icon { transform: rotate(-45deg); }
+  .menu-item:is(:hover, :focus-visible):is([data-icon="external-link"], [data-icon="move"], [data-icon="move-right"], [data-icon="arrow-right"], [data-icon="rocket"]) .icon { transform: translate(2px, -1px); }
+  .menu-item:is(:hover, :focus-visible)[data-icon="download"] .icon { transform: translateY(2px); }
+  .menu-item:is(:hover, :focus-visible)[data-icon="upload"] .icon { transform: translateY(-2px); }
+  .menu-item:is(:hover, :focus-visible):is([data-icon="folder-open"], [data-icon="folder"], [data-icon="folder-tree"], [data-icon="inbox"]) .icon { transform: scale(1.12, 0.92); }
+  .menu-item:is(:hover, :focus-visible):is([data-icon="flag"], [data-icon="tag"], [data-icon="link"], [data-icon="unlink"]) .icon { transform: rotate(-14deg); }
+  .menu-item:is(:hover, :focus-visible):is([data-icon="square-check"], [data-icon="list-checks"], [data-icon="lightbulb"], [data-icon="calendar"], [data-icon="save"]) .icon { transform: scale(1.15); }
+  .menu-item:is(:hover, :focus-visible):is([data-icon="chevron-up"]) .icon { transform: translateY(-2px); }
+  .menu-item:is(:hover, :focus-visible):is([data-icon="chevron-down"]) .icon { transform: translateY(2px); }
+}
+@keyframes icono-escribe { 30% { transform: rotate(-14deg) translateX(-1px); } 60% { transform: rotate(6deg) translateX(1px); } }
 /* El menú sale (ui.js: closeMenu) igual que entra, más rápido */
 .menu.is-leaving { animation: pop-out 110ms var(--ease-out) both; pointer-events: none; }
 @keyframes pop-out { to { opacity: 0; transform: scale(0.97) translateY(-4px); } }
@@ -669,8 +706,24 @@ dialog.modal.modal-pick { width: min(560px, calc(100vw - 32px)); }
 }
 @keyframes item-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
 @keyframes item-out { to { opacity: 0; transform: translateY(-4px); } }
-.card-check.is-just-checked { animation: check-ring 420ms var(--ease-out) both; animation-delay: var(--anim-t, 0ms); }
-.card-check.is-just-checked .icon { animation: check-in var(--dur-slow) var(--ease-out-expo) both; animation-delay: var(--anim-t, 0ms); }
+/* La casilla se rellena (check-fill), el ✓ entra con muelle y se «escribe» de izquierda a derecha (check-draw: un barrido
+   con clip-path, que vale para el icono del sprite) y el halo se abre. El texto que la acompaña se tacha corriendo
+   (strike-run, ver .il-strike en items.css y los títulos con :has() más abajo) */
+.card-check.is-just-checked { animation: check-ring 460ms var(--ease-out) both, check-fill 200ms var(--ease-out) both; animation-delay: var(--anim-t, 0ms); }
+.card-check.is-just-checked .icon {
+  animation: check-pop 520ms var(--spring-bote) both, check-draw 300ms var(--ease-out) both;
+  animation-delay: var(--anim-t, 0ms), calc(var(--anim-t, 0ms) + 60ms);
+}
+@keyframes check-fill { from { background-color: transparent; border-color: var(--separator-strong); } }
+@keyframes check-pop { from { transform: scale(0.5); } }
+@keyframes check-draw { from { clip-path: inset(-2px 100% -2px -2px); } to { clip-path: inset(-2px -2px -2px -2px); } }
+@keyframes strike-run { from { background-size: 0% var(--strike-h, 1.5px); } }
+@keyframes strike-fade { from { text-decoration-color: transparent; } }
+/* Títulos tachados de las demás pantallas: la raya aparece a la vez que el ✓ (las que son una línea, con strike-fade) */
+:is(.hoy-row, .cal-side-row, .rp-step, .rp-task, .pj-task, .pj-sub, .pf-step, .uni-ej, .uni-entregas li):has(.card-check.is-just-checked)
+  :is(.hoy-title, .rp-step-title, .rp-task-text, .pj-task-title, .pj-sub-text, .pf-step-text, .row-title) {
+  animation: strike-fade 320ms var(--ease-out) 140ms both;
+}
 .card-check.is-routine { --check-ring: var(--c-rutina, var(--tile-rutinas)); }
 
 /* ---------- Toasts ---------- */
@@ -706,6 +759,9 @@ dialog.modal.modal-pick { width: min(560px, calc(100vw - 32px)); }
   display: block; border-radius: var(--r-xs);
   background: linear-gradient(90deg, var(--fill) 0%, var(--fill-strong) 50%, var(--fill) 100%);
   background-size: 200% 100%;
+  /* Una sola luz para toda la pantalla: el fondo se coloca respecto a la ventana, así todos los esqueletos brillan a
+     la vez como una única pasada (no veinte parpadeos desfasados) */
+  background-attachment: fixed;
   animation: shimmer 1.3s ease-in-out infinite;
   min-height: 12px;
 }
@@ -751,6 +807,8 @@ dialog.modal.modal-pick { width: min(560px, calc(100vw - 32px)); }
   box-shadow: var(--shadow-2); opacity: 0; transition: opacity var(--dur-fast);
 }
 .tip.is-on { opacity: 1; }
+/* Con gracia (ui.js: otro globo justo después), viaja de un control a otro en vez de apagarse y encenderse */
+.tip.is-moving { transition: opacity var(--dur-fast), transform 280ms var(--spring-suave); }
 @media (prefers-reduced-motion: reduce) { .tip { transition: none; } }
 
 /* ---------- Barras de progreso ---------- */
@@ -817,7 +875,7 @@ dialog.modal.modal-pick { width: min(560px, calc(100vw - 32px)); }
 .sortable-ghost {
   position: fixed; z-index: 1000; margin: 0; pointer-events: none; will-change: transform;
   box-shadow: var(--shadow-3), 0 0 0 1px var(--accent-ring); border-radius: var(--r-md);
-  rotate: -1.2deg; scale: 1.02; opacity: 0.96; transition: box-shadow var(--dur-fast), opacity var(--dur-fast);
+  rotate: calc(-1.2deg + var(--lean, 0deg)); scale: 1.03; opacity: 0.96; transition: box-shadow var(--dur-fast), opacity var(--dur-fast);
 }
 .sortable-ghost.is-invalid { box-shadow: var(--shadow-2), 0 0 0 2px var(--danger); opacity: 0.85; }
 .sortable-ghost.is-external { scale: 0.92; opacity: 0.85; }
@@ -838,6 +896,58 @@ dialog.modal.modal-pick { width: min(560px, calc(100vw - 32px)); }
 .sortable-dragging .sortable-zone[data-zone] { box-shadow: inset 0 0 0 1.5px var(--separator-strong); }
 .sortable-dragging .sortable-zone.sortable-over { background: color-mix(in srgb, var(--accent) 6%, transparent); box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 50%, transparent); }
 .sortable-dragging .sortable-zone.sortable-invalid { background: color-mix(in srgb, var(--danger) 9%, transparent); box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--danger) 55%, transparent); }
+
+/* ---------- Piezas de movimiento comunes (movimiento.js = window.Mov) ---------- */
+/* Cifras que ruedan (Mov.roll): la ventana recorta con clip-path (no cambia la línea base); el nuevo carácter es texto
+   real y el viejo un ::before que sale por el otro lado */
+.roll-w { display: inline-block; clip-path: inset(0 -2px); }
+.roll-ch { display: inline-block; position: relative; animation: roll-up 520ms var(--spring) both; animation-delay: calc(var(--roll-i, 0) * 28ms); }
+.roll-ch::before { content: attr(data-old); position: absolute; left: 0; right: 0; top: -100%; text-align: center; }
+.roll-ch[data-dir="down"] { animation-name: roll-down; }
+.roll-ch[data-dir="down"]::before { top: 100%; }
+@keyframes roll-up { from { transform: translateY(100%); } }
+@keyframes roll-down { from { transform: translateY(-100%); } }
+/* ✓ que se dibuja (Mov.tick): el trazo crece de 0 a 1 con pathLength=1 */
+.tick-draw { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
+.tick-draw path { stroke-dasharray: 1; stroke-dashoffset: 0; }
+.tick-draw.is-drawing path { animation: tick-draw 340ms var(--ease-out) both; animation-delay: var(--tick-delay, 0ms); }
+@keyframes tick-draw { from { stroke-dashoffset: 1; } }
+/* Botón que confirma la copia (ui.js: copied): el ✓ entra con muelle y se escribe, en el color de éxito */
+.is-copied { color: var(--success-text); }
+.is-copied .icon { animation: check-pop 520ms var(--spring-bote) both, check-draw 300ms var(--ease-out) 40ms both; }
+/* Guía de un árbol que se traza de arriba abajo al abrir su grupo y se enciende un momento (ui.js: .fold-opening) */
+@keyframes guia-traza { from { transform: scaleY(0); background: var(--accent); } 55% { background: var(--accent); } }
+/* Mapa de actividad (Mov.heatmap): la racha más larga se enciende celda a celda; un contorno salta con el ratón y su
+   etiqueta le sigue */
+.is-streak { animation: racha 900ms var(--ease-out) var(--streak-delay, 0ms) both; }
+@keyframes racha { 0% { box-shadow: 0 0 0 0 transparent; } 30% { box-shadow: 0 0 0 2px var(--text); } 100% { box-shadow: 0 0 0 0 transparent; } }
+.heat-focus { position: absolute; top: 0; left: 0; z-index: 2; pointer-events: none; border-radius: 4px; box-shadow: 0 0 0 1.5px var(--text);
+  opacity: 0; transition: opacity var(--dur-fast); }
+.heat-tag { position: absolute; top: 0; left: 0; z-index: 3; pointer-events: none; transform: translateY(-100%); white-space: nowrap;
+  padding: 3px 8px; border-radius: 6px; background: var(--text); color: var(--bg-elev); font-size: var(--fs-12); font-weight: 500;
+  box-shadow: var(--shadow-2); opacity: 0; transition: opacity var(--dur-fast); }
+.heat-focus.is-on, .heat-tag.is-on { opacity: 1; }
+/* Zonas de soltar archivos (ui.js): con archivos en el aire se encienden; encima, borde continuo y crecen un poco */
+[data-drop] { transition: border-color var(--dur-fast), background-color var(--dur-fast), scale 320ms var(--spring); }
+html.files-dragging [data-drop] { border-color: var(--accent); background-color: color-mix(in srgb, var(--accent) 6%, transparent); }
+html.files-dragging [data-drop].is-over { border-style: solid; background-color: var(--accent-soft); scale: 1.015; }
+/* Anillo de progreso (Mov.ring): pista, arco con muelle y ✓ que se dibuja al completar */
+.mv-ring { display: inline-grid; flex-shrink: 0; width: 22px; height: 22px; --tono: var(--accent); }
+.mv-ring.is-done { --tono: var(--success); }
+.mv-ring svg { width: 100%; height: 100%; overflow: visible; }
+.mv-ring circle, .mv-ring path { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.mv-ring-track { stroke: var(--fill-strong); stroke-width: 2.4; }
+.mv-ring-arc { stroke: var(--tono); stroke-width: 2.4; stroke-dasharray: 1; stroke-dashoffset: 1; transition: stroke var(--dur-slow); }
+.mv-ring-tick { stroke: var(--tono); stroke-width: 2.4; stroke-dasharray: 1; stroke-dashoffset: 1; transition: stroke-dashoffset 360ms var(--ease-out) 380ms; }
+.mv-ring.tick-on .mv-ring-tick { stroke-dashoffset: 0; }
+@media (prefers-reduced-motion: reduce) { .mv-ring-arc, .mv-ring-tick { transition: none; } }
+/* Resaltado que se desliza (Mov.glide): debajo de las filas, en el contenedor (isolation la pone el JS) */
+.glide-pill {
+  position: absolute; top: 0; left: 0; z-index: -1; pointer-events: none; border-radius: var(--r-sm);
+  background: var(--hover); opacity: 0; transition: opacity var(--dur-fast) var(--ease-out);
+}
+.glide-pill.is-on { opacity: 1; }
+@media (hover: none) { .glide-pill.is-hover { display: none; } }
 
 /* ---------- Movimiento reducido ---------- */
 @media (prefers-reduced-motion: reduce) {
@@ -869,6 +979,12 @@ dialog.modal.modal-pick { width: min(560px, calc(100vw - 32px)); }
 .theme-option:hover { box-shadow: inset 0 0 0 1px var(--separator-strong); }
 .theme-option:active { transform: scale(0.97); }
 .theme-option[aria-checked="true"] { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 3px var(--accent-soft); }
+/* Cada muestra brilla con su propio acento al pasar o enfocarla, y su pastilla de acento se estira (wallpaper-picker) */
+.theme-swatch { transition: box-shadow 220ms var(--ease-out), translate 320ms var(--spring); }
+.theme-swatch > span:last-child { transition: width 380ms var(--spring); }
+.theme-option:is(:hover, :focus-visible) .theme-swatch { translate: 0 -1px; box-shadow: inset 0 0 0 1px rgba(127, 127, 127, 0.25), 0 6px 16px -6px color-mix(in srgb, var(--p-accent, var(--accent)) 75%, transparent); }
+.theme-option:is(:hover, :focus-visible) .theme-swatch > span:last-child { width: 34px; }
+.theme-option[aria-checked="true"] .theme-swatch > span:last-child { animation: icono-pop 520ms var(--spring-bote); }
 .theme-swatch {
   position: relative; display: block; height: 40px; border-radius: var(--r-sm); background: var(--p-bg);
   box-shadow: inset 0 0 0 1px rgba(127, 127, 127, 0.25); overflow: hidden;
@@ -965,6 +1081,15 @@ html.theme-switching::view-transition-old(*) { animation: vt-fade-out var(--dur-
 html.theme-switching::view-transition-new(*) { animation: vt-fade-in var(--dur-slow) var(--ease-out) both; }
 @keyframes vt-fade-out { to { opacity: 0; } }
 @keyframes vt-fade-in { from { opacity: 0; } }
+/* Cambio de tema con el ratón o el dedo: una sola captura de la página y el tema nuevo se extiende en círculo desde
+   la opción tocada (ui.js pone --sweep-x/y/r) */
+html.theme-sweep :is(.app > .sidebar, .tabbar, .app > .main, .main > .page-header .page-title h1, .main > .page-header .page-title .tile-lg, .nav-pill, .tab-pill) { view-transition-name: none !important; }
+html.theme-sweep::view-transition-old(root) { animation: none; }
+html.theme-sweep::view-transition-new(root) { animation: tema-barrido 560ms cubic-bezier(0.4, 0, 0.2, 1) both; }
+@keyframes tema-barrido {
+  from { clip-path: circle(0 at var(--sweep-x, 50%) var(--sweep-y, 50%)); }
+  to { clip-path: circle(var(--sweep-r, 150vmax) at var(--sweep-x, 50%) var(--sweep-y, 50%)); }
+}
 @media (prefers-reduced-motion: reduce) {
   @view-transition { navigation: none; }
   ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
@@ -1096,7 +1221,20 @@ dialog.modal.palette { width: min(640px, calc(100vw - 32px)); margin: 12vh auto 
 .rt-run-clock.is-over { color: var(--success-text); }
 .rt-run-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--sp-2); margin-top: var(--sp-2); }
 .rt-run-actions kbd { margin-left: 4px; font-size: 12px; background: transparent; color: inherit; border: 1px solid currentColor; box-shadow: none; }
-.rt-run-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 2px; }
+@property --rt-recorrido { syntax: '<length>'; inherits: true; initial-value: 0px; }
+.rt-run-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 2px; position: relative; }
+/* La línea de los pasos (gris) y lo recorrido hasta el paso actual (color de rutina): routines.js pone --rt-recorrido */
+.rt-run-list::before, .rt-run-list::after { content: ""; position: absolute; left: 18.5px; top: 20px; width: 2px; border-radius: 1px; pointer-events: none; }
+.rt-run-list::before { bottom: 20px; background: var(--separator); }
+.rt-run-list::after { height: var(--rt-recorrido); background: var(--c-routine, var(--tile-rutinas)); }
+.rt-run-step { position: relative; }
+.rt-run-dot { position: relative; z-index: 1; }
+.rt-run-step.is-current .rt-run-dot { box-shadow: 0 0 0 2px var(--c-routine, var(--tile-rutinas)); }
+.rt-run-dot.is-just-done { animation: check-fill 220ms var(--ease-out) both, rt-dot-pop 560ms var(--spring-bote) both; }
+.rt-run-dot.is-just-done .icon { animation: check-draw 300ms var(--ease-out) 120ms both; }
+@keyframes rt-dot-pop { 0% { transform: scale(0.7); } }
+.rt-run-pill { background: var(--accent-soft); border-radius: var(--r-sm); }
+.rt-run.has-glide .rt-run-step.is-current { background: transparent; }
 .rt-run-step { display: flex; align-items: center; gap: var(--sp-2); width: 100%; min-height: 40px; padding: 4px var(--sp-2); border-radius: var(--r-sm);
   text-align: left; color: var(--text); }
 .rt-run-step:hover { background: var(--fill); }
@@ -1428,3 +1566,42 @@ a.run-title:hover { color: var(--accent-text); }
 .ptr.is-cargando svg { animation: spin 0.8s linear infinite; }
 .ptr.is-cargando .ptr-arco { stroke-dasharray: 30 100; transition: stroke-dasharray 300ms; }
 .ptr.is-cargando .ptr-flecha { opacity: 0; }
+
+/* T-2 · Franja con el título al desplazar en el móvil (ui.js) */
+.mini-title { display: none; }
+@media (max-width: 767px) {
+  .mini-title {
+    display: block; position: fixed; top: 0; left: 0; right: 0; z-index: 55; width: 100%;
+    padding: calc(8px + env(safe-area-inset-top)) var(--sp-4) 8px; border: 0; text-align: center;
+    font: 600 var(--fs-15) / 1.3 var(--font-sans); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    background: color-mix(in srgb, var(--bg) 86%, transparent); -webkit-backdrop-filter: saturate(180%) blur(16px); backdrop-filter: saturate(180%) blur(16px);
+    border-bottom: 1px solid var(--separator);
+    opacity: 0; translate: 0 -100%; filter: blur(4px); pointer-events: none;
+    transition: opacity 200ms var(--ease-out), translate 360ms var(--spring-suave), filter 260ms var(--ease-out);
+  }
+  .mini-title.is-on { opacity: 1; translate: 0 0; filter: none; pointer-events: auto; }
+  body:has(dialog.modal[open]) .mini-title { opacity: 0; pointer-events: none; }
+}
+@media (prefers-reduced-motion: reduce) { .mini-title { transition: none; filter: none; } }
+
+/* S-2 · En el móvil, los temas se pasan con el dedo: carrusel con imán y la muestra del centro más grande (animación
+   ligada al desplazamiento). Sin animation-timeline (Firefox), la cuadrícula de siempre. «Actual» salta al elegir. */
+@media (max-width: 767px) {
+  @supports (animation-timeline: view()) {
+    .theme-grid {
+      display: flex; gap: var(--sp-2); overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory;
+      padding: var(--sp-3) calc(50% - 52px); margin-inline: calc(-1 * var(--sp-4)); scrollbar-width: none;
+    }
+    .theme-grid::-webkit-scrollbar { display: none; }
+    .theme-group { display: none; }
+    .theme-option { position: relative; flex: 0 0 104px; scroll-snap-align: center;
+      animation: tema-foco linear both; animation-timeline: view(inline); animation-range: cover; }
+    .theme-option[aria-checked="true"]::after {
+      content: "Actual"; position: absolute; top: -9px; left: 50%; translate: -50% 0; padding: 1px 7px; border-radius: var(--r-pill);
+      background: var(--accent); color: var(--accent-fg, var(--bg)); font-size: 11px; font-weight: 700; animation: icono-pop 520ms var(--spring-bote);
+    }
+  }
+}
+@keyframes tema-foco { 0%, 100% { scale: 0.84; opacity: 0.55; } 50% { scale: 1.06; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .theme-option { animation: none !important; } }
+.mini-title:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }

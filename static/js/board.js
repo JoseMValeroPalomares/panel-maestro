@@ -106,7 +106,7 @@
   const CARD_STEP = 26, CARD_FOOT = 26, CARD_MIN = 64;  // alto de un paso y del pie en una tarjeta del Inbox
 
   /* ---------- DOM ---------- */
-  let body, wrap, svg, defs, grid, world, layers, overlay, mini, miniWorld, miniView, statusEl, zoomLabel, props;
+  let body, wrap, svg, defs, grid, world, layers, overlay, fx, mini, miniWorld, miniView, statusEl, zoomLabel, props;
 
   function el(tag, attrs = {}, parent) {
     const e = document.createElementNS(NS, tag);
@@ -127,6 +127,7 @@
     world = el('g', { class: 'board-world' }, svg);
     layers = { strokes: el('g', {}, world), edges: el('g', {}, world), nodes: el('g', {}, world) };
     overlay = el('g', { class: 'board-overlay' }, world);
+    fx = el('g', { class: 'board-fx', 'aria-hidden': 'true' }, world);  // efectos de un momento: nunca se exportan ni se guardan
     mini = $('#boardMinimap');
     const msvg = el('svg', { class: 'minimap-svg', 'aria-hidden': 'true' }, mini);
     miniWorld = el('g', {}, msvg);
@@ -741,10 +742,14 @@
   function selectedEdges() { return S.doc.edges.filter((e) => S.sel.has(e.id)); }
   function anchorsOf(n, overlayG, hot) {
     const z = S.view.zoom;
+    // I-2 · Al engancharse, el ancla elegida se hincha con muelle; el overlay se repinta a cada movimiento, así que la
+    // animación sigue donde iba con un retraso negativo
+    const snapAt = S.gesture?.snapAt, snapMs = snapAt ? performance.now() - snapAt : 1e9;
     const out = S.sel.has(n.id) && !n.locked ? 20 / z : 0; // seleccionada: por fuera, para no tapar las asas
     Object.keys(SIDES).forEach((side) => {
       const p = sidePoint(n, side, out);
-      el('circle', { cx: p.x, cy: p.y, r: (side === hot ? 7 : 5.5) / z, class: `anchor${side === hot ? ' is-hot' : ''}`, 'data-anchor': n.id, 'data-side': side, 'stroke-width': 1.5 / z }, overlayG);
+      const c = el('circle', { cx: p.x, cy: p.y, r: (side === hot ? 7 : 5.5) / z, class: `anchor${side === hot ? ' is-hot' : ''}${side === hot && snapMs < 420 ? ' is-snap' : ''}`, 'data-anchor': n.id, 'data-side': side, 'stroke-width': 1.5 / z }, overlayG);
+      if (side === hot && snapMs < 420) c.style.animationDelay = `${-Math.round(snapMs)}ms`;
     });
   }
   function renderOverlay() {
@@ -788,7 +793,17 @@
       el('path', { d: edgeGeom(fake).d, class: 'connect-preview', stroke: color, 'stroke-width': 2 / z, 'marker-end': S.lineDefaults.endHead === 'none' ? null : markerFor(color, S.lineDefaults.endHead) }, overlay);
     }
     if (G?.type === 'create' && G.rect) el('rect', { ...G.rect, class: 'create-preview', 'stroke-width': 1.5 / z }, overlay);
-    if (G?.type === 'pen' && G.points.length > 1) el('path', { d: strokePath(G.points), class: 'pen-preview', stroke: S.penColor || '#cdd6f4', 'stroke-width': G.width }, overlay);
+    if (G?.type === 'pen' && G.points.length > 1) {
+      el('path', { d: strokePath(G.points), class: `pen-preview${G.shape ? ' is-faded' : ''}`, stroke: S.penColor || '#cdd6f4', 'stroke-width': G.width }, overlay);
+      if (G.shape) {
+        const f = G.shape, c = S.penColor || '#cdd6f4', a = { class: 'shape-preview', stroke: c, 'stroke-width': 2 / z, fill: 'none' };
+        const sh = f.kind === 'line' ? el('line', { ...a, x1: f.p1[0], y1: f.p1[1], x2: f.p2[0], y2: f.p2[1] }, overlay)
+          : f.kind === 'ellipse' ? el('ellipse', { ...a, cx: f.x + f.w / 2, cy: f.y + f.h / 2, rx: f.w / 2, ry: f.h / 2 }, overlay)
+            : f.kind === 'diamond' ? el('polygon', { ...a, points: `${f.x + f.w / 2},${f.y} ${f.x + f.w},${f.y + f.h / 2} ${f.x + f.w / 2},${f.y + f.h} ${f.x},${f.y + f.h / 2}` }, overlay)
+              : el('rect', { ...a, x: f.x, y: f.y, width: f.w, height: f.h, rx: 6 / z }, overlay);
+        sh.style.animationDelay = `${-Math.round(performance.now() - (G.shapeAt || 0))}ms`;
+      }
+    }
   }
 
   /* Minimapa: el contenido se rehace solo si cambia el documento; al desplazar solo se mueve el marco */
@@ -1395,8 +1410,10 @@
       const other = ed ? (G.end === 's' ? ed.to : ed.from) : G.from;
       const target = nodeAt(p, other);
       G.to = p;
+      const prevNode = G.toNode, prevSide = G.toSide;
       G.toNode = target ? target.id : null;
       G.toSide = target ? nearSide(target, p) : null;
+      if (G.toNode !== prevNode || G.toSide !== prevSide) G.snapAt = target ? performance.now() : 0;
       if (ed) {
         const [k, pk] = G.end === 's' ? ['from', 'p1'] : ['to', 'p2'];
         if (target) { ed[k] = target.id; if (G.toSide) ed[k + 'Side'] = G.toSide; else delete ed[k + 'Side']; delete ed[pk]; }
@@ -1414,7 +1431,17 @@
     }
     if (G.type === 'pen') {
       const last = G.points[G.points.length - 1];
-      if (Math.hypot(p.x - last[0], p.y - last[1]) * S.view.zoom > 2) G.points.push([r1(p.x), r1(p.y)]);
+      if (Math.hypot(p.x - last[0], p.y - last[1]) * S.view.zoom > 2) {
+        G.points.push([r1(p.x), r1(p.y)]);
+        // I-3 · Quieto al final del trazo: si se parece a una forma, se enseña ya convertida (al soltar se queda así)
+        if (G.shape) G.shape = null;
+        clearTimeout(G.holdT);
+        G.holdT = setTimeout(() => {
+          if (S.gesture !== G) return;
+          G.shape = recognizeStroke(G.points);
+          if (G.shape) { G.shapeAt = performance.now(); renderOverlay(); }
+        }, 550);
+      }
       renderOverlay();
       return;
     }
@@ -1438,7 +1465,7 @@
     wrap.classList.remove('is-panning');
     const p = toWorld(e.clientX, e.clientY);
     if (G.type === 'move' || G.type === 'resize' || G.type === 'reattach' || G.type === 'erase') {
-      if (recordFrom(G.before)) changed(); else renderAll();
+      if (recordFrom(G.before)) { changed(); if (G.type === 'reattach' && G.toNode) flashEdge(G.id); } else renderAll();
       return;
     }
     if (G.type === 'marquee') { renderAll(); return; }
@@ -1454,6 +1481,7 @@
       S.doc.edges.push(ed);
       S.sel = new Set([ed.id]);
       changed();
+      if (target) flashEdge(ed.id);
       if ((S.tool === 'arrow' || S.tool === 'line') && !S.lockTool) setTool('select');
       return;
     }
@@ -1470,12 +1498,62 @@
       return;
     }
     if (G.type === 'pen') {
+      clearTimeout(G.holdT);
+      if (G.shape) { shapeFromStroke(G.shape); return; }
       if (G.points.length > 1) {
         record();
         S.doc.strokes.push({ id: uid('s'), points: G.points, color: S.penColor || '#cdd6f4', width: G.width });
         changed();
       } else renderOverlay();
     }
+  }
+
+  /* I-2 · Una luz recorre el conector una vez al unirlo a una forma (en la capa de efectos: ni se guarda ni se exporta) */
+  function flashEdge(id) {
+    if (window.Mov?.reduce?.()) return;
+    const e = edge(id);
+    if (!e) return;
+    const z = S.view.zoom;
+    const path = el('path', { d: edgeGeom(e).d, class: 'edge-flash', fill: 'none', stroke: e.color || '#89b4fa', 'stroke-width': Math.max(3, (e.width || 2) * 1.8) / z, pathLength: 100 }, fx);
+    path.animate([{ strokeDashoffset: 118 }, { strokeDashoffset: -18 }], { duration: 620, easing: 'cubic-bezier(0.4, 0, 0.2, 1)' }).onfinish = () => path.remove();
+  }
+
+  /* I-3 · Trazo a mano → forma. Se compara el trazo con una línea, un rectángulo, una elipse y un rombo (error medio
+     normalizado) y se queda con la que mejor encaja si el error es pequeño; si no, sigue siendo un trazo. */
+  function recognizeStroke(pts) {
+    if (pts.length < 4) return null;
+    const xs = pts.map((q) => q[0]), ys = pts.map((q) => q[1]);
+    const x = Math.min(...xs), y = Math.min(...ys), w = Math.max(...xs) - x, h = Math.max(...ys) - y;
+    if (Math.hypot(w, h) * S.view.zoom < 36) return null;
+    let len = 0;
+    for (let i = 1; i < pts.length; i++) len += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+    const [f, l] = [pts[0], pts[pts.length - 1]];
+    const span = Math.hypot(l[0] - f[0], l[1] - f[1]);
+    if (span / len > 0.9) return { kind: 'line', p1: f, p2: l };  // casi recto de punta a punta
+    if (span > 0.3 * Math.max(w, h) || w * S.view.zoom < 16 || h * S.view.zoom < 16) return null;  // abierto o demasiado plano
+    const cx = x + w / 2, cy = y + h / 2, rx = w / 2, ry = h / 2, m = Math.min(rx, ry);
+    const mean = (fn) => pts.reduce((a, q) => a + fn(q[0], q[1]), 0) / pts.length;
+    const errs = {
+      ellipse: mean((px, py) => Math.abs(Math.hypot((px - cx) / rx, (py - cy) / ry) - 1)),
+      rect: mean((px, py) => Math.min(Math.abs(px - x), Math.abs(px - x - w), Math.abs(py - y), Math.abs(py - y - h)) / m),
+      diamond: mean((px, py) => Math.abs(Math.abs(px - cx) / rx + Math.abs(py - cy) / ry - 1)),
+    };
+    const [kind, err] = Object.entries(errs).sort((a, b) => a[1] - b[1])[0];
+    return err < (kind === 'rect' ? 0.1 : 0.13) ? { kind, x, y, w, h } : null;
+  }
+  function shapeFromStroke(f) {
+    record();
+    const c = S.penColor || '#cdd6f4';
+    if (f.kind === 'line') {
+      const ed = { id: uid('e'), ...S.lineDefaults, ...sketchNewEdge(), color: c, width: r1(S.lineDefaults.width / S.view.zoom), p1: f.p1, p2: f.p2, startHead: 'none', endHead: 'none', route: 'straight' };
+      S.doc.edges.push(ed);
+      S.sel = new Set([ed.id]);
+    } else {
+      const n = addNode(f.kind, r1(f.x), r1(f.y), { w: r1(f.w), h: r1(f.h), stroke: c, fill: /^#[0-9a-f]{6}$/i.test(c) ? `${c}1f` : DEFAULTS[f.kind].fill }, false);
+      S.sel = new Set([n.id]);
+    }
+    changed();
+    toast('Trazo convertido en forma (Ctrl + Z lo deshace)', { type: 'info', duration: 1600 });
   }
 
   function onDblClick(e, hit = hitTarget(e.target)) {
@@ -2245,12 +2323,19 @@
   }
 
   /* ---------- Herramientas y barra ---------- */
+  let toolPill = null;
   function setTool(t) {
     S.tool = t;
     document.querySelectorAll('[data-tool]').forEach((b) => {
       b.classList.toggle('active', b.dataset.tool === t);
       b.setAttribute('aria-pressed', String(b.dataset.tool === t));
     });
+    // La baldosa de la herramienta elegida se desliza hasta ella (también con los atajos de teclado)
+    const bar = document.querySelector('.board-tools');
+    if (bar && window.Mov) {
+      if (!toolPill) { toolPill = Mov.glide(bar, { className: 'glide-pill tool-pill', axis: 'x' }); bar.classList.add('has-glide'); }
+      toolPill.to(bar.querySelector(`[data-tool="${CSS.escape(t)}"]`));
+    }
     wrap.dataset.tool = t;
     S.hover = null;
     renderOverlay();
@@ -2310,7 +2395,7 @@
       A('Herramientas', 'Óvalo', ['O', '4'], 'circle', tool('ellipse')),
       A('Herramientas', 'Conector (flecha)', ['A', '5'], 'move-right', tool('arrow')),
       A('Herramientas', 'Línea', ['L', '6'], 'minus', tool('line')),
-      A('Herramientas', 'Lápiz', ['P', '7'], 'pencil', tool('pen')),
+      A('Herramientas', 'Lápiz (quieto al acabar: trazo → forma)', ['P', '7'], 'pencil', tool('pen')),
       A('Herramientas', 'Texto', ['T', '8'], 'type', tool('text')),
       A('Herramientas', 'Nota adhesiva', ['S', '9'], 'sticky-note', tool('sticky')),
       A('Herramientas', 'Borrador', ['E'], 'eraser', tool('eraser')),

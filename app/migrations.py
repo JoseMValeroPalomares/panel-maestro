@@ -967,6 +967,49 @@ def uni_oculto_down(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE uni_archivos DROP COLUMN oculto")
 
 
+def archivada_up(conn: sqlite3.Connection) -> None:
+    """Solo añade: `inbox.archivada` = cuándo se mandó una tarea hecha al historial de su proyecto (NULL = a la vista)."""
+    if not has_column(conn, "inbox", "archivada"):
+        conn.execute("ALTER TABLE inbox ADD COLUMN archivada REAL")
+
+
+def archivada_down(conn: sqlite3.Connection) -> None:
+    # Lo archivado vuelve a verse junto a lo pendiente: no se pierde ninguna tarea
+    if has_column(conn, "inbox", "archivada"):
+        conn.execute("ALTER TABLE inbox DROP COLUMN archivada")
+
+
+def facturas_up(conn: sqlite3.Connection) -> None:
+    """Facturas de Economía: el archivo vive en data/facturas/<uuid>.<ext>; la fila guarda lo que se ve y se busca."""
+    if _table_exists(conn, "fin_facturas_bak") and not _table_exists(conn, "fin_facturas"):
+        conn.execute("ALTER TABLE fin_facturas_bak RENAME TO fin_facturas")
+    conn.execute("""CREATE TABLE IF NOT EXISTS fin_facturas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        titulo TEXT NOT NULL,            -- lo que se lee en la lista (por defecto, el nombre del archivo)
+        proveedor TEXT,
+        fecha TEXT,                      -- AAAA-MM-DD (la de la factura)
+        importe REAL,                    -- euros, opcional
+        categoria TEXT,
+        notas TEXT,
+        movimiento_id INTEGER,           -- gasto al que corresponde (sin clave foránea: borrar el gasto no la toca)
+        nombre TEXT NOT NULL,            -- nombre original del archivo (solo para mostrar y descargar)
+        archivo TEXT NOT NULL UNIQUE,    -- relativo a data/facturas
+        mime TEXT,
+        bytes INTEGER,
+        created_at REAL DEFAULT (unixepoch()))""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_fin_facturas_fecha ON fin_facturas(fecha)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_fin_facturas_mov ON fin_facturas(movimiento_id)")
+
+
+def facturas_down(conn: sqlite3.Connection) -> None:
+    # Nada se tira: la tabla queda aparte y los archivos no se tocan
+    conn.execute("DROP INDEX IF EXISTS idx_fin_facturas_fecha")
+    conn.execute("DROP INDEX IF EXISTS idx_fin_facturas_mov")
+    if _table_exists(conn, "fin_facturas"):
+        conn.execute("DROP TABLE IF EXISTS fin_facturas_bak")
+        conn.execute("ALTER TABLE fin_facturas RENAME TO fin_facturas_bak")
+
+
 MIGRATIONS = [
     Migration(1, "inbox: un nivel de subelementos y tipo del padre", _inbox_one_level_up, _inbox_one_level_down),
     Migration(2, "baúl: orden manual (resources.sort_order)", resources_order_up, resources_order_down),
@@ -1026,4 +1069,6 @@ MIGRATIONS = [
         uni_oculto_up,
         uni_oculto_down,
     ),
+    Migration(29, "proyectos: historial de tareas hechas (inbox.archivada)", archivada_up, archivada_down),
+    Migration(30, "economía: facturas guardadas (fin_facturas)", facturas_up, facturas_down),
 ]

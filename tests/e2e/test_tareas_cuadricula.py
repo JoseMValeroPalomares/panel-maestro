@@ -537,7 +537,8 @@ def test_copiar_desde_al_lado_del_check(page, server, api, celdas):
     a = card(page, "Celda A")
     a.locator(":scope > .il-row").hover()
     a.locator(":scope > .il-row [data-act=copy]").click()
-    page.locator(".toast", has_text="Copiado").wait_for()
+    # el propio botón confirma la copia (ui.js: copied): ✓ y «Copiado» anunciado, sin toast
+    a.locator(":scope > .il-row [data-act=copy].is-copied").wait_for()
     assert page.evaluate("navigator.clipboard.readText()") == "Celda A"
     # el de un paso copia el paso, y sin tocar la tarjeta
     paso = page.locator(".il-child", has_text="Paso de A")

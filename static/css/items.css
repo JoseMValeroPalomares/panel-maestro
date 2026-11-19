@@ -48,7 +48,7 @@
 .col-icon[data-kind="nota"] { background: var(--tile-notas); }
 .col-icon[data-kind="ideas"] { background: var(--c-idea); }
 .il-fold { color: var(--text-3); flex-shrink: 0; }
-.il-fold .icon { transition: rotate var(--dur) var(--ease-out); }
+.il-fold .icon { transition: rotate 380ms var(--spring-bote); }
 .il-fold[aria-expanded="false"] .icon { rotate: -90deg; }
 .il-group-body[hidden], .il-cat-body[hidden], .il-note-body[hidden] { display: none; }
 .il-empty { font-size: var(--fs-13); color: var(--text-3); padding: var(--sp-2) 0; }
@@ -95,7 +95,11 @@
 .il-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--fs-15); line-height: 1.45; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 6; overflow: hidden; }
 .il-sidebar .il-text { -webkit-line-clamp: 4; }
 .il-item:focus-within > .il-row .il-text, .il-item:focus > .il-row .il-text { -webkit-line-clamp: unset; }
-.il-item.is-done > .il-row .il-text { color: var(--text-2); text-decoration: line-through; text-decoration-color: var(--separator-strong); }
+.il-item.is-done > .il-row .il-text { color: var(--text-2); }
+.il-strike { -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.il-item.is-done > .il-row .il-strike {
+  background: linear-gradient(var(--separator-strong), var(--separator-strong)) 0 58% / 100% var(--strike-h, 1.5px) no-repeat;
+}
 .il-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 4px; font-size: var(--fs-12); color: var(--text-3); font-variant-numeric: tabular-nums; }
 .il-meta .icon { width: 12px; height: 12px; }
 .il-chip { display: inline-flex; align-items: center; gap: 3px; }
@@ -325,7 +329,10 @@ body[data-resize="se"], body[data-resize="se"] * { cursor: nwse-resize !importan
   .il-list > .il-item { padding-left: var(--sp-2); }
   .page-tareas .page-body { padding-bottom: calc(var(--tabbar-h) + 96px); }
   .il-addform { margin-left: 24px; }
-  .il-bulkbar { bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + var(--sp-2)); }
+  /* El sticky ya cuenta el relleno inferior de .page-body (pestañas + hueco del botón flotante): se descuenta lo que
+     sobra para que la barra quede justo encima de las pestañas, haya o no botón flotante */
+  .il-bulkbar { bottom: calc(var(--sp-2) - var(--sp-6)); }
+  body:has(.fab) .il-bulkbar { bottom: calc(var(--sp-2) - 56px - var(--sp-4)); }
   .page-tareas .il-bulkbar ~ .fab, .page-tareas:has(.il-bulkbar:not([hidden])) .fab { display: none; }
   /* Filtros en el móvil: estado a todo el ancho; búsqueda + «Filtros» + seleccionar; tipo y categoría al abrir */
   .task-filters .status-seg { flex: 1 1 100%; display: flex; }
@@ -482,8 +489,13 @@ button.tag.prio:hover { background: var(--fill-strong); }
 
 /* Micro-interacciones (Fase 5): animaciones comunes en ds.css. --anim-t = lo ya pasado (en negativo): si la lista se
    repinta a mitad, la animación sigue por donde iba en vez de empezar otra vez. */
-.il-item.is-just-done > .il-row > .card-check { animation: check-ring 420ms var(--ease-out) both; animation-delay: var(--anim-t, 0ms); }
-.il-item.is-just-done > .il-row > .card-check .icon { animation: check-in var(--dur-slow) var(--ease-out-expo) both; animation-delay: var(--anim-t, 0ms); }
+.il-item.is-just-done > .il-row > .card-check { animation: check-ring 460ms var(--ease-out) both, check-fill 200ms var(--ease-out) both; animation-delay: var(--anim-t, 0ms); }
+.il-item.is-just-done > .il-row > .card-check .icon {
+  animation: check-pop 520ms var(--spring-bote) both, check-draw 300ms var(--ease-out) both;
+  animation-delay: var(--anim-t, 0ms), calc(var(--anim-t, 0ms) + 60ms);
+}
+/* La raya cruza el texto de izquierda a derecha (un fondo de 1,5 px en el texto en línea, repetido en cada línea) */
+.il-item.is-just-done > .il-row .il-strike { animation: strike-run 380ms var(--ease-out) both; animation-delay: calc(var(--anim-t, 0ms) + 120ms); }
 .il-item.is-just-added { animation: item-in var(--dur-slow) var(--ease-out-expo) both; animation-delay: var(--anim-t, 0ms); }
 .il-item[data-type="idea"] { --check-ring: var(--c-idea); }
 /* En «Pendientes», la recién completada se ve marcarse y se desvanece antes de que el repintado la quite (900 ms) */

@@ -12,6 +12,20 @@
   }
   const empty = (t) => `<p class="small muted hoy-empty">${esc(t)}</p>`;
 
+  // «x/y» en la cabecera de una tarjeta: un anillo que avanza con muelle (y dibuja ✓ al completar) y la cifra que rueda
+  function cuenta(box, done, total, que) {
+    if (!total) { box.replaceChildren(); return; }
+    let ring = box.querySelector('.mv-ring'), n = box.querySelector('.hoy-count-n');
+    const nuevo = !ring;
+    if (nuevo) {
+      box.innerHTML = `${Mov.ringHTML('hoy-ring')}<span class="hoy-count-n"></span>`;
+      ring = box.querySelector('.mv-ring'); n = box.querySelector('.hoy-count-n');
+    }
+    box.title = `${done} de ${total} ${que}`;
+    Mov.ring(ring, done / total, { jump: nuevo });
+    Mov.roll(n, `${done}/${total}`);
+  }
+
   function render() {
     const d = new Date(data.date + 'T00:00');
     const fecha = d.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -31,7 +45,8 @@
         ${curr ? '<span class="tag">Ahora</span>' : ''}</li>`;
     }).join('')}</ul>` : empty('Sin eventos ni bloques hoy.');
 
-    $('hoyRutinasCount').textContent = data.rutinas.length ? `${data.rutinas.filter((r) => r.done).length}/${data.rutinas.length}` : '';
+    cuenta($('hoyRutinasCount'), data.rutinas.filter((r) => r.done).length, data.rutinas.length, 'rutinas hechas');
+    cuenta($('hoyTareasCount'), data.tareas.filter((t) => t.done).length, data.tareas.length, 'tareas de hoy hechas');
     $('hoyRutinas').innerHTML = data.rutinas.length ? `<ul class="hoy-list">${data.rutinas.map((r) => {
       const it = window.Items?.get(r.item_id);
       const steps = r.steps || [];

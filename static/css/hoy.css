@@ -4,6 +4,11 @@
 .hoy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: var(--sp-4); align-items: start; }
 .hoy-card .panel-header h2 { display: flex; align-items: center; gap: 8px; }
 .hoy-card .panel-header h2 .icon { color: var(--text-2); }
+.hoy-count { display: inline-flex; align-items: center; gap: 6px; }
+.hoy-ring { width: 16px; height: 16px; --tono: var(--tile-hoy); }
+.hoy-ring.is-done { --tono: var(--success); }
+#hoyRutinasCount .hoy-ring { --tono: var(--tile-rutinas); }
+#hoyRutinasCount .hoy-ring.is-done { --tono: var(--success); }
 .hoy-list { list-style: none; padding: 0; display: flex; flex-direction: column; }
 .hoy-row { display: flex; align-items: center; gap: var(--sp-2); min-height: 44px; border-bottom: 1px solid var(--separator); }
 .hoy-row:last-child { border-bottom: 0; }

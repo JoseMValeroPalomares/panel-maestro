@@ -49,3 +49,6 @@ estudio/calendar_sync_v2.json
 .coverage.*
 htmlcov/
 coverage.xml
+
+# Paquetes de animación de terceros (Animorio): solo de consulta, su licencia no permite redistribuirlos
+animaciones/

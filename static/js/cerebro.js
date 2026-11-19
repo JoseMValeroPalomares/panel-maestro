@@ -174,6 +174,7 @@ function setCatState(path, open) {
 }
 document.addEventListener('prefs:changed', () => { if (allNotes.length) applyFilters($('searchInput').value.trim()); });
 
+let treeSeq = 0, notesPill = null;
 function renderTreeNode(node, container, path, depth, highlight, color) {
   const isOpen = highlight ? true : getCatState(path);
   const wrapper = document.createElement('div');
@@ -188,12 +189,15 @@ function renderTreeNode(node, container, path, depth, highlight, color) {
     `<span class="count">${countNotesRecursive(node)}</span>`;
   const children = document.createElement('div');
   children.className = 'tree-children';
+  children.id = `tree-${++treeSeq}`;
+  header.setAttribute('aria-controls', children.id);  // el plegado común de ui.js lo anima (altura, guía y cascada)
   children.hidden = !isOpen;
   header.addEventListener('click', () => {
     const open = header.getAttribute('aria-expanded') !== 'true';
     header.setAttribute('aria-expanded', String(open));
     children.hidden = !open;
     setCatState(path, open);
+    notesPill?.track(450);  // la píldora de la nota abierta sigue a su fila mientras se abre o cierra lo de encima
   });
   // Orden manual (si lo hay) y si no, alfabético
   node.notes.sort((a, b) => ((a.position ?? Infinity) - (b.position ?? Infinity)) || (a.title || '').localeCompare(b.title || '', 'es'))
@@ -229,9 +233,16 @@ function renderNotesList(notes, highlight) {
       : emptyState({ iconName: 'notebook-pen', title: 'Aún no hay notas', text: 'Crea la primera y empieza a enlazar ideas.', compact: true });
     return;
   }
-  el.innerHTML = '';
-  Object.values(buildTree(notes).children).sort((a, b) => a.label.localeCompare(b.label, 'es'))
-    .forEach(cat => renderTreeNode(cat, el, cat.label, 0, highlight, categoryColor(cat.label)));
+  const pintar = () => {
+    el.innerHTML = '';
+    Object.values(buildTree(notes).children).sort((a, b) => a.label.localeCompare(b.label, 'es'))
+      .forEach(cat => renderTreeNode(cat, el, cat.label, 0, highlight, categoryColor(cat.label)));
+  };
+  // Al filtrar, las notas que siguen viajan a su sitio nuevo y las que vuelven suben (Mov.flipList)
+  if (window.Mov) Mov.flipList(el, '.note-row', (r) => r.dataset.id, pintar); else pintar();
+  // La nota abierta la marca una píldora que viaja de una fila a otra al cambiar de nota (Mov.glide)
+  if (window.Mov && !notesPill) { notesPill = Mov.glide(el, { className: 'glide-pill note-pill' }); el.classList.add('has-glide'); }
+  notesPill?.to(el.querySelector('.note-row[aria-current="true"]'));
 }
 
 function makeNoteItem(note, highlight) {
@@ -240,6 +251,11 @@ function makeNoteItem(note, highlight) {
   item.className = 'note-row';
   item.dataset.id = note.id;
   if (note.id === activeNoteId) item.setAttribute('aria-current', 'true');
+  if (justCreated?.id === note.id && performance.now() - justCreated.at < 4000) {
+    justCreated = null;
+    item.classList.add('is-new');
+    item.style.setProperty('--n', String(Math.max(4, Math.min(40, (note.title || note.id).length))));
+  }
   const status = note.status || 'por-escribir';
   item.innerHTML = `<span class="status-dot" data-status="${status}" title="${STATUS_LABELS[status] || ''}"></span>` +
     `<span class="note-title">${highlight ? highlightText(note.title || note.id, highlight) : escapeHtml(note.title || note.id)}</span>` +
@@ -971,7 +987,9 @@ function confirmNewNote() {
   closeModal('newNoteModal');
   createNoteDirect(title, $('newNoteCategoryInput').value.trim() || 'General', id);
 }
+let justCreated = null;  // la nota recién creada aparece en la lista escribiéndose (makeNoteItem)
 function createNoteDirect(title, category, id = slugify(title)) {
+  justCreated = { id, at: performance.now() };
   activeNoteId = id;
   activeStatus = 'por-escribir';
   noteIsEncrypted = false;
@@ -1099,6 +1117,7 @@ function enhanceRendered(container) {
       .then(() => { if (container.isConnected) renderMath(container); }).catch(() => {});
   }
   if (container.querySelector('pre code')) {
+    window.NotaLectura?.codeCopy(container);  // botón «Copiar» en cada bloque (N-5)
     if (window.hljs) highlightCode(container);
     else loadScript(libUrl('hljs')).then(() => { if (container.isConnected) highlightCode(container); }).catch(() => {});
   }

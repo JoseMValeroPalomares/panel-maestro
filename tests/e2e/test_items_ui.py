@@ -289,7 +289,7 @@ def test_4_tarea_de_nota_en_los_dos_sentidos(context, server, api):
         },
     )
     _volver(tareas)
-    tareas.wait_for_selector(f"{card(dos['id'])} .il-text:text('Tarea dos desde la nota')", timeout=5000)
+    tareas.wait_for_selector(f"{card(dos['id'])} .il-text:has-text('Tarea dos desde la nota')", timeout=5000)
     tareas.close()
     nota.close()
 

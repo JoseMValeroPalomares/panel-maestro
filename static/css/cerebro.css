@@ -36,13 +36,23 @@
   transition: background var(--dur-fast);
 }
 .tree-row:hover { background: var(--hover); color: var(--text); }
-.tree-row .chev { width: 14px; height: 14px; transition: transform var(--dur) var(--ease-out); color: var(--text-3); }
+.tree-row .chev { width: 14px; height: 14px; transition: transform 380ms var(--spring-bote); color: var(--text-3); }
 .tree-row[aria-expanded="false"] .chev { transform: rotate(-90deg); }
 .tree-row .cat-dot { width: 8px; height: 8px; border-radius: 3px; flex-shrink: 0; }
 .tree-row .label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree-row .count { font-size: var(--fs-12); font-weight: 600; color: var(--text-3); font-variant-numeric: tabular-nums; }
 .tree-row.depth-0 { color: var(--text); font-size: var(--fs-13); }
-.tree-children { margin-left: 15px; padding-left: var(--sp-1); border-left: 1px solid var(--separator); }
+.tree-children { margin-left: 15px; padding-left: var(--sp-1); position: relative; }
+/* La guía es una capa propia para poder trazarla de arriba abajo al abrir (ds.css: guia-traza) */
+.tree-children::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 1px; background: var(--separator); transform-origin: top; }
+.tree-children.fold-opening::before { animation: guia-traza 420ms var(--ease-out-expo) both; }
+/* Nota abierta: la píldora de acento viaja bajo la fila (cerebro.js: notesPill) */
+.note-pill { background: var(--accent-fill); border-radius: var(--r-xs); }
+.notes-tree.has-glide .note-row[aria-current="true"] { background: transparent; }
+/* Nota recién creada: la fila entra y su título se escribe letra a letra (un recorte por pasos: el texto es el real) */
+.note-row.is-new { animation: item-in var(--dur-slow) var(--ease-out-expo) both; }
+.note-row.is-new .note-title { animation: escribe calc(var(--n, 12) * 26ms) steps(var(--n, 12), end) 160ms both; }
+@keyframes escribe { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
 
 .note-row {
   display: flex; align-items: center; gap: var(--sp-2); width: 100%;
@@ -196,10 +206,15 @@ dialog.modal.modal-newnote { width: min(620px, calc(100vw - 32px)); overflow: vi
 /* Contenido renderizado */
 .wiki-link {
   color: var(--accent); font-weight: 500; text-decoration: none !important;
-  background: var(--accent-soft); padding: 1px 6px; border-radius: 5px; cursor: pointer;
-  transition: background var(--dur-fast);
+  /* Al pasar, un subrayado se traza de izquierda a derecha dentro de la píldora (tooltip-from-the-word) */
+  background: linear-gradient(currentColor, currentColor) 6px calc(100% - 2px) / 0 1.5px no-repeat, var(--accent-soft);
+  padding: 1px 6px; border-radius: 5px; cursor: pointer;
+  -webkit-box-decoration-break: clone; box-decoration-break: clone;
+  transition: background-color var(--dur-fast), background-size 280ms var(--ease-out-expo);
 }
-.wiki-link:hover { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.wiki-link:hover, .wiki-link:focus-visible { background-color: color-mix(in srgb, var(--accent) 22%, transparent); background-size: calc(100% - 12px) 1.5px, auto; }
+.related-notes .wiki-link { background-position: 10px calc(100% - 3px), 0 0; }
+.related-notes .wiki-link:hover { background-size: calc(100% - 20px) 1.5px, auto; }
 .wiki-link.missing { color: var(--text-2); background: var(--fill); text-decoration: line-through dotted !important; }
 .annotation-block { border-radius: 5px; padding: 1px 6px; font-weight: 500; }
 .annotation-block[data-tag="resumir"] { background: var(--warning-soft); color: var(--warning-text); }
@@ -376,3 +391,30 @@ dialog.modal.modal-newnote { width: min(620px, calc(100vw - 32px)); overflow: vi
 .fcia-why { display: flex; gap: var(--sp-2); align-items: flex-start; }
 .fcia-why .icon { flex: none; margin-top: 2px; }
 .fcia-fields textarea.input { resize: none; field-sizing: content; min-height: 0; line-height: 1.4; overflow-wrap: anywhere; }
+
+/* ---------- N-5 · Copiar un bloque de código (nota-lectura.js) ---------- */
+.code-wrap { position: relative; overflow: hidden; border-radius: var(--r-md); margin: 0 0 var(--sp-4); }
+.code-wrap > pre { margin: 0; }
+.code-copy { position: absolute; top: 6px; right: 6px; z-index: 1; height: 28px; padding: 0 8px; gap: 4px; font-size: var(--fs-12);
+  background: color-mix(in srgb, var(--bg-elev) 88%, transparent); box-shadow: 0 0 0 0.5px var(--separator);
+  opacity: 0; transition: opacity var(--dur-fast); }
+.code-wrap:hover .code-copy, .code-copy:focus-visible, .code-copy.is-copied { opacity: 1; }
+@media (hover: none) { .code-copy { opacity: 1; } }
+.code-scan { position: absolute; inset: 0 0 auto; height: 48px; pointer-events: none;
+  background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--accent) 22%, transparent) 60%, color-mix(in srgb, var(--accent) 40%, transparent) 62%, transparent 64%); }
+
+/* ---------- N-4 · Vista previa de un wikilink (nota-lectura.js) ---------- */
+.wiki-peek {
+  position: fixed; inset: auto; margin: 0; z-index: 1000; pointer-events: none;
+  width: min(340px, calc(100vw - 16px)); padding: var(--sp-3); border: 0; border-radius: var(--r-md);
+  background: var(--bg-elev); color: var(--text); box-shadow: var(--shadow-3), 0 0 0 0.5px var(--separator-strong);
+  opacity: 0; scale: 0.92; transition: opacity 140ms ease-out, scale 320ms var(--spring);
+}
+.wiki-peek.is-on { opacity: 1; scale: 1; }
+.wiki-peek p { margin: 0; }
+.wiki-peek-head { display: flex; align-items: center; gap: 6px; font-size: var(--fs-14); color: var(--accent-text, var(--accent)); }
+.wiki-peek-head b { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wiki-peek-cat { font-size: var(--fs-12); color: var(--text-3); margin-top: 2px !important; }
+.wiki-peek-text { font-size: var(--fs-13); line-height: 1.5; color: var(--text-2); margin-top: var(--sp-2) !important;
+  display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
+@media (prefers-reduced-motion: reduce) { .wiki-peek { transition: none; scale: 1; } }

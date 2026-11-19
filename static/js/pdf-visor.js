@@ -1,5 +1,7 @@
 /* =====================================================================
-   Lector de PDF (Universidad): window.PdfVisor.open({ id, nombre, pagina, paginas }, { onClose, onMissing })
+   Lector de PDF: window.PdfVisor.open({ id, nombre, pagina, paginas }, { onClose, onMissing, url, missingText })
+   Universidad por defecto (contenido de /api/uni/archivos y última página guardada); con `url`, cualquier PDF del
+   panel (facturas de Economía) sin guardar nada.
    pdf.js vendorizado (static/vendor/pdfjs) que se carga solo al abrir el primero. Páginas en columna con
    desplazamiento continuo; solo se pintan las cercanas (IntersectionObserver) y se sueltan las lejanas.
    Recuerda la última página: PATCH /api/uni/archivos/{id} (con fetch directo para no avisar a todas las
@@ -28,17 +30,21 @@
     return lib;
   }
 
-  const contentUrl = (id) => `/api/uni/archivos/${id}/contenido`;
+  const uniUrl = (id) => `/api/uni/archivos/${id}/contenido`;
 
+  let saveOn = true;  // solo Universidad recuerda la página
   function savePage(id, pagina, paginas, keepalive = false) {
+    if (!saveOn) return Promise.resolve();
     return fetch(`/api/uni/archivos/${id}`, {
       method: 'PATCH', keepalive, credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pagina, paginas }),
     }).catch(() => {});
   }
 
-  function open(archivo, { onClose, onMissing } = {}) {
+  function open(archivo, { onClose, onMissing, url = null, missingText = null } = {}) {
     const esc = (s) => escapeHtml(s);
+    const contentUrl = url ? () => url : uniUrl;
+    saveOn = !url;
     const id = archivo.id;
     const hid = `pdf${id}-${Math.random().toString(36).slice(2, 6)}`;
     const dlg = document.createElement('dialog');
@@ -218,7 +224,7 @@
       try { doc = await loadingTask.promise; } catch (err) {
         if (closed) return;
         const st = err?.status;
-        if (st === 404) failed('Archivo no encontrado', 'Ya no está en la carpeta. Se ha marcado como «no encontrado»; si vuelve, se desmarca al sincronizar.');
+        if (st === 404) failed('Archivo no encontrado', missingText || 'Ya no está en la carpeta. Se ha marcado como «no encontrado»; si vuelve, se desmarca al sincronizar.');
         else if (st === 409) failed('El disco no está disponible', 'La carpeta de la universidad no está montada ahora mismo.');
         else if (err?.name === 'InvalidPDFException') failed('No es un PDF válido', 'El archivo está dañado o no es un PDF.');
         else if (err?.name === 'PasswordException') failed('PDF con contraseña', 'Ábrelo en una pestaña nueva para escribir la contraseña.');
@@ -304,5 +310,5 @@
     return dlg;
   }
 
-  window.PdfVisor = { open, url: contentUrl };
+  window.PdfVisor = { open, url: uniUrl };
 })();

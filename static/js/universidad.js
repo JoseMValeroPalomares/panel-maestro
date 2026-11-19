@@ -507,10 +507,21 @@
   }
 
   // El prompt de siempre para que una IA explique un tema (editable en Ajustes); se copia en el mismo clic
-  function copyPrompt(a, t) {
-    const text = (V.prompt || '').replaceAll('{asignatura}', a ? a.nombre : '').replaceAll('{tema}', t ? t.titulo : 'el tema que te paso');
-    copyText(text).then((ok) => toast(ok ? 'Prompt copiado: pégalo en la IA junto a las diapositivas' : 'No se pudo copiar', { type: ok ? 'success' : 'error' }));
+  // btn = el botón de la cabecera: confirma él mismo («Copiado»); desde un menú, toast
+  function copyPrompt(a, t, btn = null) {
+    if (!String(V.prompt || '').trim()) {
+      toast('Aún no hay prompt: escríbelo en Ajustes de Universidad', { type: 'info', action: { label: 'Ajustes', onClick: openSettings } });
+      return;
+    }
+    const text = (V.prompt || '').replaceAll('{asignatura}', a ? a.nombre : 'la asignatura').replaceAll('{tema}', t ? t.titulo : 'el tema que te paso');
+    copyText(text).then((ok) => {
+      if (!ok) toast('No se pudo copiar', { type: 'error' });
+      else if (btn) copied(btn, true, 'Copiado');
+      else toast('Prompt copiado: pégalo en la IA junto a las diapositivas', { type: 'success' });
+    });
   }
+  // Arriba, junto a Sincronizar: dentro de una asignatura lleva su nombre; en la portada, el genérico
+  $('uniPrompt').addEventListener('click', (e) => copyPrompt(asigFilter ? asig(asigFilter) : null, null, e.currentTarget));
 
   async function temaNota(id, btn) {
     btn?.classList.add('is-loading');

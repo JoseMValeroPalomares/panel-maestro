@@ -31,6 +31,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
 from app.database import get_db
+from app.facturas import con_factura
 from core import undo
 from core.db import update_fields
 
@@ -538,7 +539,11 @@ def api_movements(
         sql += " AND (concepto LIKE ? OR notas LIKE ? OR categoria LIKE ?)"
         args += [f"%{q}%"] * 3
     with get_db() as conn:
-        return {"movements": [dict(r) for r in conn.execute(sql + " ORDER BY fecha DESC, id DESC LIMIT 500", args)]}
+        movs = [dict(r) for r in conn.execute(sql + " ORDER BY fecha DESC, id DESC LIMIT 500", args)]
+        n = con_factura(conn, [m["id"] for m in movs])  # el clip de los que llevan factura (app/facturas.py)
+        for m in movs:
+            m["facturas"] = n.get(m["id"], 0)
+    return {"movements": movs}
 
 
 @router.post("/movements")

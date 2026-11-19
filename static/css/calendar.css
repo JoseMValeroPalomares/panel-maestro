@@ -60,9 +60,25 @@
 /* Fin de semana: un tono por debajo, para leer la semana de un vistazo */
 .cal-col.is-weekend, .cal-allday-cell.is-weekend, .cal-mcell.is-weekend:not(.is-out) { background: color-mix(in srgb, var(--fill) 45%, transparent); }
 .cal-col.is-today.is-weekend { background: color-mix(in srgb, var(--accent) 5%, transparent); }
-.cal-ev { position: absolute; z-index: 2; border-radius: 6px; overflow: hidden; background: color-mix(in srgb, var(--c) 15%, var(--bg-elev));
+.cal-ev { position: absolute; z-index: 2; transform-origin: top; border-radius: 6px; overflow: hidden; background: color-mix(in srgb, var(--c) 15%, var(--bg-elev));
   border-left: 3px solid var(--c); box-shadow: 0 0 0 1px var(--bg-elev); cursor: grab; touch-action: none; }
 .cal-ev.is-moving { opacity: 0.85; box-shadow: var(--shadow-2); z-index: 5; }
+/* Bloque en curso: se rellena de arriba abajo hasta la hora actual (calendar.js: liveNow pone --prog cada minuto) */
+.cal-ev.is-now {
+  background-image: linear-gradient(color-mix(in srgb, var(--c) 22%, transparent), color-mix(in srgb, var(--c) 22%, transparent));
+  background-repeat: no-repeat; background-size: 100% calc(var(--prog, 0) * 1%); transition: background-size 900ms var(--ease-out);
+}
+.cal-now { transition: top 900ms var(--ease-out); }
+/* Hoy: un anillo que se traza alrededor del número la primera vez que se pinta (calendar.js: .ring-draw) */
+@property --ring-p { syntax: '<angle>'; inherits: false; initial-value: 360deg; }
+.cal-mcell.is-today .cal-mnum, .cal-dayhead.is-today .cal-dnum, .cal-mini-day.is-today { position: relative; }
+.cal-mcell.is-today .cal-mnum::after, .cal-dayhead.is-today .cal-dnum::after {
+  content: ""; position: absolute; inset: -3px; border-radius: 50%; pointer-events: none;
+  border: 1.5px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  -webkit-mask: conic-gradient(#000 var(--ring-p), transparent 0); mask: conic-gradient(#000 var(--ring-p), transparent 0);
+}
+.ring-draw::after { animation: ring-traza 700ms var(--ease-out) 180ms both; }
+@keyframes ring-traza { from { --ring-p: 0deg; } to { --ring-p: 360deg; } }
 .cal-ev.is-done { opacity: 0.6; }
 .cal-ev.is-done .cal-title { text-decoration: line-through; }
 .cal-ev-main { display: flex; flex-wrap: wrap; align-items: flex-start; align-content: flex-start; gap: 0 4px; width: 100%; height: 100%;
@@ -247,3 +263,39 @@
 .cal-agroup > .cal-alist { padding: 0 6px 6px; }
 @media (pointer: coarse) { .cal-agroup > summary { min-height: var(--touch); } }
 @media (prefers-reduced-motion: reduce) { .cal-agroup-chev { transition: none; } }
+
+/* C-6 · Varios días: una pieza por semana, unidas de celda a celda y redondeadas solo donde empieza y acaba */
+.cal-chip.is-span { position: relative; z-index: 1; }
+.cal-chip.is-span:not(.is-span-start) { margin-left: -4px; width: calc(100% + 4px); border-left-width: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; padding-left: 8px; }
+.cal-chip.is-span:not(.is-span-end) { margin-right: -4px; width: calc(100% + 4px); border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.cal-chip.is-span:not(.is-span-start):not(.is-span-end) { width: calc(100% + 8px); }
+.cal-chip.is-span:not(.is-span-start) .cal-title, .cal-chip.is-span:not(.is-span-start) .cal-check, .cal-chip.is-span:not(.is-span-start) .cal-time { visibility: hidden; }
+/* Encendido en cascada: la pieza y su día, con un desfase por día (calendar.js: litSpan) */
+.cal-chip.is-span, .cal-mcell, .cal-allday-cell { transition: background-color 180ms var(--ease-out) calc(var(--span-i, 0) * 45ms); }
+.cal-chip.is-span-lit { background: color-mix(in srgb, var(--c) 30%, var(--bg-elev)); }
+.cal-mcell.is-span-lit, .cal-allday-cell.is-span-lit { background-color: color-mix(in srgb, var(--accent) 7%, transparent); }
+@media (prefers-reduced-motion: reduce) { .cal-chip.is-span, .cal-mcell, .cal-allday-cell { transition: none; } }
+/* El título de la primera pieza de cada fila se extiende por sus días (por encima de las piezas que siguen) */
+.cal-chip.is-span-start:not(.is-span-end) { z-index: 2; }
+.cal-chip.is-span-start .cal-title { flex: none; width: calc(var(--span-n, 1) * (100% + 8px) - 16px); }
+/* C-3 · Píldora del minicalendario que viaja (calendario.js: miniBand) */
+.cal-mini-grid { position: relative; }
+.cal-mini-band { position: absolute; z-index: 0; border-radius: var(--r-sm, 6px); background: var(--fill); pointer-events: none; transform-origin: left center; }
+.cal-mini-grid.has-band .cal-mini-day.is-shown:not(.is-today) { background: transparent; }
+.cal-mini-grid > .cal-mini-day, .cal-mini-grid > .cal-mini-dow { position: relative; z-index: 1; }
+
+/* C-7 · Móvil: «Ir a un día» arriba, plegado a una semana; el asa lo despliega en el mes (calendario.js) */
+.cal-mini-handle { display: none; }
+@media (max-width: 767px) {
+  .cal-mini-top { margin-bottom: var(--sp-3); }
+  .cal-mini-top .panel-header { display: none; }
+  .cal-mini-top .panel-body { padding-bottom: 0; }
+  .cal-mini-grid { overflow: hidden; }
+  .cal-mini-grid.is-folded > .cal-mini-day:not(.is-week) { display: none; }
+  .cal-mini-day { height: 36px; }
+  .cal-mini-handle { display: grid; place-items: center; width: 100%; height: 24px; margin-top: 2px; touch-action: none; cursor: grab; }
+  .cal-mini-handle > span { width: 36px; height: 5px; border-radius: 3px; background: var(--separator-strong); transition: width 220ms var(--spring); }
+  .cal-mini-handle:hover > span, .cal-mini-handle:focus-visible > span { width: 48px; }
+  .cal-mini-handle[aria-expanded="true"] > span { width: 28px; }
+}
+.cal-mini-handle:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: var(--r-sm); }

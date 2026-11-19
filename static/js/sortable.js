@@ -191,6 +191,12 @@
       over: null, index: -1, valid: false, reason: '', point: { x: e.clientX, y: e.clientY }, raf: 0, scroller: null,
       slots, cell: null, settle: null,
     };
+    // Peso (kanban): el fantasma se levanta con un muelle y se ladea según la velocidad del puntero (Mov.spring sobre
+    // --lean); al parar, se endereza solo
+    if (window.Mov && !reduceMotion()) {
+      drag.lean = Mov.spring({ k: 180, c: 16, eps: 0.05, onUpdate: (v) => ghost.style.setProperty('--lean', `${v.toFixed(2)}deg`) });
+      ghost.animate([{ scale: '1', boxShadow: 'var(--shadow-1)' }, { scale: '1.03' }], { duration: 320, easing: getComputedStyle(document.documentElement).getPropertyValue('--spring').trim() || 'ease-out' });
+    }
     markNestable();
     document.body.classList.add('sortable-dragging');
     lists.forEach((l) => { if (l.opts.group === list.opts.group) l.el.classList.add('sortable-zone'); });
@@ -319,9 +325,12 @@
   function setState(target, valid, reason) {
     lists.concat(targets).forEach((x) => x.el.classList.remove('sortable-over', 'sortable-invalid'));
     if (target) target.el.classList.add(valid ? 'sortable-over' : 'sortable-invalid');
+    const eraInvalido = drag.ghost.classList.contains('is-invalid');
     drag.ghost.classList.toggle('is-invalid', !valid && !!target);
     drag.ghost.classList.toggle('is-external', valid && target?.kind === 'external');
     drag.badge.textContent = !valid && target ? reason : '';
+    // El sitio no lo admite: el aviso se sacude una vez al llegar (se mueve el aviso, no el fantasma)
+    if (!eraInvalido && !valid && target && reason && window.Mov) Mov.shake(drag.badge);
     document.body.classList.toggle('sortable-nodrop', !valid);
     drag.valid = valid;
     drag.reason = reason;
@@ -330,6 +339,14 @@
   function update(x, y) {
     if (!drag) return;
     drag.ghost.style.transform = `translate(${x - drag.dx - parseFloat(drag.ghost.style.left)}px, ${y - drag.dy - parseFloat(drag.ghost.style.top)}px)`;
+    if (drag.lean) {
+      const now = performance.now(), dt = Math.max(8, now - (drag.lastT || now - 16));
+      drag.vx = 0.7 * (drag.vx || 0) + 0.3 * ((x - (drag.lastX ?? x)) / dt * 1000);
+      drag.lastX = x; drag.lastT = now;
+      drag.lean.to(Math.max(-7, Math.min(7, drag.vx * 0.008)));
+      clearTimeout(drag.leanT);
+      drag.leanT = setTimeout(() => { if (drag?.lean) { drag.vx = 0; drag.lean.to(0); } }, 90);
+    }
     autoScroll(x, y);
     const t = findTarget(x, y);
     if (!t?.nest) setNest(null);
@@ -424,6 +441,8 @@
     cancelAnimationFrame(drag.scrollRaf);
     cancelAnimationFrame(drag.raf);
     cancelSettle();
+    clearTimeout(drag.leanT);
+    drag.lean?.stop();
     document.body.classList.remove('sortable-dragging', 'sortable-nodrop');
     lists.concat(targets).forEach((x) => x.el.classList.remove('sortable-zone', 'sortable-over', 'sortable-invalid'));
     drag.item.classList.remove('sortable-source');
@@ -477,8 +496,11 @@
     cleanup();
     if (!reduceMotion()) {
       const r = item.getBoundingClientRect();
-      item.animate([{ transform: `translate(${ghostRect.left - r.left}px, ${ghostRect.top - r.top}px)`, boxShadow: 'var(--shadow-3)' },
-        { transform: 'none' }], { duration: 200, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' });
+      // Aterriza en su hueco pasándose un pelo y con un leve aplastamiento al tocar (kanban)
+      item.animate([
+        { transform: `translate(${ghostRect.left - r.left}px, ${ghostRect.top - r.top}px) scale(1.03)`, boxShadow: 'var(--shadow-3)', easing: 'cubic-bezier(0.3, 1.1, 0.5, 1)' },
+        { offset: 0.72, transform: 'translate(0, 1px) scale(1.012, 0.985)' },
+        { transform: 'none' }], { duration: 300 });
     }
     if (ctx.toEl === ctx.fromEl && ctx.index === ctx.fromIndex) return;
     try {

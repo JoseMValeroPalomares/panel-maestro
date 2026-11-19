@@ -55,6 +55,7 @@ ROW_KINDS = {
     "rows.plantilla-comida": ("plantilla de comidas", "utensils"),
     "rows.peso": ("registro de peso", "scale"),
     "rows.compra": ("lista de la compra", "shopping-cart"),
+    "rows.factura": ("factura", "file-text"),
 }
 
 
@@ -205,6 +206,12 @@ def purge_expired() -> int:
         purge_orphans()
     except Exception:
         log.exception("No se pudieron purgar los adjuntos huérfanos")
+    try:  # archivos de facturas que ya no nombra nadie
+        from app.facturas import purge_files
+
+        purge_files()
+    except Exception:
+        log.exception("No se pudieron purgar los archivos de facturas")
     return n
 
 

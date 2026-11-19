@@ -75,3 +75,4 @@ flask-conical folder-input corner-left-up file-symlink
 # Ajustes → Red y dispositivos
 network laptop cpu puzzle radar
 compass
+flag-off calendar-x

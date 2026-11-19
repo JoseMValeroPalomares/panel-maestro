@@ -143,7 +143,7 @@
           const sign = x.tipo === 'gasto' ? '−' : x.tipo === 'ingreso' ? '+' : '';
           const sub = x.tipo === 'transferencia' ? `${esc(cuenta(x.cuenta_id) || '?')} → ${esc(cuenta(x.cuenta_destino) || '?')}` : [x.categoria || 'Otros', cuenta(x.cuenta_id)].filter(Boolean).map(esc).join(' · ');
           return `<li class="hoy-row ec-row"><span class="ec-ico" aria-hidden="true">${icon(x.tipo === 'transferencia' ? 'arrow-left-right' : catIcon(x.categoria), 'icon-sm')}</span>
-            <button type="button" class="hoy-title ec-link ec-mov" data-edit-mov="${x.id}"><span>${esc(x.concepto || x.categoria || (x.tipo === 'ingreso' ? 'Ingreso' : 'Gasto'))}</span><span class="tiny muted">${sub}</span></button>
+            <button type="button" class="hoy-title ec-link ec-mov" data-edit-mov="${x.id}"><span>${esc(x.concepto || x.categoria || (x.tipo === 'ingreso' ? 'Ingreso' : 'Gasto'))}${x.facturas ? `<span class="ec-clip" title="${x.facturas === 1 ? 'Tiene factura' : `${x.facturas} facturas`}">${icon('paperclip', 'icon-sm')}<span class="sr-only">, con factura</span></span>` : ''}</span><span class="tiny muted">${sub}</span></button>
             <span class="tabular ec-amt${x.tipo === 'ingreso' ? ' is-pos' : ''}">${sign}${money(x.importe)}</span></li>`;
         }).join('')}</ul></section>`;
     }).join('');
@@ -197,7 +197,9 @@
         ${field('Fecha', `<input name="fecha" type="date" class="input" value="${esc(m.fecha || today())}" required>`)}
       </div>
       <div data-for="dest" hidden>${field('A la cuenta', `<select name="cuenta_destino" class="select">${accountOptions(m.cuenta_destino, 'Elige una')}</select>`)}</div>
-      ${field('Notas', `<textarea name="notas" class="textarea" rows="2" maxlength="2000">${esc(m.notas || '')}</textarea>`)}`, { del: !!x });
+      ${field('Notas', `<textarea name="notas" class="textarea" rows="2" maxlength="2000">${esc(m.notas || '')}</textarea>`)}
+      ${x && window.Facturas ? '<div class="field"><span class="field-label">Facturas</span><div class="ec-fac-mov" data-fac-mov></div></div>' : ''}`, { del: !!x });
+    if (x && window.Facturas) Facturas.mountForMovement(dlg.querySelector('[data-fac-mov]'), x);
     const f = dlg.querySelector('form');
     let tipo = m.tipo, cat = m.categoria || '';
     const paint = () => {
@@ -408,5 +410,9 @@
     load();
   }));
   onDataChange(/^\/api\/finance/, () => load());
+  // Una factura nueva, editada o borrada cambia el clip de su gasto (facturas.js); solo hace falta la lista
+  document.addEventListener('facturas:changed', async () => {
+    try { movs = (await api(`/api/finance/movements?month=${month}`, { quiet: true })).movements; renderMovs(); } catch { /* ya avisa la carga */ }
+  });
   load();
 })();

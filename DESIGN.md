@@ -243,7 +243,15 @@ modales 22 px; chips en píldora; azulejos 7 px (9 px el grande). Iconos Lucide 
 - **Toast** con acción opcional («Deshacer» tras borrar en lote, 12 s). Es un HUD oscuro igual en todos los temas
   (`#313244`, filo `#45475a`) con texto claro fijo (`#e6e9f5`) y la acción en el acento aclarado con blanco: así se lee
   también en los temas claros. Un error puede sonar (`sonido.js`, apagado de serie).
-- **Micro-interacciones** (≤ 260 ms, sin rebote; nada con `prefers-reduced-motion`): al marcar una casilla, el ✓ entra
+- **Movimiento** (regla, `docs/plan-animaciones.md`): responde a un gesto del usuario o a un cambio de datos, nunca es
+  ambiental ni en bucle (nada que respire, brille o se repita solo). Lo que confirma o sigue a un gesto puede durar
+  hasta ~600 ms y llevar muelle (`--spring` 8 %, `--spring-suave` 2 % para lo que viaja lejos, `--spring-bote` 20 % solo
+  para iconos pequeños); fundidos y salidas, ≤ 260 ms sin rebote. Nada bloquea el clic siguiente y lo interrumpido parte
+  de donde está. Solo se anima `transform`/`translate`/`scale`, `opacity`, `clip-path` y trazos. Colores siempre de
+  tokens. Motor común en `static/js/movimiento.js` (`Mov`: un único rAF que se apaga en reposo, muelles, FLIP, cifras
+  que ruedan, ✓ que se dibuja, cascadas con tope de 12, resaltado que se desliza). Con «reducir movimiento», estado
+  final directo.
+- **Micro-interacciones**: al marcar una casilla, el ✓ entra
   y un halo del color del tipo se expande (`check-in`/`check-ring`; se escala el icono, no el botón, para no mover el
   scroll); en «Pendientes» la tarea recién completada sigue ~900 ms y se desvanece (`is-leaving`, no cuenta ni se
   recorre con flechas); lo recién creado entra con `item-in`. ItemList usa `Items.recent`; las demás pantallas, el
@@ -278,6 +286,7 @@ modales 22 px; chips en píldora; azulejos 7 px (9 px el grande). Iconos Lucide 
 - Don't: emojis como iconos, texto con degradado, bordes laterales de color en tarjetas, glass decorativo.
 - Don't: tarjetas de «número grande + etiqueta» como resumen; un resumen va en una línea de texto con las cifras en
   negrita (ver Repaso) o en datos compactos dentro de un panel (ver Copias).
-- Don't: abrir un modal para algo que no necesita proteger el foco; animaciones de más de 260 ms o con rebote.
+- Don't: abrir un modal para algo que no necesita proteger el foco; movimiento ambiental o en bucle, rebote en lo que
+  no responde a un gesto, o más de ~600 ms.
 - Do: foco con contorno sólido de 2 px en `accent` (visible en todos los temas); cambiar de sección o de tema con un
   fundido corto (View Transitions) que la barra lateral no sigue; nada de movimiento con «reducir movimiento».

@@ -244,7 +244,7 @@
 .pf-drop {
   display: flex; align-items: center; justify-content: center; gap: var(--sp-2); min-height: 56px; padding: var(--sp-3);
   border: 1.5px dashed var(--separator-strong); border-radius: var(--r-md); color: var(--text-2); font-size: var(--fs-13); cursor: pointer; text-align: center;
-  transition: background var(--dur-fast), border-color var(--dur-fast);
+  transition: background var(--dur-fast), border-color var(--dur-fast), scale 320ms var(--spring);
 }
 .pf-drop:hover, .pf-drop.is-over { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
 .pf-drop:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -325,3 +325,56 @@
   .pj-vsec-bar { width: 64px; }
 }
 @media (prefers-reduced-motion: reduce) { .pj-fold .icon, .pj-vsec-toggle .chev { transition: none; } }
+
+/* ---------- Copiar, pegar e historial (2026-11) ---------- */
+.pj-tools { display: flex; gap: var(--sp-1); align-items: center; flex-wrap: wrap; }
+.pj-tools .count:not(:empty) { margin-left: 4px; }
+.pj-row-acts { display: inline-flex; gap: 0; flex-shrink: 0; }
+.pj-row-act { color: var(--text-3); opacity: 0; }
+.pj-vtask:hover .pj-row-act, .pj-task:hover .pj-row-act, [data-row]:focus-within .pj-row-act, [data-row]:focus .pj-row-act, .pj-row-act:focus-visible { opacity: 1; }
+@media (hover: none) { .pj-row-act { opacity: 0.8; } }
+.pj-task-line .pj-task-title { flex: 1 1 auto; min-width: 0; }
+.pj-task-line .pj-row-acts { margin: -4px -4px -4px 0; }
+.pj-vsec-archive { color: var(--text-2); }
+[data-row] { outline: none; }
+[data-row]:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+.pj-task[data-row]:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+.pj-hist .pj-vsec-head { padding-block: var(--sp-2); }
+.pj-hist .pj-vsec-name { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+.pj-hist .pj-vtask-row { padding-left: var(--sp-2); }
+@media (max-width: 767px) {
+  /* En el móvil, copiar y archivar van por versión o en la ficha; en el Historial, «Devolver» sí está en la fila */
+  .pj-vlist:not(.pj-hist) .pj-row-acts, .pj-kanban .pj-row-acts { display: none; }
+  .pj-vtask-row .pj-task-meta:not(:has(*)) { display: none; }
+  .pj-hist .pj-vtask-row .pj-task-title { flex: 1 1 0; min-width: 0; }
+  .pj-hist .pj-vtask-row .pj-row-act { opacity: 1; }
+  .pj-hist .pj-vtask-row .pj-task-meta { order: 5; padding-left: 32px; }
+}
+
+/* ---------- Selección de varias (proyectos.js: SEL) ---------- */
+.pj-selecting [data-sel] { cursor: pointer; }
+.pj-selecting .pj-task-title, .pj-selecting .pj-sub-text { pointer-events: none; }
+.pj-selecting .pj-vtask-row, .pj-selecting .pj-task, .pj-selecting .pj-sub { user-select: none; }
+.pj-vtask.is-selected > .pj-vtask-row, .pj-task.is-selected, .pj-sub.is-selected {
+  background: var(--accent-soft); border-radius: var(--r-sm); }
+.pj-task.is-selected { box-shadow: 0 0 0 1.5px var(--accent); }
+.pj-sub { border-radius: var(--r-sm); }
+.pj-selecting .pj-vtask-row::before, .pj-selecting .pj-sub::before, .pj-selecting .pj-task::before {
+  content: ""; flex: none; width: 16px; height: 16px; margin: 0 4px 0 2px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--text-3); }
+.pj-vtask.is-selected > .pj-vtask-row::before, .pj-sub.is-selected::before, .pj-task.is-selected::before {
+  box-shadow: inset 0 0 0 5px var(--accent); }
+.pj-task::before { align-self: center; }
+.pj-bulkbar { margin-top: var(--sp-3); }
+.pj-hint .icon { display: inline-block; vertical-align: -3px; }
+/* Límite de «En curso» (WIP): el contador se pone en aviso al pasarse */
+.pj-wip { margin-left: auto; height: 24px; padding: 0 8px; font-size: var(--fs-12); color: var(--text-3); font-weight: 500; }
+.pj-col-title.is-over-wip .count { background: var(--warning-soft); color: var(--warning-text); }
+.pj-col-title.is-over-wip .pj-wip { color: var(--warning-text); }
+/* Pulido (móvil): la barra de selección no convive con el botón flotante; con el dedo, botones de 44 px; el «+ subtarea»
+   se queda en la línea del título en vez de caer a una propia */
+.page-proyectos:has(.pj-bulkbar:not([hidden])) .fab { display: none; }
+@media (pointer: coarse) { .pj-bulkbar .btn { min-height: 44px; min-width: 44px; } }
+@media (max-width: 767px) {
+  .pj-vtask-row .pj-add-sub { order: 1; }
+  .pj-vtask-row .pj-task-meta { order: 2; }
+}

@@ -8,7 +8,12 @@
 .result-list .list-row { align-items: flex-start; padding-top: var(--sp-3); padding-bottom: var(--sp-3); }
 .result-list .row-title, .result-list .row-sub { white-space: normal; display: block; }
 .result-list .snippet { font-size: var(--fs-13); color: var(--text-2); margin-top: 4px; overflow-wrap: anywhere; display: block; }
-.result-list mark { background: var(--warning-soft); color: var(--text); border-radius: 3px; padding: 0 1px; }
+.result-list mark {
+  background: linear-gradient(var(--warning-soft), var(--warning-soft)) 0 0 / 100% 100% no-repeat; color: var(--text); border-radius: 3px; padding: 0 1px;
+  -webkit-box-decoration-break: clone; box-decoration-break: clone;
+  animation: subraya 420ms var(--ease-out-expo) 120ms both;  /* el rotulador pasa de izquierda a derecha */
+}
+@keyframes subraya { from { background-size: 0% 100%; } }
 .result-list .meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
 .saved-chip { padding-right: 4px; }
 .saved-chip .x { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; opacity: 0.7; }

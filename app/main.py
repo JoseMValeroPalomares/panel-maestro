@@ -26,6 +26,7 @@ from app.database import get_db, init_db
 from app.datos_compartidos import checkpoint_en_reposo
 from app.dotfiles import router as dotfiles_router
 from app.extension import router as extension_router
+from app.facturas import router as facturas_router
 from app.finance import router as finance_router
 from app.graph import router as graph_router
 from app.ia_flashcards import router as ia_flashcards_router
@@ -187,6 +188,7 @@ for module_router in (
     routine_templates_router,
     rutina_rapida_router,
     plantillas_router,
+    facturas_router,  # /api/finance/facturas, antes que /api/finance/{kind}/{rid}
     finance_router,
     rendimiento_router,
     rendimiento_ia_router,

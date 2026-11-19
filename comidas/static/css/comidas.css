@@ -244,7 +244,13 @@
 }
 @media (pointer: coarse) { .es-add .input { font-size: 16px; min-height: var(--touch); } }
 .shop-h { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-15); margin-bottom: var(--sp-2); }
-.shop-row.is-done .row-title { color: var(--text-3); text-decoration: line-through; }
+.shop-row.is-done .row-title { color: var(--text-3); }
+/* Tachado que corre (como las tareas: un fondo de 1,5 px en el texto en línea) y cantidad que se aparta al marcar */
+.shop-strike { -webkit-box-decoration-break: clone; box-decoration-break: clone; background: linear-gradient(currentColor, currentColor) 0 58% / 0 1.5px no-repeat; }
+.shop-row.is-done .shop-strike { background-size: 100% 1.5px; }
+.shop-row.is-checking .shop-strike { background-size: 100% 1.5px; transition: background-size 360ms var(--ease-out); }
+.shop-row.is-checking .row-title { color: var(--text-3); transition: color 360ms var(--ease-out); }
+.shop-row.is-checking .grams-input { opacity: 0; transform: translateX(14px); transition: opacity 240ms var(--ease-out), transform 300ms var(--ease-out); }
 
 /* ---------- Objetivos ---------- */
 .goals-layout { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: var(--sp-5); align-items: start; max-width: 1100px; }

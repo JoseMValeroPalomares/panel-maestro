@@ -71,6 +71,7 @@ TREES = (
     ("trash/", lambda: Path(config.TRASH_DIR), "cerebro"),
     ("dotfiles_base/", lambda: Path(config.DATA_DIR) / "dotfiles_base", "ajustes"),
     ("adjuntos/", lambda: Path(config.DATA_DIR) / "adjuntos", "cerebro"),
+    ("facturas/", lambda: Path(config.DATA_DIR) / "facturas", "cerebro"),
 )
 LLM_ARC = "data/llm_modelos.json"
 
@@ -529,6 +530,7 @@ def restore_backup(name: str, parts: list[str] | None = None) -> dict:
                             "trash/": "papelera",
                             "dotfiles_base/": "dotfiles_base",
                             "adjuntos/": "adjuntos",
+                            "facturas/": "facturas",
                         }[prefix]
                         done[key] = added
                 if "imagenes" in parts:

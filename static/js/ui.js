@@ -1,6 +1,6 @@
 /* ==========================================================================
    ui.js — piezas comunes de interfaz (script clásico, sin módulos)
-   Expone: icon, escapeHtml, renderMarkdown, sanitizeHtml, api, parseTime, copyText, toast, openModal, closeModal, uiConfirm,
+   Expone: icon, escapeHtml, renderMarkdown, sanitizeHtml, api, parseTime, copyText, copied, toast, openModal, closeModal, uiConfirm,
    uiPrompt, openMenu, skeletonRows, emptyState, stateView, showState, openCapture, timeAgo, CATEGORY_COLORS
    Tooltips: cualquier elemento con data-tip (y los botones de solo icono con title) muestra un globo al pasar
    el ratón o con el foco del teclado.
@@ -139,6 +139,34 @@
     let ok = false;
     try { ok = document.execCommand('copy'); } catch { /* sin permiso */ }
     ta.remove();
+    return ok;
+  }
+
+  /* El propio botón confirma la copia (G-9): su icono de copiar se convierte en un ✓ que se escribe, su texto rueda a
+     «Copiado» (si lo tiene) y vuelve solo a los 1,8 s; se anuncia en una región viva. Devuelve ok para encadenar. */
+  let copyLive = null;
+  function copied(btn, ok = true, label = 'Copiado') {
+    if (!ok || !btn) return ok;
+    if (!copyLive) {
+      copyLive = document.createElement('span');
+      copyLive.className = 'sr-only'; copyLive.setAttribute('aria-live', 'polite');
+      document.body.append(copyLive);
+    }
+    copyLive.textContent = ''; setTimeout(() => { copyLive.textContent = label; }, 30);
+    const use = btn.querySelector('use[href$="#i-copy"], use[href$="#i-clipboard-copy"], use[href$="#i-check"]');
+    const txt = [...btn.querySelectorAll(':scope > span:not(.sr-only)')].find((x) => x.textContent.trim());
+    clearTimeout(btn._copiedT);
+    if (!btn._copiedPrev) btn._copiedPrev = { href: use?.getAttribute('href'), text: txt?.textContent };
+    btn.classList.add('is-copied');
+    if (use) use.setAttribute('href', btn._copiedPrev.href.replace(/#i-(clipboard-)?copy$/, '#i-check'));
+    if (txt && window.Mov) Mov.roll(txt, label); else if (txt) txt.textContent = label;
+    btn._copiedT = setTimeout(() => {
+      const prev = btn._copiedPrev;
+      btn._copiedPrev = null;
+      btn.classList.remove('is-copied');
+      if (use && prev?.href) use.setAttribute('href', prev.href);
+      if (txt && prev?.text != null) { if (window.Mov) Mov.roll(txt, prev.text); else txt.textContent = prev.text; }
+    }, 1800);
     return ok;
   }
 
@@ -386,17 +414,21 @@
       const input = dlg.querySelector('#' + id);
       const list = dlg.querySelector('.pick-list');
       let all = [], shown = [], active = 0, result = null;
+      const pill = window.Mov ? Mov.glide(list, { className: 'glide-pill pick-pill' }) : null;
+      if (pill) list.classList.add('has-glide');
       const paint = () => {
         const q = input.value;
         shown = all.map((x) => ({ x, s: Math.max(fuzzyScore(q, x.label), fuzzyScore(q, x.sub || '') * 0.6) }))
           .filter((r) => r.s > 0).sort((a, b) => b.s - a.s).slice(0, 50).map((r) => r.x);
         active = Math.min(active, Math.max(0, shown.length - 1));
-        list.innerHTML = shown.length ? shown.map((x, i) => `<li role="option" id="${id}-o${i}" class="pick-row" data-i="${i}" aria-selected="${i === active}">
+        const pintar = () => { list.innerHTML = shown.length ? shown.map((x, i) => `<li role="option" id="${id}-o${i}" class="pick-row" data-i="${i}" data-key="${escapeHtml(`${x.label}|${x.sub || ''}`)}" aria-selected="${i === active}">
             ${x.icon ? `<span class="pick-icon" aria-hidden="true">${icon(x.icon, 'icon-sm')}</span>` : ''}
             <span class="row-main"><span class="row-title">${escapeHtml(x.label)}</span>${x.sub ? `<span class="row-sub">${escapeHtml(x.sub)}</span>` : ''}</span></li>`).join('')
-          : `<li class="pick-empty muted small">${escapeHtml(empty)}</li>`;
+          : `<li class="pick-empty muted small">${escapeHtml(empty)}</li>`; };
+        if (window.Mov) Mov.flipList(list, '.pick-row', (el) => el.dataset.key, pintar); else pintar();
         input.setAttribute('aria-activedescendant', shown.length ? `${id}-o${active}` : '');
         list.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
+        pill?.to(list.querySelector('[aria-selected="true"]'));
       };
       const choose = (i) => { if (shown[i]) { result = shown[i]; closeModal(dlg); } };
       input.addEventListener('input', () => { active = 0; paint(); });
@@ -439,6 +471,8 @@
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'menu-item' + (item.danger ? ' danger' : '');
+      if (item.icon) b.dataset.icon = item.icon;  // ds.css: cada icono hace su gesto al pasar (el + gira, la papelera…)
+      b.style.setProperty('--i', String(Math.min(el.children.length, 10)));
       // checked: opción de un grupo (estado, prioridad…); la elegida lleva el icono de marca al final
       const choice = 'checked' in item;
       b.setAttribute('role', choice ? 'menuitemradio' : 'menuitem');
@@ -458,9 +492,24 @@
     if (top + mh > window.innerHeight - 8) top = Math.max(8, r.top - mh - 6);
     el.style.left = left + 'px';
     el.style.top = top + 'px';
+    // Nace de su botón: el origen de la escala es el borde del menú más cercano al botón, a la altura de su centro
+    const encima = top < r.top;
+    el.style.transformOrigin = `${Math.max(0, Math.min(mw, r.left + r.width / 2 - left))}px ${encima ? mh : 0}px`;
+    el.style.setProperty('--menu-dy', encima ? '6px' : '-6px');
     anchor.setAttribute('aria-expanded', 'true');
     const buttons = [...el.querySelectorAll('.menu-item')];
+    // Una sola píldora viaja bajo la opción señalada (ratón o teclado) en vez de encenderse fila a fila
+    const pill = window.Mov && !matchMedia('(hover: none)').matches ? Mov.glide(el, { className: 'glide-pill menu-pill' }) : null;
+    if (pill) {
+      el.classList.add('has-glide');
+      const ir = (b) => { pill.to(b); pill.el.classList.toggle('is-danger', b.classList.contains('danger')); };
+      el.addEventListener('pointerover', (e) => { const b = e.target.closest('.menu-item'); if (b) ir(b); });
+      el.addEventListener('pointerleave', () => { const f = el.querySelector('.menu-item:focus-visible'); if (f) ir(f); else pill.hide(); });
+      el.addEventListener('focusin', (e) => { if (e.target.matches('.menu-item:focus-visible')) ir(e.target); });
+      el.addEventListener('scroll', () => pill.refresh(), { passive: true });
+    }
     buttons[0]?.focus();
+    if (pill && buttons[0]?.matches(':focus-visible')) pill.to(buttons[0]);
     const onKey = (e) => {
       const i = buttons.indexOf(document.activeElement);
       if (e.key === 'Escape') { e.preventDefault(); closeMenu(); }
@@ -619,6 +668,37 @@
     }, true);
   })();
 
+  /* ---------- T-2 · Título compacto al desplazar (móvil) ----------
+     En el móvil la cabecera se va con la página. Cuando su título deja de verse, arriba aparece una franja fina con el
+     nombre de la sección (entra con un leve desenfoque hacia arriba, como el título grande de iOS); tocarla vuelve
+     arriba. Es un elemento aparte fijado arriba: no cambia la cabecera, las hojas, el teclado ni «tirar para recargar». */
+  (() => {
+    const mq = matchMedia('(max-width: 767px)');
+    const head = document.querySelector('.main > .page-header'), h1 = head?.querySelector('.page-title h1');
+    if (!head || !h1 || !('IntersectionObserver' in window)) return;
+    let bar = null;
+    const mostrar = (on) => {
+      if (on && !bar) {
+        bar = document.createElement('button');
+        bar.type = 'button';
+        bar.className = 'mini-title';
+        bar.setAttribute('aria-label', 'Volver arriba');
+        bar.addEventListener('click', () => {
+          const smooth = window.Mov && !Mov.reduce() ? 'smooth' : 'auto';
+          [document.scrollingElement, document.querySelector('.main'), document.querySelector('.main > .page-body')].forEach((x) => x?.scrollTo?.({ top: 0, behavior: smooth }));
+        });
+        document.body.appendChild(bar);
+      }
+      if (!bar) return;
+      if (on) bar.textContent = h1.textContent.trim();
+      bar.classList.toggle('is-on', on);
+      bar.tabIndex = on ? 0 : -1;
+      bar.setAttribute('aria-hidden', String(!on));
+    };
+    new IntersectionObserver(([e]) => mostrar(mq.matches && !e.isIntersecting && e.boundingClientRect.top < 0), { threshold: 0 }).observe(h1);
+    mq.addEventListener?.('change', () => { if (!mq.matches) mostrar(false); });
+  })();
+
   /* ---------- Tirar para recargar (móvil) ----------
      En el móvil la página se desplaza dentro de .main, así que Safari no tiene su «tirar para recargar». Arrastrando
      hacia abajo desde arriba del todo, el contenido sigue al dedo como una goma (cada vez más dura) y un anillo se
@@ -749,6 +829,14 @@
         { height: `${h}px`, ...pad(cs), opacity: 1 },
       ], { duration: ABRIR_MS, easing: EXPO });
       a.onfinish = a.oncancel = () => { el.style.overflow = prev; };
+      // Lo de dentro entra en cascada desde la izquierda (tope 12) y, si tiene guía (árboles), la línea se traza
+      el.classList.add('fold-opening');
+      setTimeout(() => el.classList.remove('fold-opening'), 500);
+      const hijos = [...el.children].filter((c) => c.getClientRects().length && !c.matches('script, template, datalist'));
+      if (window.Mov && hijos.length > 1 && hijos.length < 80) {
+        Mov.stagger(hijos.slice(0, 12), [{ opacity: 0, transform: 'translateX(-8px)' }, { opacity: 1, transform: 'none' }],
+          { each: 22, duration: 300, easing: EXPO, delay: 30 });
+      }
     }
     function cerrar(el, foto) {
       if (!foto.alto) return;
@@ -817,6 +905,31 @@
     }, true);
   })();
 
+  /* ---------- Zonas de soltar archivos ([data-drop]) ----------
+     Mientras se arrastran archivos por la ventana, <html> lleva .files-dragging y todas las zonas se encienden (borde
+     de acento); encima de una, .is-over (la pone cada pantalla) la hace línea continua; al soltar, una onda sale de
+     la zona. Solo es aspecto: cada pantalla sigue con sus propios manejadores de drop. */
+  (() => {
+    let depth = 0;
+    const conArchivos = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+    const fin = () => { depth = 0; document.documentElement.classList.remove('files-dragging'); };
+    window.addEventListener('dragenter', (e) => {
+      if (!conArchivos(e)) return;
+      depth++;
+      if (document.querySelector('[data-drop]')) document.documentElement.classList.add('files-dragging');
+    });
+    window.addEventListener('dragleave', (e) => { if (conArchivos(e) && --depth <= 0) fin(); });
+    window.addEventListener('dragend', fin);
+    window.addEventListener('drop', (e) => {
+      const z = e.target.closest?.('[data-drop]');
+      fin();
+      if (z && window.Mov && !Mov.reduce()) {
+        z.animate([{ boxShadow: '0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent)' }, { boxShadow: '0 0 0 14px transparent' }], { duration: 560, easing: 'ease-out' });
+        z.animate([{ scale: '0.98' }, { scale: '1' }], { duration: 420, easing: 'cubic-bezier(0.34, 1.7, 0.64, 1)' });
+      }
+    }, true);
+  })();
+
   /* ---------- Micro-interacción común de las casillas (.card-check) ----------
      Al marcar como hecha, la casilla «entra» con un halo (ds.css: is-just-checked). Cada pantalla repinta a su manera
      (Hoy, Rutinas, Calendario, Universidad…), así que se recuerda qué casilla se pulsó (sus data-* y los del elemento
@@ -871,12 +984,18 @@
     if (!el.dataset.tip) el.dataset.tip = t;
     if (!el.hasAttribute('aria-label') && !el.hasAttribute('aria-labelledby')) el.setAttribute('aria-label', t);
   }
+  // Gracia: tras ver un globo, el siguiente sale ya (y viaja desde donde estaba) durante TIP_GRACE ms
+  const TIP_GRACE = 700;
+  let tipOffAt = 0;
   function hideTip() {
     clearTimeout(tipTimer);
     if (!tipEl || !tipFor) return;
     tipFor = null;
+    tipOffAt = performance.now();
     tipEl.classList.remove('is-on');
-    try { if (tipEl.matches(':popover-open')) tipEl.hidePopover(); } catch {}
+    // Se queda en la capa superior (invisible) durante la gracia, para poder viajar desde aquí al siguiente
+    const quita = () => { if (!tipFor) { try { if (tipEl.matches(':popover-open')) tipEl.hidePopover(); } catch {} } };
+    if (window.Mov && !Mov.reduce()) setTimeout(quita, TIP_GRACE + 50); else quita();
   }
   function showTip(el) {
     const text = el.dataset.tip;
@@ -888,8 +1007,14 @@
       if ('popover' in tipEl) tipEl.popover = 'manual';
       document.body.appendChild(tipEl);
     }
+    // Si aún se ve (o acaba de irse), el globo viaja al control nuevo y el texto se enfoca al llegar
+    const viaja = tipEl.classList.contains('is-on') || performance.now() - tipOffAt < TIP_GRACE;
+    tipEl.classList.toggle('is-moving', viaja);
     tipFor = el;
-    tipEl.textContent = text;
+    if (tipEl.textContent !== text) {
+      tipEl.textContent = text;
+      if (viaja && window.Mov && !Mov.reduce()) tipEl.animate([{ filter: 'blur(1.5px)', opacity: 0.55 }, { filter: 'none', opacity: 1 }], { duration: 220, easing: 'ease-out' });
+    }
     try { if (tipEl.popover && !tipEl.matches(':popover-open')) tipEl.showPopover(); } catch {}
     const r = el.getBoundingClientRect();
     const tw = tipEl.offsetWidth, th = tipEl.offsetHeight;
@@ -906,7 +1031,8 @@
     adoptTitle(el);
     if (!el.dataset.tip || el === tipFor) return;
     clearTimeout(tipTimer);
-    tipTimer = setTimeout(() => showTip(el), 450);
+    const enGracia = tipFor || performance.now() - tipOffAt < TIP_GRACE;
+    tipTimer = setTimeout(() => showTip(el), enGracia ? 0 : 450);
   });
   document.addEventListener('pointerout', (e) => {
     const el = e.target.closest?.('[data-tip]');
@@ -938,7 +1064,83 @@
     // (en iOS 26 la barra flotante de Safari mueve esas medidas y dejaba la hoja «Más» fuera de la pantalla)
     const conTeclado = kb > 120 && !!document.activeElement?.matches?.('input, textarea, select, [contenteditable="true"]');
     document.documentElement.classList.toggle('kb-open', conTeclado);
+    colocarHojas();
   }
+  /* ---------- Hojas inferiores del móvil colocadas con medidas reales ----------
+     En el Safari de iOS 26 «position: fixed; bottom: 0» no apunta al borde de abajo de lo que se ve (barra flotante:
+     WebKit 297779) y la hoja «Más» quedaba casi entera bajo la pantalla, con dos arreglos solo de CSS. Aquí la hoja se
+     coloca desde ARRIBA en px con la vista visual (las mismas coordenadas que getBoundingClientRect): alto máximo =
+     lo que se ve menos el margen de arriba, y su borde de abajo pegado al de lo que se ve (o al teclado). Se rehace si
+     la vista cambia (barra de Safari, teclado) o la hoja cambia de alto. El CSS (bottom: 0) queda de respaldo. */
+  const HOJA_FUERA = '.modal-full, .pdf-visor, .cook';
+  const movil = matchMedia('(max-width: 767px)');
+  let seguroArriba = null;
+  function margenSeguro() {
+    if (seguroArriba == null) {
+      const p = document.createElement('div');
+      p.style.cssText = 'position:fixed;top:0;left:0;width:0;visibility:hidden;pointer-events:none;height:env(safe-area-inset-top,0px)';
+      document.body.appendChild(p);
+      seguroArriba = p.offsetHeight || 0;
+      p.remove();
+    }
+    return seguroArriba;
+  }
+  function soltarHoja(dlg) {
+    for (const k of ['top', 'bottom', 'maxHeight']) dlg.style[k] = '';
+    delete dlg.dataset.hojaPx;
+  }
+  function colocarHoja(dlg) {
+    if (!dlg.open || !movil.matches || dlg.matches(HOJA_FUERA)) { if (dlg.dataset.hojaPx) soltarHoja(dlg); return; }
+    const vv = window.visualViewport;
+    const arriba = vv ? vv.offsetTop : 0;
+    const abajo = vv ? vv.offsetTop + vv.height : window.innerHeight;
+    const margen = dlg.classList.contains('palette') ? 40 : margenSeguro() + 12;
+    const maxH = Math.max(160, Math.round(abajo - arriba - margen));
+    dlg.style.bottom = 'auto';
+    dlg.style.maxHeight = maxH + 'px';
+    dlg.style.top = Math.round(arriba + margen) + 'px';
+    const h = dlg.offsetHeight;
+    dlg.style.top = Math.round(Math.max(arriba + margen, abajo - h)) + 'px';
+    dlg.dataset.hojaPx = '1';
+  }
+  const colocarHojas = () => document.querySelectorAll('dialog.modal[open]').forEach(colocarHoja);
+  const hojaRO = typeof ResizeObserver === 'function' ? new ResizeObserver((es) => es.forEach((e) => colocarHoja(e.target))) : null;
+  new MutationObserver((ms) => {
+    for (const m of ms) {
+      const dlg = m.target;
+      if (!dlg.matches?.('dialog.modal')) continue;
+      if (dlg.open) { colocarHoja(dlg); hojaRO?.observe(dlg); } else { hojaRO?.unobserve(dlg); soltarHoja(dlg); }
+    }
+  }).observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ['open'] });
+  movil.addEventListener?.('change', colocarHojas);
+
+  /* Diagnóstico (?diag-hoja en la URL): abre la hoja «Más» y enseña encima las medidas de la ventana y de la hoja,
+     para una captura desde el iPhone si vuelve a salir mal */
+  function diagnosticoHoja() {
+    const dlg = document.getElementById('moreSheet');
+    if (!dlg) return;
+    openModal(dlg);
+    const box = document.createElement('pre');
+    box.setAttribute('popover', 'manual');
+    box.style.cssText = 'margin:0;inset:auto;top:calc(env(safe-area-inset-top) + 8px);left:8px;right:8px;position:fixed;z-index:2147483647;padding:8px 10px;border:0;border-radius:10px;background:#000c;color:#0f0;font:11px/1.35 ui-monospace,monospace;white-space:pre-wrap';
+    document.body.appendChild(box);
+    const pintar = () => {
+      const vv = window.visualViewport, r = dlg.getBoundingClientRect(), cs = getComputedStyle(dlg);
+      box.textContent = [
+        navigator.userAgent.replace(/^.*?\(/, '(').slice(0, 90),
+        `inner ${innerWidth}×${innerHeight} · html ${document.documentElement.clientHeight} · screen ${screen.height}`,
+        `vv ${vv ? `${Math.round(vv.height)} top ${Math.round(vv.offsetTop)} pageTop ${Math.round(vv.pageTop)}` : '—'} · scrollY ${scrollY}`,
+        `safeTop ${margenSeguro()} · --kb ${cs.getPropertyValue('--kb')} · kb-open ${document.documentElement.classList.contains('kb-open')}`,
+        `hoja top ${Math.round(r.top)} bottom ${Math.round(r.bottom)} alto ${Math.round(r.height)} · scrollH ${dlg.scrollHeight}`,
+        `css top ${cs.top} bottom ${cs.bottom} maxH ${cs.maxHeight} pos ${cs.position}`,
+        `transform ${cs.transform} · anim ${dlg.getAnimations().map((a) => `${a.animationName || '?'}:${a.playState}`).join(',') || 'ninguna'}`,
+      ].join('\n');
+    };
+    try { box.showPopover(); } catch { /* sin popover: queda bajo el fondo del diálogo */ }
+    pintar();
+    setInterval(pintar, 500);
+  }
+
   // En táctil, el campo que recibe el foco dentro de un diálogo se centra cuando el teclado
   // ya ha encogido la hoja: así ni el campo ni el botón de guardar del pie quedan tapados
   document.addEventListener('focusin', (e) => {
@@ -956,19 +1158,15 @@
       const n = c.inbox?.pendientes ?? c.pendientes;  // solo lo que está por procesar en el Inbox
       const txt = n > 99 ? '99+' : String(n);
       document.querySelectorAll('[data-inbox-count]').forEach((el) => {
-        const antes = el.hidden ? null : el.textContent;
-        el.textContent = txt;
+        const antes = el.hidden ? null : (el.dataset.rollValue ?? el.textContent);
+        const visto = !el.hidden;
         el.hidden = n === 0;
-        // El número nuevo salta: llega desde abajo si sube y desde arriba si baja, con un rebote (con scale y
-        // translate sueltos: la insignia de las pestañas ya usa transform para colocarse)
-        if (antes != null && antes !== '' && antes !== txt && !el.hidden && el.animate
-            && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
-          const sube = (parseInt(txt, 10) || 0) > (parseInt(antes, 10) || 0);
-          el.animate([
-            { scale: '0.55', translate: `0 ${sube ? 7 : -7}px` },
-            { scale: '1', translate: '0 0' },
-          ], { duration: 460, easing: 'cubic-bezier(0.34, 1.7, 0.64, 1)' });
-        }
+        // Las cifras ruedan (sube = desde abajo) y la insignia da un saltito (scale suelto: la de las pestañas ya usa
+        // transform para colocarse); si aparece de cero, solo entra
+        if (visto && antes && antes !== txt && window.Mov) {
+          Mov.roll(el, txt);
+          if (!Mov.reduce()) el.animate([{ scale: '0.8' }, { scale: '1' }], { duration: 460, easing: 'cubic-bezier(0.34, 1.7, 0.64, 1)' });
+        } else { el.textContent = txt; el.dataset.rollValue = txt; }
       });
     } catch {}
   }
@@ -1019,6 +1217,7 @@
       // el foco no va al campo de la tecla de captura: la primera pulsación la cambiaría
       if (more) { e.preventDefault(); openModal('moreSheet', { focus: '[data-open-status]' }); }
     });
+    if (new URLSearchParams(location.search).has('diag-hoja')) setTimeout(diagnosticoHoja, 300);
     // Atajo global: «/» fuera de campos de texto abre la búsqueda. Ctrl+K es la paleta (palette.js);
     // en el editor de notas Ctrl+K inserta un wikilink: ese listener marca defaultPrevented antes.
     document.addEventListener('keydown', (e) => {
@@ -1069,7 +1268,8 @@
 
   /* ---------- Tema (selector en Ajustes) ----------
      theme-init.js lo aplica antes de pintar; aquí se cambia, se guarda y se avisa con «themechange». */
-  function setTheme(name) {
+  // origen = {x, y} del clic: el tema nuevo se extiende en círculo desde ahí (city-that-lights-up, reinterpretado)
+  function setTheme(name, origen = null) {
     const root = document.documentElement;
     const apply = () => {
       // La paleta propia sin CSS todavía (primera vez o en un navegador nuevo): se hace ahora con la guardada
@@ -1081,11 +1281,18 @@
     };
     // Fundido de colores (sin él, un salto brusco); nada si se pide reducir el movimiento
     if (!document.startViewTransition || window.matchMedia('(prefers-reduced-motion: reduce)').matches) { apply(); return; }
-    root.classList.add('theme-switching');
+    const clase = origen ? 'theme-sweep' : 'theme-switching';
+    if (origen) {
+      const r = Math.hypot(Math.max(origen.x, innerWidth - origen.x), Math.max(origen.y, innerHeight - origen.y));
+      root.style.setProperty('--sweep-x', `${Math.round(origen.x)}px`);
+      root.style.setProperty('--sweep-y', `${Math.round(origen.y)}px`);
+      root.style.setProperty('--sweep-r', `${Math.ceil(r)}px`);
+    }
+    root.classList.add(clase);
     // Cambiar de tema muy seguido (flechas en el selector) salta la transición anterior: no es un error
     const vt = document.startViewTransition(apply);
     vt.ready.catch(() => {});
-    vt.finished.catch(() => {}).finally(() => root.classList.remove('theme-switching'));
+    vt.finished.catch(() => {}).finally(() => root.classList.remove(clase));
   }
   function syncTheme() {
     const current = document.documentElement.getAttribute('data-theme') || 'mocha';
@@ -1101,7 +1308,12 @@
       syncTheme();
     });
     if (!grid) return;
-    grid.addEventListener('click', (e) => { const b = e.target.closest('[data-theme-choice]'); if (b) setTheme(b.dataset.themeChoice); });
+    grid.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-theme-choice]');
+      if (!b) return;
+      const r = b.getBoundingClientRect();
+      setTheme(b.dataset.themeChoice, e.clientX || e.clientY ? { x: e.clientX, y: e.clientY } : { x: r.left + r.width / 2, y: r.top + r.height / 2 });
+    });
     // Grupo de radio: flechas para moverse y elegir, un solo tabulador
     grid.addEventListener('keydown', (e) => {
       const opts = [...grid.querySelectorAll('[data-theme-choice]')];
@@ -1117,6 +1329,15 @@
     const fixTabs = () => grid.querySelectorAll('[data-theme-choice]').forEach((b) => { b.tabIndex = b.getAttribute('aria-checked') === 'true' ? 0 : -1; });
     fixTabs();
     document.addEventListener('themechange', fixTabs);
+    // S-2 · En el carrusel del móvil, el tema actual se centra al abrir la hoja (y al elegir otro)
+    const centrar = (smooth) => {
+      if (getComputedStyle(grid).display !== 'flex') return;
+      const cur = grid.querySelector('[aria-checked="true"]');
+      if (cur) grid.scrollTo({ left: cur.offsetLeft - (grid.clientWidth - cur.offsetWidth) / 2, behavior: smooth && !window.Mov?.reduce() ? 'smooth' : 'auto' });
+    };
+    const hoja = grid.closest('dialog');
+    if (hoja) new MutationObserver(() => { if (hoja.open) requestAnimationFrame(() => centrar(false)); }).observe(hoja, { attributes: true, attributeFilter: ['open'] });
+    document.addEventListener('themechange', () => requestAnimationFrame(() => centrar(true)));
   }
 
   /* ---------- Pestañas del móvil (Ajustes) ----------
@@ -1317,6 +1538,19 @@
         const empty = ![...strip.children].some((c) => !c.hidden && c.childElementCount);
         if (strip.hidden !== empty) strip.hidden = empty;  // solo si cambia: si no, el observador se llamaría sin fin
       }).observe(strip, { subtree: true, childList: true, attributes: true, attributeFilter: ['hidden'] });
+      // La franja cambia de alto con un muelle cuando aparece, se va o cambia lo que lleva (el contador que arranca, el
+      // aviso que se abre): una sola forma que se adapta (dynamic-island) en vez de saltar
+      let alto = 0;
+      new ResizeObserver(() => {
+        const h = strip.hidden ? 0 : strip.offsetHeight;
+        if (h !== alto && window.Mov && !Mov.reduce() && !strip.dataset.anim && h > 0) {
+          strip.dataset.anim = '1';
+          const a = strip.animate([{ height: `${alto}px`, opacity: alto ? 1 : 0, overflow: 'clip' }, { height: `${h}px`, opacity: 1, overflow: 'clip' }],
+            { duration: 420, easing: getComputedStyle(document.documentElement).getPropertyValue('--spring-suave').trim() || 'ease-out' });
+          a.onfinish = a.oncancel = () => { delete strip.dataset.anim; };
+        }
+        alto = h;
+      }).observe(strip);
     }
     let slot = strip.querySelector(`:scope > [data-slot="${name}"]`);
     if (!slot) {
@@ -1347,7 +1581,7 @@
   Object.assign(window, {
   dayPicker, readDays, repeatFromDays, everyNote,
     CATEGORY_COLORS, categoryIndex, categoryColor,
-    icon, escapeHtml, renderMarkdown, sanitizeHtml, timeAgo, api, parseTime, copyText, toast, undoToast, openModal, closeModal, uiConfirm, uiAlert, uiPrompt,
+    icon, escapeHtml, renderMarkdown, sanitizeHtml, timeAgo, api, parseTime, copyText, copied, toast, undoToast, openModal, closeModal, uiConfirm, uiAlert, uiPrompt,
     openMenu, closeMenu, closeAllSessions, topSlot, skeletonRows, emptyState, stateView, showState, loadFailed, setTheme, openCapture, refreshInboxBadge, wireAllDialogs, onDataChange, Prefs, uiPick, fuzzyScore,
   });
 

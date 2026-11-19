@@ -58,41 +58,20 @@
 
   /* Anillo del día junto a la fecha: al marcar un bloque avanza contando el porcentaje (sin pasarse y volver); al
      completar el día se dibuja un ✓ y pasa a verde. Al cambiar de día se pone en su sitio sin animar. */
-  const prog = { v: null, fecha: null, raf: 0 };
+  let progFecha = null;
   function progreso(texto, cuenta, fecha) {
     const sub = $('rtSub');
-    if (!sub.querySelector('.rt-prog')) {
-      sub.innerHTML = `<span class="rt-prog" aria-hidden="true"><svg viewBox="0 0 24 24"><circle class="rt-prog-track" cx="12" cy="12" r="10"></circle>
-        <circle class="rt-prog-arc" cx="12" cy="12" r="10" pathLength="1" transform="rotate(-90 12 12)"></circle>
-        <path class="rt-prog-tick" pathLength="1" d="M7.4 12.4 10.5 15.3 16.6 8.9"></path></svg></span><span class="rt-prog-pct tabular" aria-hidden="true"></span><span class="rt-sub-text"></span>`;
+    if (!sub.querySelector('.mv-ring')) {
+      sub.innerHTML = `${Mov.ringHTML('rt-prog')}<span class="rt-prog-pct tabular" aria-hidden="true"></span><span class="rt-sub-text"></span>`;
     }
-    const ring = sub.querySelector('.rt-prog'), pct = sub.querySelector('.rt-prog-pct'), arc = sub.querySelector('.rt-prog-arc');
+    const ring = sub.querySelector('.mv-ring'), pct = sub.querySelector('.rt-prog-pct');
     sub.querySelector('.rt-sub-text').textContent = cuenta ? `${texto} · ${cuenta.done} de ${cuenta.total} bloques hechos` : texto;
     ring.hidden = pct.hidden = !cuenta;
-    if (!cuenta) { prog.v = null; prog.fecha = fecha; return; }
-    const hasta = cuenta.done / cuenta.total;
-    const pinta = (v) => { arc.style.strokeDashoffset = String(1 - v); arc.style.opacity = v > 0.004 ? '1' : '0'; pct.textContent = `${Math.round(v * 100)} %`; };
-    const completo = hasta >= 1;
-    const llegaAlFinal = completo && prog.v !== null && prog.v < 1 && prog.fecha === fecha;
-    ring.classList.toggle('is-done', completo);
-    const quieto = matchMedia('(prefers-reduced-motion: reduce)').matches;
-    cancelAnimationFrame(prog.raf);
-    if (prog.v === null || prog.fecha !== fecha || quieto || prog.v === hasta) {
-      pinta(hasta);
-      ring.classList.toggle('tick-on', completo);
-    } else {
-      const desde = prog.v, t0 = performance.now(), ms = 700;
-      const paso = (now) => {
-        const k = Math.min(1, (now - t0) / ms), e = 1 - Math.pow(1 - k, 3);
-        pinta(desde + (hasta - desde) * e);
-        if (k < 1) prog.raf = requestAnimationFrame(paso);
-      };
-      prog.raf = requestAnimationFrame(paso);
-      ring.classList.toggle('tick-on', completo);
-      if (llegaAlFinal) ring.animate([{ transform: 'none' }, { transform: 'scale(1.12)' }, { transform: 'none' }], { duration: 520, easing: 'cubic-bezier(0.16, 1, 0.3, 1)', delay: 420 });
-    }
-    prog.v = hasta;
-    prog.fecha = fecha;
+    const otroDia = progFecha !== fecha;
+    progFecha = fecha;
+    if (!cuenta) { ring._ringV = null; return; }
+    // Al cambiar de día se pone en su sitio sin animar; el mismo día, el arco avanza con muelle y el % cuenta con él
+    Mov.ring(ring, cuenta.done / cuenta.total, { jump: otroDia, onUpdate: (v) => { pct.textContent = `${Math.round(v * 100)} %`; } });
   }
 
   function render() {
@@ -170,6 +149,7 @@
         <ol class="rp-line">${sueltas.map(classHTML).join('')}</ol></section>` : '';
     $('rtPage').innerHTML = clasesCard + data.rutinas.map(card).join('') + otras;
     if (focused) $('rtPage').querySelector(focused)?.focus();  // poner varias horas seguidas con Tab
+    liveRail();
     // Arrastrar (o Alt + flechas): el bloque toma la hora del sitio donde cae
     $('rtPage').querySelectorAll('[data-rid] .rp-line').forEach((ol) => {  // las clases no se arrastran
       const rid = Number(ol.closest('[data-rid]').dataset.rid);
@@ -180,6 +160,28 @@
       });
     });
   }
+
+  /* R-2 · Línea del día viva (como la de «ahora» del calendario, C-4): hoy, la vía de cada bloque se colorea hasta la hora
+     actual y el bloque en curso se rellena de izquierda a derecha según lo que lleva; avanza cada minuto, parado con la
+     pestaña oculta. Otro día, nada. */
+  function liveRail() {
+    clearInterval(liveRail.t);
+    if (data.date !== data.today) return;
+    const pinta = () => {
+      if (document.hidden) return;
+      const n = new Date(), now = n.getHours() * 60 + n.getMinutes();
+      $('rtPage').querySelectorAll('[data-rid] .rp-step[data-step]').forEach((li) => {
+        const st = stepOf(Number(li.dataset.step));
+        if (!st?.at) return;
+        const a = toMin(st.at), b = Math.max(endMin(st), a + 1);
+        li.style.setProperty('--rail', `${now <= a ? 0 : now >= b ? 100 : Math.round(((now - a) / (b - a)) * 100)}%`);
+        li.classList.toggle('is-live', now >= a && now < b && !st.done && !st.skipped);
+      });
+    };
+    pinta();
+    liveRail.t = setInterval(pinta, 60000);
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && data) liveRail(); });
 
   // El hueco entre dos bloques seguidos; no se anuncia si lo ocupa un bloque de otra rutina
   function gapHTML(r, prev, s) {

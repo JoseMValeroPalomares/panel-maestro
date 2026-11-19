@@ -61,6 +61,14 @@
     return out.length ? out : [iso(s)];
   }
 
+  // Lo de varios días primero (y siempre en el mismo orden, para que sus piezas queden a la misma altura cada día),
+  // luego lo de todo el día y lo demás por hora
+  const spanLen = (e) => daysOf(e).length;
+  function spanSort(list) {
+    return [...list].sort((x, y) => (spanLen(y) > 1) - (spanLen(x) > 1) || (spanLen(x) > 1 && spanLen(y) > 1 ? x.start.localeCompare(y.start) || spanLen(y) - spanLen(x) || String(x.key).localeCompare(String(y.key)) : 0)
+      || (y.all_day - x.all_day) || x.start.localeCompare(y.start));
+  }
+
   /* ---------- Peticiones compartidas (V-2) ----------
      Varios calendarios a la vez (Estudio: mes y agenda; la página y su minicalendario) pedían cada uno lo suyo. Si ya hay
      en vuelo una petición del mismo contexto que cubre el rango, se reutiliza filtrando con las reglas del servidor
@@ -116,6 +124,12 @@
       el.addEventListener('dragover', (e) => this.onDragOver(e));
       el.addEventListener('drop', (e) => this.onDrop(e));
       el.addEventListener('keydown', (e) => this.onKey(e));
+      // C-6 · Pasar por (o enfocar) una pieza de algo de varios días enciende todas sus piezas y sus días, uno tras otro
+      const lit = (e) => this.litSpan(e.target.closest?.('.cal-chip.is-span'));
+      el.addEventListener('pointerover', lit);
+      el.addEventListener('focusin', lit);
+      el.addEventListener('pointerleave', () => this.litSpan(null));
+      el.addEventListener('focusout', (e) => { if (!el.contains(e.relatedTarget)) this.litSpan(null); });
       if (!this.compact) this.swipe();
       instances.add(this);
       if (this.followCtx && Prefs.ready) {
@@ -125,6 +139,18 @@
         if (Prefs.cached) this.load();
         Prefs.ready.catch(() => {}).then(fresh);
       } else this.load();
+    }
+
+    litSpan(chip) {
+      const key = chip?.dataset.key || null;
+      if (key === this.litKey) return;
+      this.litKey = key;
+      this.el.querySelectorAll('.is-span-lit').forEach((x) => x.classList.remove('is-span-lit'));
+      if (!key) return;
+      this.el.querySelectorAll(`.cal-chip.is-span[data-key="${CSS.escape(key)}"]`).forEach((c, i) => {
+        const cell = c.closest('.cal-mcell, .cal-allday-cell');
+        [c, cell].forEach((x) => { if (x) { x.style.setProperty('--span-i', String(Math.min(i, 12))); x.classList.add('is-span-lit'); } });
+      });
     }
 
     /* ---------- Rango visible ---------- */
@@ -149,6 +175,7 @@
 
     setView(v) { this.view = v; this.load(); }
     go(delta) {
+      this.navDir = Math.sign(delta);  // la ola de entrada viene de este lado (animateIn)
       if (delta === 0) this.date = new Date();
       else if (this.view === 'day') this.date = addDays(this.date, delta);
       else if (this.view === '3d') this.date = addDays(this.date, 3 * delta);
@@ -157,7 +184,7 @@
       else this.date = addDays(this.date, 7 * delta);
       this.load();
     }
-    goTo(day) { this.date = parse(day); this.load(); }
+    goTo(day) { this.navDir = Math.sign(parse(day) - this.date); this.date = parse(day); this.load(); }
 
     // Con el dedo: deslizar en horizontal (sin pulsación larga) cambia de periodo
     swipe() {
@@ -213,8 +240,82 @@
         sc.parentElement.style.setProperty('--scrollbar', `${sc.offsetWidth - sc.clientWidth}px`);
       }
       if (sc) sc.scrollTop = keep ?? this.firstScroll();
+      // Movimiento solo al cambiar de vista o de periodo (o la primera vez), no al refrescar los datos
+      const clave = `${this.view}|${iso(this.range()[0])}`;
+      if (!this.compact && clave !== this.renderedKey) this.animateIn(body, this.renderedKey === undefined);
+      this.renderedKey = clave;
+      this.liveNow(body);
       this.onChange?.(this);
       this.el.dispatchEvent(new CustomEvent('cal:rendered', { bubbles: true }));
+    }
+
+    /* Entrada: la primera vez, hoy se rodea con un anillo que se traza (.ring-draw); al cambiar de periodo, los días
+       llegan en ola diagonal desde el lado hacia el que se va (elastic-calendar) */
+    animateIn(body, primera) {
+      if (!window.Mov || Mov.reduce()) return;
+      if (primera) body.querySelectorAll('.cal-mcell.is-today .cal-mnum, .cal-dayhead.is-today .cal-dnum').forEach((n) => n.classList.add('ring-draw'));
+      if (primera) { this.skeletonToEvents(body); return; }
+      const dir = this.navDir || 1;
+      this.navDir = 0;
+      const ease = getComputedStyle(document.documentElement).getPropertyValue('--spring-suave').trim() || 'ease-out';
+      const ola = (els, fila, col, maxF, maxC) => els.forEach((el, i) => {
+        const f = fila(i), c = col(i);
+        const paso = dir > 0 ? f + c : (maxF - f) + (maxC - c);
+        el.animate([{ opacity: 0, transform: `translate(${dir * 14}px, ${dir * 6}px) scale(0.97)` }, { opacity: 1, transform: 'none' }],
+          { duration: 420, easing: ease, delay: Math.min(paso, 14) * 16, fill: 'backwards' });
+      });
+      const cells = [...body.querySelectorAll('.cal-mcell')];
+      if (cells.length) { ola(cells, (i) => Math.floor(i / 7), (i) => i % 7, 5, 6); return; }
+      const cols = [...body.querySelectorAll('.cal-col')];
+      if (cols.length) {
+        const heads = [...body.querySelectorAll('.cal-dayhead')], alls = [...body.querySelectorAll('.cal-allday-cell')];
+        [cols, heads, alls].forEach((g) => ola(g, () => 0, (i) => i * 2, 0, (g.length - 1) * 2));
+        return;
+      }
+      Mov.stagger(body.querySelectorAll('.cal-aday'), [{ opacity: 0, transform: `translateY(${dir * 8}px)` }, { opacity: 1, transform: 'none' }], { each: 30, duration: 360 });
+    }
+
+    /* C-5 · Primera carga de Día, 3 días o Semana: cada bloque nace como una barra gris de esqueleto desde arriba de su
+       columna, se desliza y se estira hasta su hora y toma su color. Solo la primera vez (con la vista ya pintada, nada). */
+    skeletonToEvents(body) {
+      const evs = [...body.querySelectorAll('.cal-col .cal-ev')];
+      if (!evs.length || evs.length > 60) return;
+      const ease = getComputedStyle(document.documentElement).getPropertyValue('--spring-suave').trim() || 'ease-out';
+      const sc = body.querySelector('.cal-scroll'), vis = sc ? [sc.scrollTop, sc.scrollTop + sc.clientHeight] : [0, 1e9];
+      evs.forEach((ev, i) => {
+        const top = ev.offsetTop, h = ev.offsetHeight;
+        if (top > vis[1] || top + h < vis[0]) return;  // lo que no se ve no se anima
+        const desde = Math.max(vis[0], top - 90) - top;  // sale de un poco más arriba (de lo visible)
+        ev.animate([
+          { transform: `translateY(${desde}px) scaleY(${Math.min(1, 22 / Math.max(h, 1)).toFixed(3)})`, filter: 'saturate(0) brightness(1.25)', opacity: 0.55, offset: 0 },
+          { filter: 'saturate(0) brightness(1.25)', opacity: 0.8, offset: 0.45 },
+          { transform: 'none', filter: 'none', opacity: 1 },
+        ], { duration: 620, delay: Math.min(i, 12) * 28, easing: ease, fill: 'backwards' });
+      });
+    }
+
+    /* Línea de «ahora» viva: avanza cada minuto y el bloque en curso se rellena hasta la hora actual (daily-plan);
+       al acabar un bloque deja de rellenarse. Un solo temporizador por calendario, parado con la pestaña oculta. */
+    liveNow(body) {
+      const pinta = () => {
+        if (document.hidden || !body.isConnected) return;
+        const now = new Date(), nowMin = now.getHours() * 60 + now.getMinutes(), today = todayIso();
+        const line = body.querySelector(`.cal-col[data-day="${today}"] .cal-now`);
+        if (line) { line.style.top = `${this.y(nowMin)}px`; const l = line.querySelector('.cal-now-label'); if (l) l.textContent = hhmm(nowMin); }
+        const ahora = `${today}T${hhmm(nowMin)}`;
+        body.querySelectorAll('.cal-ev').forEach((ev) => {
+          const e = this.entries.find((x) => x.key === ev.dataset.key);
+          const curso = e && !e.all_day && e.start <= ahora && e.end && ahora < e.end && e.start.slice(0, 10) === today;
+          ev.classList.toggle('is-now', !!curso);
+          if (curso) {
+            const fin = e.end.slice(0, 10) === today ? minutes(e.end) : 1440;
+            ev.style.setProperty('--prog', String(Math.round((nowMin - minutes(e.start)) / Math.max(1, fin - minutes(e.start)) * 100)));
+          }
+        });
+      };
+      pinta();
+      clearInterval(this.nowTimer);
+      if (body.querySelector('.cal-now')) this.nowTimer = setInterval(pinta, 60000);
     }
 
     /* Altura de una hora: la franja no debe ser mucho más ancha que alta, así que crece con el ancho de la
@@ -243,12 +344,13 @@
       return Math.max(0, this.y(m));
     }
 
-    chip(e, extra = '') {
-      const done = e.done ? ' is-done' : '';
+    chip(e, extra = '', cls = '') {
+      const n = /is-span-n(\d+)/.exec(cls)?.[1];  // primera pieza de una fila: el título se extiende por sus N días
+      const done = (e.done ? ' is-done' : '') + cls;
       const t = e.all_day ? '' : `<span class="cal-time tabular">${e.start.slice(11, 16)}${this.view === 'agenda' && e.end ? `–${e.end.slice(11, 16)}` : ''}</span>`;
       const loc = this.view === 'agenda' && e.location ? `<span class="cal-loc">${icon('map-pin', 'icon-sm')}${esc(e.location)}</span>` : '';
       const check = e.kind !== 'event' ? `<span class="cal-check" data-cal-check="${esc(e.key)}" role="checkbox" aria-checked="${e.done}" aria-label="${e.done ? 'Desmarcar' : 'Marcar'}: ${esc(e.title)}" tabindex="-1">${icon(e.done ? 'circle-check' : 'circle', 'icon-sm')}</span>` : '';
-      return `<button type="button" class="cal-chip${done}" data-key="${esc(e.key)}" data-kind="${e.kind}" data-type="${esc(e.type)}" ${extra} style="${tint(e)}"
+      return `<button type="button" class="cal-chip${done}" data-key="${esc(e.key)}" data-kind="${e.kind}" data-type="${esc(e.type)}" ${extra} style="${tint(e)}${n ? `--span-n:${n};` : ''}"
         aria-label="${esc(this.describe(e))}">${check}${t}<span class="cal-title">${esc(e.title)}</span>${loc}</button>`;
     }
 
@@ -256,6 +358,16 @@
       const what = e.kind === 'event' ? KIND_LABEL[e.type] || 'Evento' : e.step ? `${e.routine_title}` : e.kind === 'routine' ? 'Rutina' : e.type === 'idea' ? 'Idea' : 'Tarea';
       const when = e.all_day ? 'todo el día' : `de ${e.start.slice(11, 16)} a ${(e.end || '').slice(11, 16)}`;
       return `${what}: ${e.title}, ${fmtDay(parse(e.start), { weekday: 'long', day: 'numeric', month: 'long' })}, ${when}${e.location ? `, en ${e.location}` : ''}${e.done ? ' (hecho)' : ''}`;
+    }
+
+    /* C-6 · Lo que dura varios días se pinta por piezas, una por fila (semana) con los extremos redondeados solo donde
+       empieza y acaba; el título va en la primera pieza de cada fila. `col` = columna del día en su fila, `last` = la última. */
+    spanCls(e, d, col, last) {
+      const ds = daysOf(e);
+      if (ds.length < 2) return '';
+      const start = d === ds[0] || col === 0, end = d === ds[ds.length - 1] || col === last;
+      const n = start ? Math.min(ds.length - ds.indexOf(d), last - col + 1) : 0;
+      return ` is-span${start ? ` is-span-start is-span-n${n}` : ''}${end ? ' is-span-end' : ''}`;
     }
 
     gridHTML() {
@@ -305,7 +417,7 @@
         return `<button type="button" class="cal-dayhead${d === today ? ' is-today' : ''}" data-goto="${d}" aria-label="Ver el ${esc(fmtDay(dt, { weekday: 'long', day: 'numeric' }))}">
           <span class="cal-dow">${this.view === 'week' ? DOW[(dt.getDay() + 6) % 7] : fmtDay(dt, { weekday: 'short' }).replace('.', '')}</span><span class="cal-dnum tabular">${dt.getDate()}</span></button>`;
       }).join('');
-      const alls = days.map((d) => `<div class="cal-allday-cell${isWeekend(d) ? ' is-weekend' : ''}" data-day="${d}" data-allday>${allDay[d].map((e) => this.chip(e)).join('')}</div>`).join('');
+      const alls = days.map((d, i) => `<div class="cal-allday-cell${isWeekend(d) ? ' is-weekend' : ''}" data-day="${d}" data-allday>${spanSort(allDay[d]).map((e) => this.chip(e, '', this.spanCls(e, d, i, days.length - 1))).join('')}</div>`).join('');
       const hours = Array.from({ length: h1 - h0 + 1 }, (_, i) => `<span class="cal-hour tabular${i ? '' : ' is-first'}" style="top:${i * this.hour}px">${h0 + i < 24 && i < h1 - h0 ? hhmm((h0 + i) * 60) : ''}</span>`).join('');
       return `<div class="cal-grid" data-days="${days.length}" style="--days:${days.length};--hour:${this.hour}px;--span:${h1 - h0}">
         <div class="cal-head"><span class="cal-gutter"></span>${head}</div>
@@ -325,7 +437,7 @@
       let html = `<div class="cal-month"><div class="cal-mhead">${DOW.map((d) => `<span>${d}</span>`).join('')}</div><div class="cal-mgrid">`;
       for (let i = 0; i < 42; i++) {
         const dt = addDays(a, i), d = iso(dt);
-        const list = (byDay[d] || []).sort((x, y) => (y.all_day - x.all_day) || x.start.localeCompare(y.start));
+        const list = spanSort(byDay[d] || []);
         const max = this.compact ? 2 : 3;
         if (narrow) {  // móvil: puntos de color (el texto no cabe); tocar el día lo abre
           html += `<button type="button" class="cal-mcell cal-mcell-dots${dt.getMonth() !== month ? ' is-out' : ''}${d === today ? ' is-today' : ''}${isWeekend(d) ? ' is-weekend' : ''}" data-goto="${d}"
@@ -336,7 +448,7 @@
         }
         html += `<div class="cal-mcell${dt.getMonth() !== month ? ' is-out' : ''}${d === today ? ' is-today' : ''}${isWeekend(d) ? ' is-weekend' : ''}" data-day="${d}" data-allday>
           <button type="button" class="cal-mnum tabular" data-goto="${d}" aria-label="Ver el ${esc(fmtDay(dt, { weekday: 'long', day: 'numeric', month: 'long' }))}">${dt.getDate()}</button>
-          ${list.slice(0, max).map((e) => this.chip(e)).join('')}
+          ${list.slice(0, max).map((e) => this.chip(e, '', this.spanCls(e, d, i % 7, 6))).join('')}
           ${list.length > max ? `<button type="button" class="cal-more tiny" data-goto="${d}">+${list.length - max} más</button>` : ''}</div>`;
       }
       return html + '</div></div>';

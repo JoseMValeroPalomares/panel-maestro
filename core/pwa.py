@@ -16,6 +16,7 @@ ICONS = STATIC / "icons"
 # pintar cualquier pantalla sin red). Las páginas y la API se cachean al visitarlas.
 PRECACHE = [
     "/static/css/ds.css",
+    "/static/js/movimiento.js",
     "/static/js/ui.js",
     "/static/js/sortable.js",
     "/static/js/theme-init.js",

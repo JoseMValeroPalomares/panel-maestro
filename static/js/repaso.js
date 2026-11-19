@@ -68,6 +68,11 @@
       return `<span>${show && h ? monthFmt.format(parse(h.date)).replace('.', '') : ''}</span>`;
     }).join('');
     $('heat').setAttribute('aria-label', `Estudiaste ${cal.studied_days} de los últimos ${cal.heat.length} días`);
+    if (window.Mov) {
+      const lis = [...$('heat').children];
+      Mov.heatmap($('heat'), { cells: lis.filter((c) => !c.classList.contains('future')),
+        fila: (i) => (lead + i) % 7, col: (i) => Math.floor((lead + i) / 7), on: (c) => c.dataset.on === 'true' });
+    }
     $('heatInfo').textContent = `hasta hoy, ${dayFmt.format(parse(today))}`;
 
     $('staleCount').textContent = cal.stale_total;

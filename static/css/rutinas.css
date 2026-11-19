@@ -117,13 +117,16 @@
 
 /* Anillo del día (rutinas.js: progreso): avanza contando; al completar, ✓ dibujado y verde */
 #rtSub { display: flex; align-items: center; gap: var(--sp-2); }
-.rt-prog { display: inline-grid; flex-shrink: 0; width: 22px; height: 22px; --tono: var(--tile-rutinas); }
+.rt-prog { --tono: var(--tile-rutinas); }
 .rt-prog.is-done { --tono: var(--success); }
-.rt-prog svg { width: 100%; height: 100%; overflow: visible; }
-.rt-prog circle, .rt-prog path { fill: none; stroke-linecap: round; stroke-linejoin: round; }
-.rt-prog-track { stroke: var(--fill-strong); stroke-width: 2.4; }
-.rt-prog-arc { stroke: var(--tono); stroke-width: 2.4; stroke-dasharray: 1; stroke-dashoffset: 1; transition: stroke var(--dur-slow); }
-.rt-prog-tick { stroke: var(--tono); stroke-width: 2.4; stroke-dasharray: 1; stroke-dashoffset: 1; transition: stroke-dashoffset 360ms var(--ease-out) 380ms; }
-.rt-prog.tick-on .rt-prog-tick { stroke-dashoffset: 0; }
 .rt-prog-pct { font-size: var(--fs-12); font-weight: 600; color: var(--text-2); min-width: 3.2em; }
-@media (prefers-reduced-motion: reduce) { .rt-prog-arc, .rt-prog-tick { transition: none; } }
+
+/* R-2 · Vía del día viva (rutinas.js: liveRail pone --rail cada minuto) */
+.rp-rail::after { content: ""; position: absolute; top: 0; width: 2px; height: var(--rail, 0%); background: var(--tile-rutinas); transition: height 900ms var(--ease-out); }
+.rp-step:first-child .rp-rail::after { top: 14px; max-height: calc(100% - 14px); }
+.rp-step:last-child .rp-rail::after { max-height: 14px; }
+.rp-rail .rp-dot { z-index: 1; }
+.rp-step.is-live .rp-row {
+  background: linear-gradient(to right, color-mix(in srgb, var(--tile-rutinas) 22%, transparent) var(--rail, 0%), color-mix(in srgb, var(--tile-rutinas) 8%, transparent) var(--rail, 0%));
+  transition: background 900ms var(--ease-out); }
+@media (prefers-reduced-motion: reduce) { .rp-rail::after, .rp-step.is-live .rp-row { transition: none; } }

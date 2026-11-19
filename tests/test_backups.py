@@ -146,6 +146,7 @@ def _trees() -> dict[str, str]:
         "dotfiles_base": config.DATA_DIR / "dotfiles_base",
         "uploads": config.UPLOADS_DIR,
         "adjuntos": config.DATA_DIR / "adjuntos",
+        "facturas": config.DATA_DIR / "facturas",
     }
     out = {}
     for name, root in roots.items():
@@ -193,6 +194,7 @@ def test_ida_y_vuelta_completa(client, limpio):
     assert (
         client.post(f"/api/items/{tid}/adjuntos", files={"archivo": ("plano.pdf", b"%PDF-1.4 rt")}).status_code == 200
     )
+    assert client.post("/api/finance/facturas", files={"archivo": ("luz.pdf", b"%PDF-1.4 factura")}).status_code == 200
     client.post("/comidas/api/ingredients", json={"nombre": "Ingrediente RT", "kcal_100g": 5})
     (config.UPLOADS_DIR / "rt").mkdir(parents=True, exist_ok=True)
     (config.UPLOADS_DIR / "rt" / "foto.webp").write_bytes(b"\x00imagen\xff")
@@ -218,6 +220,7 @@ def test_ida_y_vuelta_completa(client, limpio):
         base,
         config.UPLOADS_DIR,
         config.DATA_DIR / "adjuntos",
+        config.DATA_DIR / "facturas",
     ):
         shutil.rmtree(root, ignore_errors=True)
     config.NOTES_DIR.mkdir(parents=True)

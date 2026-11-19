@@ -1,0 +1,29 @@
+/* Lector de PDF (pdf-visor.js): Universidad y facturas de Economía. A pantalla completa también en el escritorio */
+dialog.modal.pdf-visor { width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; border-radius: 0; top: 0; bottom: auto; }
+.pdf-bar { position: relative; display: flex; align-items: center; gap: var(--sp-2);
+  padding: calc(var(--sp-2) + env(safe-area-inset-top)) calc(var(--sp-3) + env(safe-area-inset-right)) var(--sp-2) calc(var(--sp-3) + env(safe-area-inset-left)); border-bottom: 1px solid var(--separator); background: var(--bg-elev); flex-wrap: wrap; }
+.pdf-title { flex: 1 1 200px; min-width: 0; display: flex; align-items: center; gap: 6px; font-size: var(--fs-15); margin: 0; }
+.pdf-nav, .pdf-zoom { display: flex; align-items: center; gap: 2px; }
+.pdf-page .input { width: 4.2em; text-align: center; }
+.pdf-total { color: var(--text-2); font-size: var(--fs-13); padding: 0 4px; white-space: nowrap; }
+.pdf-zoom-val { min-width: 4.5em; justify-content: center; }
+.pdf-scroll { position: relative; flex: 1; min-height: 0; overflow: auto; background: var(--bg); overscroll-behavior: contain; }
+.pdf-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.pdf-pages { display: flex; flex-direction: column; align-items: center; gap: var(--sp-3); padding: var(--sp-4) var(--sp-3) calc(var(--sp-8, 48px) + env(safe-area-inset-bottom)); min-width: min-content; }
+.pdf-page-box { position: relative; flex-shrink: 0; background: #fff; box-shadow: var(--shadow-2, 0 1px 4px rgb(0 0 0 / 0.2)), 0 0 0 0.5px var(--separator-strong); }
+.pdf-page-box:not(.is-painted)::after { content: attr(data-n); position: absolute; inset: 0; display: grid; place-items: center; color: #8a8a8e; font-size: var(--fs-13); }
+.pdf-page-box canvas { display: block; width: 100%; height: 100%; }
+.pdf-page-err { position: absolute; inset: 0; display: grid; place-items: center; color: var(--danger-text); }
+.pdf-msg { width: min(560px, 100%); margin: 8vh auto 0; display: flex; flex-direction: column; align-items: center; gap: var(--sp-3); }
+.pdf-msg .skeleton-card { width: 100%; height: 60vh; }
+
+@media (max-width: 767px) {
+  dialog.modal.pdf-visor { height: var(--vvh, 100dvh); max-height: var(--vvh, 100dvh); }
+  .pdf-bar { padding: calc(var(--sp-1) + env(safe-area-inset-top)) var(--sp-2) var(--sp-1); gap: 4px; }
+  .pdf-bar .modal-close { top: calc(4px + env(safe-area-inset-top)); }
+  .pdf-title { flex-basis: 100%; font-size: var(--fs-13); order: -1; padding-right: 44px; }
+  .pdf-bar .modal-close { position: absolute; right: 8px; }
+  .pdf-zoom-val { min-width: 3.6em; padding: 0 4px; }
+  .pdf-pages { padding: var(--sp-2) var(--sp-2) var(--sp-6); gap: var(--sp-2); }
+  dialog.modal.pdf-visor .modal-header::before { display: none; }
+}

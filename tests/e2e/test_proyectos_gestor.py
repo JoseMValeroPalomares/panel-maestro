@@ -194,3 +194,35 @@ def test_por_version_con_subtareas_a_la_vista(page, server, api, proyecto):
     box = page.locator("dialog.pj-ficha[open]").bounding_box()
     vw = page.viewport_size["width"]
     assert abs((box["x"] + box["width"] / 2) - vw / 2) < 4
+
+
+def test_historial_seleccion_y_copia_en_orden(page, server, api, proyecto):
+    """Lo hecho va al Historial (tecla H con la fila enfocada) y vuelve; varias tareas se seleccionan y se copian en el
+    orden de la pantalla, con sus subtareas."""
+    t1, t2 = proyecto["tareas"]
+    api.post("/api/items", json={"text": "Paso de docs", "type": "tarea", "parent_id": t2})
+    api.patch(f"/api/items/{t1}", json={"done": True})
+    page.goto(f"{server}/proyectos/{proyecto['slug']}")
+    row = page.locator(f".pj-task[data-id='{t1}']")
+    row.wait_for()
+    row.focus()
+    page.keyboard.press("h")
+    row.wait_for(state="detached")
+    items = {i["id"]: i for i in api.get("/api/items").json()["items"]}
+    assert items[t1]["archivada"]
+    page.keyboard.press("8")  # pestaña Historial
+    hist = page.locator(f"#pjHist [data-row][data-id='{t1}']")
+    hist.wait_for()
+    hist.locator("[data-unarchive]").click()
+    hist.wait_for(state="detached")
+    page.keyboard.press("1")
+    # Selección: Ctrl+A con el foco en la lista y copiar
+    page.locator(f".pj-task[data-id='{t2}']").focus()
+    page.keyboard.press("Control+a")
+    page.locator("#pjBulk .il-bulk-count", has_text="seleccionadas").wait_for()
+    page.locator("#pjBulk [data-sb=copy]").click()
+    texto = page.locator("#copyPreview").input_value()
+    assert "Escribir docs" in texto and "  - [ ] Paso de docs" in texto and "- [x] Diseñar columnas" in texto
+    page.keyboard.press("Escape")
+    page.keyboard.press("Escape")  # sale de la selección
+    page.locator("#pjBulk").wait_for(state="hidden")

@@ -26,6 +26,9 @@
   overflow-x: auto; scrollbar-width: none;
 }
 .board-tools::-webkit-scrollbar { display: none; }
+/* Herramienta elegida: una baldosa que viaja (board.js: Mov.glide en el eje x) */
+.tool-pill { background: var(--accent-soft); border-radius: var(--r-sm); }
+.board-tools.has-glide .tool-btn.active { background: transparent; }
 .board-tools .tool-btn, .board-bar-tools .tool-btn { min-width: 32px; height: 32px; padding: 0 7px; }
 .board-tools .toolbar-sep { margin: 0 3px; height: 20px; }
 .board-bar-break { display: none; }
@@ -279,3 +282,14 @@
 .ba-empty { padding: var(--sp-3) 8px; color: var(--text-2); font-size: var(--fs-13); }
 .ba-foot { padding-top: var(--sp-2); border-top: 1px solid var(--separator); }
 @media (pointer: coarse) { .ba-item { min-height: var(--touch); } }
+
+/* I-2 · Ancla que se hincha al engancharse y luz que recorre el conector al unirlo (board.js: capa .board-fx) */
+.anchor.is-snap { animation: anchor-snap 420ms cubic-bezier(0.34, 1.8, 0.64, 1) both; transform-box: fill-box; transform-origin: center; }
+@keyframes anchor-snap { 0% { transform: scale(1); } 45% { transform: scale(1.9); } 100% { transform: scale(1); } }
+.board-fx { pointer-events: none; }
+.edge-flash { stroke-dasharray: 18 100; stroke-linecap: round; filter: drop-shadow(0 0 4px currentColor); opacity: 0.9; }
+/* I-3 · Trazo que se convierte en forma: el trazo se apaga y la forma aparece con un pequeño rebote */
+.pen-preview.is-faded { opacity: 0.25; }
+.shape-preview { animation: shape-in 360ms cubic-bezier(0.34, 1.6, 0.64, 1) both; transform-box: fill-box; transform-origin: center; }
+@keyframes shape-in { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .anchor.is-snap, .shape-preview { animation: none; } }

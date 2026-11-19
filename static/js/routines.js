@@ -196,6 +196,33 @@
     };
     const timerOnStep = () => !!window.Timer && Timer.current?.item_id === steps[cur]?.id;
 
+    // Movimiento del paso a paso (order-tracking): la línea se colorea hasta el paso actual, la selección viaja por la
+    // lista, el paso recién hecho se llena y dibuja su ✓, la barra y la cuenta avanzan desde donde estaban
+    const antes = { pct: null, fill: null, cur: null, txt: null, hechos: null };
+    const pill = window.Mov ? Mov.glide(body, { className: 'glide-pill rt-run-pill' }) : null;
+    if (pill) dlg.classList.add('has-glide');
+    const moverse = (pct, txt) => {
+      const vivo = window.Mov && !Mov.reduce();
+      const list = body.querySelector('.rt-run-list'), curEl = list?.querySelector('.is-current');
+      const fill = curEl ? curEl.parentElement.offsetTop : 0;
+      if (list) list.style.setProperty('--rt-recorrido', `${fill}px`);
+      if (vivo && list && antes.fill != null && antes.fill !== fill) {
+        list.animate([{ '--rt-recorrido': `${antes.fill}px` }, { '--rt-recorrido': `${fill}px` }], { duration: 560, easing: 'cubic-bezier(0.3, 1.1, 0.5, 1)' });
+      }
+      const bar = body.querySelector('.rt-run-progress .meter > span');
+      if (vivo && bar && antes.pct != null && antes.pct !== pct) bar.animate([{ width: `${antes.pct}%` }, { width: `${pct}%` }], { duration: 520, easing: 'cubic-bezier(0.3, 1.1, 0.5, 1)' });
+      const n = body.querySelector('.rt-run-count');
+      if (n && antes.txt != null && antes.txt !== txt && window.Mov) { n.textContent = antes.txt; Mov.roll(n, txt); }
+      if (antes.hechos) steps.forEach((x, i) => {
+        if (x.done && !antes.hechos.has(x.id)) body.querySelector(`[data-go="${i}"] .rt-run-dot`)?.classList.add('is-just-done');
+      });
+      if (vivo && antes.cur != null && antes.cur !== cur) {
+        body.querySelector('.rt-run-now')?.animate([{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'none' }], { duration: 320, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' });
+      }
+      pill?.to(curEl);
+      Object.assign(antes, { pct, fill, cur, txt, hechos: new Set(steps.filter((x) => x.done).map((x) => x.id)) });
+    };
+
     const paint = () => {
       const done = steps.filter((s) => s.done).length;
       const all = done === steps.length;
@@ -203,6 +230,7 @@
       if (all) {
         stop();
         const r = Items.get(id);
+        pill?.hide();
         body.innerHTML = `<div class="rt-run-done"><span class="rt-run-done-icon" aria-hidden="true">${icon('circle-check')}</span>
           <h3>Rutina hecha</h3><p class="muted">${r?.streak?.actual ? `Racha de ${r.streak.actual} ${r.streak.actual === 1 ? 'día' : 'días'}.` : 'Primer día de la racha.'}</p>
           <button type="button" class="btn btn-primary" data-close>Cerrar</button></div>`;
@@ -211,7 +239,7 @@
       }
       const s = steps[cur];
       body.innerHTML = `<div class="rt-run-progress"><span class="meter" aria-hidden="true"><span style="width:${pct}%"></span></span>
-          <span class="tiny muted tabular">${done} de ${steps.length} pasos</span></div>
+          <span class="tiny muted tabular rt-run-count">${done} de ${steps.length} pasos</span></div>
         <section class="rt-run-now" aria-label="${waiting ? 'Paso siguiente' : 'Paso actual'}">
           <span class="tiny muted">${waiting ? `Libre hasta las ${s.due_time}` : `Paso ${cur + 1}${s.duration_min ? ` · ${fmtMin(s.duration_min)}` : ''}`}</span>
           <h3 class="rt-run-title">${esc(s.text.split('\n')[0])}</h3>
@@ -226,6 +254,7 @@
           <span class="rt-run-dot" aria-hidden="true">${x.done ? icon('check', 'icon-sm') : i + 1}</span><span class="grow">${esc(x.text.split('\n')[0])}</span>
           ${x.duration_min ? `<span class="tiny muted tabular">${fmtMin(x.duration_min)}</span>` : ''}<span class="sr-only">${x.done ? '(hecho)' : ''}</span></button></li>`).join('')}</ol>`;
       body.querySelector('[data-run-act="now"], [data-run-act="done"]').focus({ preventScroll: true });
+      moverse(pct, `${done} de ${steps.length} pasos`);
     };
 
     const nextOpen = (from) => {
@@ -264,6 +293,7 @@
     startTimer();
     paint();
     openModal(dlg, { focus: '[data-run-act="done"]', onClose: () => { stop(); dlg.remove(); } });
+    pill?.refresh();  // al pintar por primera vez el diálogo aún no se veía
   }
 
   window.Routines = { openTemplates, saveTemplate, run };
